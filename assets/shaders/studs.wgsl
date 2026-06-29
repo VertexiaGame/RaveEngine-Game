@@ -18,10 +18,10 @@
 }
 #endif
 
-@group(3) @binding(100) var stud_texture: texture_2d<f32>;
-@group(3) @binding(101) var stud_sampler: sampler;
-@group(3) @binding(102) var inlet_texture: texture_2d<f32>;
-@group(3) @binding(103) var inlet_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var stud_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var stud_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var inlet_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var inlet_sampler: sampler;
 
 @fragment
 fn fragment(
@@ -48,23 +48,26 @@ fn fragment(
 
     let translation = model[3].xyz;
 
-    let local_extents = scale * vec3<f32>(2.0, 0.5, 2.0);
-    let world_size_coord = rot_t * (in.world_position.xyz - translation) + local_extents;
+    let world_size_coord = rot_t * (in.world_position.xyz - translation);
 
-    let uv = world_size_coord.xz;
+    let uv = world_size_coord.xz / 0.28 + scale.xz * vec2<f32>(2.0, 1.0);
 
     let local_normal = rot_t * in.world_normal;
 
     if (local_normal.y > 0.9) {
         let stud_color = textureSample(stud_texture, stud_sampler, uv);
+        let shading = stud_color.rgb - vec3<f32>(0.5);
+        let blended_rgb = pbr_input.material.base_color.rgb + shading * 0.5;
         pbr_input.material.base_color = vec4<f32>(
-            mix(pbr_input.material.base_color.rgb, pbr_input.material.base_color.rgb * stud_color.rgb * 1.5, stud_color.a),
+            mix(pbr_input.material.base_color.rgb, clamp(blended_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), stud_color.a),
             pbr_input.material.base_color.a
         );
     } else if (local_normal.y < -0.9) {
         let inlet_color = textureSample(inlet_texture, inlet_sampler, uv);
+        let shading = inlet_color.rgb - vec3<f32>(0.5);
+        let blended_rgb = pbr_input.material.base_color.rgb + shading * 0.5;
         pbr_input.material.base_color = vec4<f32>(
-            mix(pbr_input.material.base_color.rgb, pbr_input.material.base_color.rgb * inlet_color.rgb * 1.5, inlet_color.a),
+            mix(pbr_input.material.base_color.rgb, clamp(blended_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), inlet_color.a),
             pbr_input.material.base_color.a
         );
     }

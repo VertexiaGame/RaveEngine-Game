@@ -9,8 +9,8 @@ use bevy_egui::EguiPlugin;
 fn main() {
     App::new()
         .insert_resource(DefaultOpaqueRendererMethod::forward())
-        .insert_resource(DirectionalLightShadowMap { size: 4096 })
-        .insert_resource(PointLightShadowMap { size: 4096 })
+        .insert_resource(DirectionalLightShadowMap { size: 2048 })
+        .insert_resource(PointLightShadowMap { size: 1024 })
         .add_plugins(DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {

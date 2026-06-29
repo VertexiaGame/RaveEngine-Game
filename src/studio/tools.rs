@@ -88,19 +88,17 @@ pub fn select_brick(
     gizmos: Query<Entity, With<ToolGizmo>>,
     mut selection: ResMut<Selection>,
     mut context_menu: ResMut<CanvasContextMenu>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut contexts: bevy_egui::EguiContexts,
 ) {
-    let Ok(window) = windows.single() else { return };
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() {
+            return;
+        }
+    }
+
     for click in clicks.read() {
         let target = click.event_target();
-        if click.button == PointerButton::Secondary {
-            if bricks.get(target).is_ok() {
-                selection.entity = Some(target);
-                context_menu.entity = Some(target);
-                context_menu.position = window.cursor_position();
-                context_menu.just_opened = true;
-            }
-        } else if click.button == PointerButton::Primary {
+        if click.button == PointerButton::Primary {
             if bricks.get(target).is_ok() {
                 selection.entity = Some(target);
                 context_menu.entity = None;
@@ -200,7 +198,8 @@ pub fn handle_drag(
 
                 let mut snapped_displacement = drag_state.accumulated_displacement;
                 if snap_config.enabled && snap_config.distance > 0.0 {
-                    snapped_displacement = (drag_state.accumulated_displacement / snap_config.distance).round() * snap_config.distance;
+                    let snap_interval = snap_config.distance * 0.28;
+                    snapped_displacement = (drag_state.accumulated_displacement / snap_interval).round() * snap_interval;
                 }
 
                 match gizmo.tool {
@@ -216,7 +215,7 @@ pub fn handle_drag(
                     }
                     ToolState::Size => {
                         let axis_abs = gizmo.axis.abs();
-                        let base_extents = Vec3::new(2.0, 0.5, 1.0);
+                        let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
                         let base_dimension = axis_abs * base_extents * 2.0;
                         let base_dim_scalar = base_dimension.length();
 

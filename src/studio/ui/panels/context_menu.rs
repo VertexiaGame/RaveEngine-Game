@@ -11,20 +11,24 @@ pub fn draw_entity_context_menu(
     commands: &mut Commands,
     selection: &mut ResMut<Selection>,
     copiedbuffer: &mut CopiedEntityBuffer,
-    fullentityquery: &Query<(
-        &Transform,
-        &Mesh3d,
+    entities_query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
-        &Name,
-        Option<&Brick>,
-    )>,
+    ), Without<Camera3d>>,
 ) -> bool {
     let mut closed = false;
     if ui.button("Copy").clicked() {
-        if let Ok((transform, mesh, mat_opt, studs_mat_opt, name, brick_opt)) = fullentityquery.get(entity) {
+        if let Ok((_, transform, name, _, _, brick_opt, _, mesh_opt, mat_opt, studs_mat_opt)) = entities_query.get(entity) {
             copiedbuffer.transform = Some(*transform);
-            copiedbuffer.mesh = Some(mesh.clone());
+            copiedbuffer.mesh = mesh_opt.cloned();
             copiedbuffer.material = mat_opt.cloned();
             copiedbuffer.studs_material = studs_mat_opt.cloned();
             copiedbuffer.name = Some(name.to_string());
@@ -36,16 +40,17 @@ pub fn draw_entity_context_menu(
     if copiedbuffer.transform.is_some() {
         if ui.button("Paste").clicked() {
             let transform = copiedbuffer.transform.unwrap();
-            let mesh = copiedbuffer.mesh.clone().unwrap();
             let name = copiedbuffer.name.clone().unwrap();
             let mut newtransform = transform;
             newtransform.translation += Vec3::new(2.0, 0.0, 2.0);
             let mut spawned = commands.spawn((
                 newtransform,
-                mesh,
                 Name::new(format!("{} - Copy", name)),
                 Pickable::default(),
             ));
+            if let Some(ref mesh) = copiedbuffer.mesh {
+                spawned.insert(mesh.clone());
+            }
             if let Some(ref mat) = copiedbuffer.material {
                 spawned.insert(mat.clone());
             }
@@ -60,14 +65,16 @@ pub fn draw_entity_context_menu(
         }
     }
     if ui.button("Duplicate").clicked() {
-        if let Ok((transform, mesh, mat_opt, studs_mat_opt, name, brick_opt)) = fullentityquery.get(entity) {
+        if let Ok((_, transform, name, _, _, brick_opt, _, mesh_opt, mat_opt, studs_mat_opt)) = entities_query.get(entity) {
             let newtransform = *transform;
             let mut spawned = commands.spawn((
                 newtransform,
-                mesh.clone(),
                 Name::new(format!("{} - Copy", name.as_str())),
                 Pickable::default(),
             ));
+            if let Some(mesh) = mesh_opt {
+                spawned.insert(mesh.clone());
+            }
             if let Some(mat) = mat_opt {
                 spawned.insert(mat.clone());
             }

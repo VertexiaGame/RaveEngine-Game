@@ -54,29 +54,22 @@ pub struct UiQueries<'w, 's> {
     >,
     pub camera_projection_query: Query<'w, 's, &'static mut Projection, With<Camera3d>>,
     pub camera_transform_query: Query<'w, 's, &'static Transform, With<Camera3d>>,
-    pub entitiesquery: Query<
+    pub entities_query: Query<
         'w,
         's,
         (
             Entity,
-            &'static Name,
+            &'static mut Transform,
+            &'static mut Name,
             Option<&'static ChildOf>,
             Option<&'static Children>,
             Option<&'static Brick>,
             &'static GlobalTransform,
-        ),
-    >,
-    pub fullentityquery: Query<
-        'w,
-        's,
-        (
-            &'static Transform,
-            &'static Mesh3d,
+            Option<&'static Mesh3d>,
             Option<&'static MeshMaterial3d<StandardMaterial>>,
             Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
-            &'static Name,
-            Option<&'static Brick>,
         ),
+        Without<Camera3d>,
     >,
 }
 
@@ -140,20 +133,87 @@ pub fn studio_ui(
         )
         .default_width(220.0)
         .show(ctx, |ui| {
-            panels::draw_explorer(
-                ui,
-                &mut ui_res.commands,
-                &mut ui_state.selection,
-                &queries.entitiesquery,
-                &mut ui_state.copiedbuffer,
-                &queries.fullentityquery,
-                &mut ui_state.dragged_entity,
+            let total_height = ui.available_height();
+
+            let mut selected_brick = None;
+            if let Some(selected_entity) = ui_state.selection.entity {
+                if let Ok((_, _, _, _, _, Some(_), _, _, _, _)) = queries.entities_query.get(selected_entity) {
+                    selected_brick = Some(selected_entity);
+                }
+            }
+
+            let has_selection = selected_brick.is_some();
+            let mut explorer_height = if has_selection {
+                let id = ui.make_persistent_id("explorer_height_split");
+                ui.data_mut(|d| d.get_temp::<f32>(id).unwrap_or(180.0))
+            } else {
+                total_height
+            };
+
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), explorer_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_source("explorer_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            panels::draw_explorer(
+                                ui,
+                                &mut ui_res.commands,
+                                &mut ui_state.selection,
+                                &queries.entities_query,
+                                &mut ui_state.copiedbuffer,
+                                &mut ui_state.dragged_entity,
+                            );
+                        });
+                }
             );
+
+            if let Some(brick_entity) = selected_brick {
+                let sep_height = 20.0;
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), sep_height),
+                    egui::Sense::click_and_drag()
+                );
+
+                if response.hovered() || response.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+
+                if response.dragged() {
+                    let delta_y = response.drag_delta().y;
+                    let max_limit = (total_height - 100.0).max(100.0);
+                    explorer_height = (explorer_height + delta_y).clamp(50.0, max_limit);
+                    let id = ui.make_persistent_id("explorer_height_split");
+                    ui.data_mut(|d| d.insert_temp(id, explorer_height));
+                }
+
+                let line_y = rect.center().y;
+                let line_rect = egui::Rect::from_x_y_ranges(
+                    rect.left()..=rect.right(),
+                    (line_y - 0.5)..=(line_y + 0.5)
+                );
+                ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+
+                egui::ScrollArea::vertical()
+                    .id_source("properties_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        panels::draw_properties(
+                            ui,
+                            brick_entity,
+                            &mut queries.entities_query,
+                            &mut ui_res.materials,
+                            &mut ui_res.studs_materials,
+                        );
+                    });
+            }
         });
 
     if let Some(dragged) = ui_state.dragged_entity.entity {
         if panel_res.response.hovered() && ctx.input(|i| i.pointer.any_released()) {
-            if let Ok((_, _, _, _, _, child_global)) = queries.entitiesquery.get(dragged) {
+            if let Ok((_, _, _, _, _, _, child_global, _, _, _)) = queries.entities_query.get(dragged) {
                 ui_res.commands.entity(dragged).insert(Transform {
                     translation: child_global.translation(),
                     rotation: child_global.rotation(),
@@ -183,7 +243,7 @@ pub fn studio_ui(
                         &mut ui_res.commands,
                         &mut ui_state.selection,
                         &mut ui_state.copiedbuffer,
-                        &queries.fullentityquery,
+                        &queries.entities_query,
                     )
                 })
             });

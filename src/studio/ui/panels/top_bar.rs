@@ -160,14 +160,15 @@ pub fn draw_top_bar(
                         for item in items {
                             if item.to_lowercase().contains(&search_query.to_lowercase()) {
                                 if ui.button(item).clicked() {
-                                    let mut spawn_pos = Vec3::new(0.0, 0.5, 0.0);
+                                    let mut spawn_pos = Vec3::new(0.0, 0.14, 0.0);
                                     if let Some(cam_t) = camera_transform {
                                         let camera_pos = cam_t.translation;
                                         let camera_forward = cam_t.forward();
                                         
                                         let mut found_hit = false;
                                         if camera_forward.y.abs() > 0.001 {
-                                            let t = (0.5 - camera_pos.y) / camera_forward.y;
+                                            let resting_y = 0.5 * 0.28;
+                                            let t = (resting_y - camera_pos.y) / camera_forward.y;
                                             if t > 0.0 && t < 100.0 {
                                                 let hit_pos = camera_pos + camera_forward * t;
                                                 if hit_pos.x.abs() <= 25.0 && hit_pos.z.abs() <= 25.0 {
@@ -177,16 +178,17 @@ pub fn draw_top_bar(
                                             }
                                         }
                                         if !found_hit {
-                                            spawn_pos = camera_pos + camera_forward * 10.0;
+                                            spawn_pos = camera_pos + camera_forward * (10.0 * 0.28);
                                         }
                                     }
                                     
                                     if snap_config.enabled && snap_config.distance > 0.0 {
-                                        spawn_pos.x = (spawn_pos.x / snap_config.distance).round() * snap_config.distance;
-                                        spawn_pos.z = (spawn_pos.z / snap_config.distance).round() * snap_config.distance;
-                                        spawn_pos.y = (spawn_pos.y / snap_config.distance).round() * snap_config.distance;
-                                        if spawn_pos.y < 0.5 {
-                                            spawn_pos.y = 0.5;
+                                        let snap_interval = snap_config.distance * 0.28;
+                                        spawn_pos.x = (spawn_pos.x / snap_interval).round() * snap_interval;
+                                        spawn_pos.z = (spawn_pos.z / snap_interval).round() * snap_interval;
+                                        spawn_pos.y = (spawn_pos.y / snap_interval).round() * snap_interval;
+                                        if spawn_pos.y < (0.5 * 0.28) {
+                                            spawn_pos.y = 0.5 * 0.28;
                                         }
                                     }
 

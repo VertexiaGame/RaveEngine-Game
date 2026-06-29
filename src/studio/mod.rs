@@ -53,6 +53,7 @@ impl Plugin for StudioPlugin {
                         .before(bevy::camera_controller::free_camera::run_freecamera_controller),
                     camera::disable_camera_on_ui_interaction
                         .before(bevy::camera_controller::free_camera::run_freecamera_controller),
+                    camera::sync_gizmo_camera,
                 ),
             )
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);

@@ -51,6 +51,7 @@ pub fn update_gizmos(
                     Transform::default(),
                     ToolGizmo { axis, tool, target: selected_entity },
                     Pickable::default(),
+                    bevy::camera::visibility::RenderLayers::layer(1),
                 ));
             }
         }
@@ -63,6 +64,7 @@ pub fn update_gizmos(
                     Transform::default(),
                     ToolGizmo { axis, tool, target: selected_entity },
                     Pickable::default(),
+                    bevy::camera::visibility::RenderLayers::layer(1),
                 ));
             }
         }
@@ -78,6 +80,7 @@ pub fn update_gizmos(
                     Transform::default(),
                     ToolGizmo { axis, tool, target: selected_entity },
                     Pickable::default(),
+                    bevy::camera::visibility::RenderLayers::layer(1),
                 ));
             }
         }
@@ -88,12 +91,15 @@ pub fn update_gizmos(
 pub fn sync_gizmos(
     mut gizmos: Query<(Entity, &mut Transform, &ToolGizmo)>,
     bricks: Query<&GlobalTransform, (With<Brick>, Without<ToolGizmo>)>,
+    camera_query: Query<&GlobalTransform, (With<Camera3d>, Without<ToolGizmo>, Without<Brick>)>,
     hover_state: Res<HoverState>,
     drag_state: Res<DragState>,
 ) {
+    let camera_pos = camera_query.iter().next().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
+
     for (entity, mut transform, gizmo) in &mut gizmos {
         if let Ok(brick_global) = bricks.get(gizmo.target) {
-            let base_extents = Vec3::new(2.0, 0.5, 1.0);
+            let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
             let global_scale = brick_global.scale();
             let scaled_extents = base_extents * global_scale;
             let face_offset = gizmo.axis.abs().dot(scaled_extents);
@@ -101,10 +107,14 @@ pub fn sync_gizmos(
             let global_translation = brick_global.translation();
             let global_rotation = brick_global.rotation();
 
+            let dist = camera_pos.distance(global_translation);
+            let distance_scale = (dist / 17.32).min(2.5);
+            let base_scale = distance_scale;
+
             if gizmo.tool == ToolState::Rotate {
                 transform.translation = global_translation;
             } else {
-                let offset = face_offset + 0.6;
+                let offset = face_offset + 0.6 * distance_scale;
                 transform.translation = global_translation + global_rotation.mul_vec3(gizmo.axis * offset);
             }
 
@@ -112,16 +122,17 @@ pub fn sync_gizmos(
 
             let is_hovered = hover_state.hovered_gizmo == Some(entity);
             let is_dragged = drag_state.active && drag_state.gizmo_entity == Some(entity);
-            if is_hovered || is_dragged {
-                let scale_factor = if gizmo.tool == ToolState::Rotate {
+            let state_multiplier = if is_hovered || is_dragged {
+                if gizmo.tool == ToolState::Rotate {
                     1.02
                 } else {
                     1.3
-                };
-                transform.scale = Vec3::splat(scale_factor);
+                }
             } else {
-                transform.scale = Vec3::ONE;
-            }
+                1.0
+            };
+
+            transform.scale = Vec3::splat(base_scale * state_multiplier);
         }
     }
 }
@@ -133,7 +144,7 @@ fn draw_outline_recursive(
 ) {
     if let Ok((global_transform, children_opt)) = bricks.get(entity) {
         let (scale, rotation, translation) = global_transform.to_scale_rotation_translation();
-        let outline_scale = scale * Vec3::new(4.0, 1.0, 2.0);
+        let outline_scale = scale * Vec3::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28);
         let outline_transform = Transform {
             translation,
             rotation,

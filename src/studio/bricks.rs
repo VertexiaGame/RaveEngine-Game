@@ -19,13 +19,11 @@ pub fn spawn_brick(
     count.count += 1;
 
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(4.0, 1.0, 2.0))),
+        Mesh3d(meshes.add(Cuboid::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28))),
         MeshMaterial3d(materials.add(ExtendedMaterial {
             base: StandardMaterial {
                 base_color: Color::srgb(0.84, 0.24, 0.16),
-                perceptual_roughness: 0.75,
-                reflectance: 0.08,
-                metallic: 0.1,
+                perceptual_roughness: 0.9,
                 ..default()
             },
             extension: crate::studio::studs::StudsExtension {

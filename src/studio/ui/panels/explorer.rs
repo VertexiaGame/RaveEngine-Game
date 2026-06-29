@@ -9,9 +9,20 @@ use bevy::pbr::ExtendedMaterial;
 
 fn is_managed_entity(
     entity: Entity,
-    query: &Query<(Entity, &Name, Option<&ChildOf>, Option<&Children>, Option<&Brick>, &GlobalTransform)>,
+    query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
+    ), Without<Camera3d>>,
 ) -> bool {
-    if let Ok((_, name, _, _, brick_opt, _)) = query.get(entity) {
+    if let Ok((_, _, name, _, _, brick_opt, _, _, _, _)) = query.get(entity) {
         name.as_str() == "Baseplate" || brick_opt.is_some()
     } else {
         false
@@ -21,11 +32,22 @@ fn is_managed_entity(
 fn is_descendant(
     child: Entity,
     parent: Entity,
-    query: &Query<(Entity, &Name, Option<&ChildOf>, Option<&Children>, Option<&Brick>, &GlobalTransform)>,
+    query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
+    ), Without<Camera3d>>,
 ) -> bool {
     let mut current = child;
     let mut depth = 0;
-    while let Ok((_, _, Some(parent_comp), _, _, _)) = query.get(current) {
+    while let Ok((_, _, _, Some(parent_comp), _, _, _, _, _, _)) = query.get(current) {
         let parent_entity = parent_comp.parent();
         if parent_entity == parent {
             return true;
@@ -44,23 +66,26 @@ fn draw_entity_node(
     entity: Entity,
     commands: &mut Commands,
     selection: &mut ResMut<Selection>,
-    entitiesquery: &Query<(Entity, &Name, Option<&ChildOf>, Option<&Children>, Option<&Brick>, &GlobalTransform)>,
-    copiedbuffer: &mut CopiedEntityBuffer,
-    fullentityquery: &Query<(
-        &Transform,
-        &Mesh3d,
+    entities_query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
-        &Name,
-        Option<&Brick>,
-    )>,
+    ), Without<Camera3d>>,
+    copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
 ) {
-    let Ok((_, name, _, children_opt, _, _)) = entitiesquery.get(entity) else { return };
+    let Ok((_, _, name, _, children_opt, _, _, _, _, _)) = entities_query.get(entity) else { return };
     let name_str = name.as_str().to_string();
 
     let has_managed_children = if let Some(children_comp) = children_opt {
-        children_comp.iter().any(|child| is_managed_entity(child, entitiesquery))
+        children_comp.iter().any(|child| is_managed_entity(child, entities_query))
     } else {
         false
     };
@@ -86,7 +111,7 @@ fn draw_entity_node(
                         commands,
                         selection,
                         copiedbuffer,
-                        fullentityquery,
+                        entities_query,
                     );
                 });
 
@@ -95,14 +120,14 @@ fn draw_entity_node(
                 }
 
                 if let Some(dragged) = dragged_entity.entity {
-                    if dragged != entity && !is_descendant(entity, dragged, entitiesquery) {
+                    if dragged != entity && !is_descendant(entity, dragged, entities_query) {
                         if label_res.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                         }
                         if ui.input(|i| i.pointer.any_released()) && label_res.hovered() {
-                            if let (Ok((_, _, _, _, _, parent_global)), Ok((_, _, _, _, _, child_global))) = (
-                                entitiesquery.get(entity),
-                                entitiesquery.get(dragged)
+                            if let (Ok((_, _, _, _, _, _, parent_global, _, _, _)), Ok((_, _, _, _, _, _, child_global, _, _, _))) = (
+                                entities_query.get(entity),
+                                entities_query.get(dragged)
                             ) {
                                 let parent_scale = parent_global.scale();
                                 let parent_rotation = parent_global.rotation();
@@ -143,11 +168,11 @@ fn draw_entity_node(
             if let Some(children_comp) = children_opt {
                 let mut sorted_children: Vec<Entity> = children_comp
                     .iter()
-                    .filter(|&child| is_managed_entity(child, entitiesquery))
+                    .filter(|&child| is_managed_entity(child, entities_query))
                     .collect();
                 sorted_children.sort_by(|&a, &b| {
-                    let name_a = entitiesquery.get(a).map(|(_, n, _, _, _, _)| n.as_str()).unwrap_or("");
-                    let name_b = entitiesquery.get(b).map(|(_, n, _, _, _, _)| n.as_str()).unwrap_or("");
+                    let name_a = entities_query.get(a).map(|(_, _, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+                    let name_b = entities_query.get(b).map(|(_, _, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
                     name_a.cmp(name_b)
                 });
 
@@ -157,9 +182,8 @@ fn draw_entity_node(
                         child,
                         commands,
                         selection,
-                        entitiesquery,
+                        entities_query,
                         copiedbuffer,
-                        fullentityquery,
                         dragged_entity,
                     );
                 }
@@ -168,7 +192,7 @@ fn draw_entity_node(
     } else {
         let id = egui::Id::new(entity);
         let label_res = ui.horizontal(|ui| {
-            ui.add_space(18.0);
+            ui.add_space(12.0);
             ui.push_id(id, |ui| {
                 explorerlabel(ui, is_selected, &name_str)
             }).inner
@@ -185,7 +209,7 @@ fn draw_entity_node(
                 commands,
                 selection,
                 copiedbuffer,
-                fullentityquery,
+                entities_query,
             );
         });
 
@@ -194,14 +218,14 @@ fn draw_entity_node(
         }
 
         if let Some(dragged) = dragged_entity.entity {
-            if dragged != entity && !is_descendant(entity, dragged, entitiesquery) {
+            if dragged != entity && !is_descendant(entity, dragged, entities_query) {
                 if label_res.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                 }
                 if ui.input(|i| i.pointer.any_released()) && label_res.hovered() {
-                    if let (Ok((_, _, _, _, _, parent_global)), Ok((_, _, _, _, _, child_global))) = (
-                        entitiesquery.get(entity),
-                        entitiesquery.get(dragged)
+                    if let (Ok((_, _, _, _, _, _, parent_global, _, _, _)), Ok((_, _, _, _, _, _, child_global, _, _, _))) = (
+                        entities_query.get(entity),
+                        entities_query.get(dragged)
                     ) {
                         let parent_scale = parent_global.scale();
                         let parent_rotation = parent_global.rotation();
@@ -242,16 +266,19 @@ pub fn draw_explorer(
     ui: &mut egui::Ui,
     commands: &mut Commands,
     selection: &mut ResMut<Selection>,
-    entitiesquery: &Query<(Entity, &Name, Option<&ChildOf>, Option<&Children>, Option<&Brick>, &GlobalTransform)>,
-    copiedbuffer: &mut CopiedEntityBuffer,
-    fullentityquery: &Query<(
-        &Transform,
-        &Mesh3d,
+    entities_query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
-        &Name,
-        Option<&Brick>,
-    )>,
+    ), Without<Camera3d>>,
+    copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
 ) {
     ui.horizontal(|ui| {
@@ -264,10 +291,10 @@ pub fn draw_explorer(
     ui.add_space(8.0);
 
     let mut roots = Vec::new();
-    for (entity, name, parent_opt, _, _, _) in entitiesquery {
-        if is_managed_entity(entity, entitiesquery) {
+    for (entity, _, name, parent_opt, _, _, _, _, _, _) in entities_query {
+        if is_managed_entity(entity, entities_query) {
             let is_root = if let Some(parent_comp) = parent_opt {
-                !is_managed_entity(parent_comp.parent(), entitiesquery)
+                !is_managed_entity(parent_comp.parent(), entities_query)
             } else {
                 true
             };
@@ -296,9 +323,8 @@ pub fn draw_explorer(
                     entity,
                     commands,
                     selection,
-                    entitiesquery,
+                    entities_query,
                     copiedbuffer,
-                    fullentityquery,
                     dragged_entity,
                 );
             }
@@ -310,7 +336,7 @@ pub fn draw_explorer(
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
         if ui.input(|i| i.pointer.any_released()) && header_res.hovered() {
-            if let Ok((_, _, _, _, _, child_global)) = entitiesquery.get(dragged) {
+            if let Ok((_, _, _, _, _, _, child_global, _, _, _)) = entities_query.get(dragged) {
                 commands.entity(dragged).insert(Transform {
                     translation: child_global.translation(),
                     rotation: child_global.rotation(),
