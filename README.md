@@ -14,7 +14,7 @@ Head to the Rust website to install Rust and its tools:
 
 https://rust-lang.org/tools/install/
 
-Clone our repo, run `cargo build` (`cargo build` builds as debug, which is faster but may run worse and leave a bigger footprint in the disk; compile with the flag `--release` for a smaller file but longer compilation time), and copy the `assets` folder you'll find the root of the project and paste it in `/target/[...]/`.
+Clone our repo, run `cargo build` (`cargo build` builds as debug, which is faster but may run worse and leave a bigger footprint in the disk; compile with the flag `--release` for a smaller file but longer compilation time), and **copy the `assets` folder you'll find the root of the project and paste it in `/target/[...]/`**. THIS IS A VERY IMPORTANT STEP!
 
 You can now launch the executable!
 
