@@ -25,3 +25,5 @@ As of right now, only the studio can be built, as work on client & server has no
 At some point, the client will work closely with the "RaveEngine-Creative" program. This allows our staff to easily develop UI without having to code it manually (this will be done only for the studio and bits of the client).
 
 You may need to learn how .VUIS files are handled. The repo is [here](https://github.com/VertexiaGame/RaveEngine-Creative)
+
+![RaveEngine](repo/studio.png)
