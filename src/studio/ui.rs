@@ -2,7 +2,8 @@ use bevy::prelude::*;
 use bevy::image::{ImageType, CompressedImageFormats, ImageSampler};
 use bevy::asset::RenderAssetUsages;
 use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
-use crate::studio::tools::ToolState;
+use crate::studio::tools::{ToolState, Selection};
+use crate::common::components::Brick;
 
 #[derive(Resource)]
 pub struct StudioUiAssets {
@@ -146,6 +147,9 @@ pub fn studio_ui(
         &bevy::camera_controller::free_camera::FreeCamera,
         &mut bevy::camera_controller::free_camera::FreeCameraState,
     )>,
+    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+    mut selection: ResMut<Selection>,
+    entities_query: Query<(Entity, &Name, Option<&Brick>)>,
 ) {
     let Some(assets) = ui_assets else { return; };
 
@@ -166,10 +170,9 @@ pub fn studio_ui(
 
     let frame = egui::Frame::NONE
         .fill(egui::Color32::from_rgb(245, 246, 247))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(130, 130, 130)))
         .inner_margin(egui::Margin::same(0));
 
-    egui::Panel::top("roblox_studio_topbar")
+    egui::Panel::top("topbar")
         .frame(frame)
         .show(ctx, |ui| {
             ui.style_mut().interaction.selectable_labels = false;
@@ -186,6 +189,19 @@ pub fn studio_ui(
                         ui.label(egui::RichText::new("View").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                         ui.label(egui::RichText::new("Test").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                         ui.label(egui::RichText::new("Settings").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let fps = if let Some(diag) = diagnostics.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS) {
+                                diag.smoothed().unwrap_or_default()
+                            } else {
+                                0.0
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("FPS: {:.0}", fps))
+                                    .color(egui::Color32::from_rgb(100, 100, 100))
+                                    .size(13.0)
+                            );
+                        });
                     });
                 });
 
@@ -223,6 +239,66 @@ pub fn studio_ui(
                         }
                     });
                 });
+
+            let (bottom_sep, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+            ui.painter().rect_filled(bottom_sep, 0.0, egui::Color32::from_rgb(180, 180, 180));
+        });
+
+    egui::SidePanel::left("explorer")
+        .frame(egui::Frame::none()
+            .fill(egui::Color32::from_rgb(245, 246, 247))
+            .inner_margin(egui::Margin::symmetric(12, 12))
+        )
+        .default_width(220.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Explorer").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+            });
+
+            ui.add_space(8.0);
+            let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+            ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+            ui.add_space(8.0);
+
+            let mut baseplate_item = None;
+            let mut parts_items = Vec::new();
+
+            for (entity, name, brick_opt) in &entities_query {
+                let name_str = name.as_str();
+                if name_str == "Baseplate" {
+                    baseplate_item = Some((entity, name_str.to_string()));
+                } else if brick_opt.is_some() {
+                    parts_items.push((entity, name_str.to_string()));
+                }
+            }
+
+            parts_items.sort_by(|a, b| a.1.cmp(&b.1));
+
+            egui::CollapsingHeader::new(egui::RichText::new("Workspace").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    if let Some((entity, name_str)) = baseplate_item {
+                        let is_selected = selection.entity == Some(entity);
+                        if custom_explorer_label(ui, is_selected, &name_str).clicked() {
+                            selection.entity = Some(entity);
+                        }
+                    }
+
+                    for (entity, name_str) in parts_items {
+                        let is_selected = selection.entity == Some(entity);
+                        if custom_explorer_label(ui, is_selected, &name_str).clicked() {
+                            selection.entity = Some(entity);
+                        }
+                    }
+                });
+
+            let right_x = ui.max_rect().right() + 12.0;
+            let top_y = ui.max_rect().top() - 12.0;
+            let bottom_y = ui.max_rect().bottom() + 12.0;
+            ui.painter().line_segment(
+                [egui::pos2(right_x, top_y), egui::pos2(right_x, bottom_y)],
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 180, 180))
+            );
         });
 
     if camera_indicator.visible_timer > 0.0 {
@@ -318,6 +394,58 @@ fn ribbon_button(
             ui.add_space(3.0);
             let text_color = egui::Color32::from_rgb(20, 20, 20);
             ui.label(egui::RichText::new(label).color(text_color).size(11.5));
+        });
+    });
+
+    response
+}
+
+fn custom_explorer_label(
+    ui: &mut egui::Ui,
+    selected: bool,
+    label: &str,
+) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 20.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    if selected {
+        ui.painter().rect_filled(
+            rect,
+            2.0,
+            egui::Color32::from_rgb(204, 232, 255),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(153, 209, 255)),
+            egui::StrokeKind::Inside,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_filled(
+            rect,
+            2.0,
+            egui::Color32::from_rgb(224, 238, 249),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(190, 220, 240)),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    let text_color = if selected {
+        egui::Color32::from_rgb(0, 0, 0)
+    } else if response.hovered() {
+        egui::Color32::from_rgb(20, 20, 20)
+    } else {
+        egui::Color32::from_rgb(60, 60, 60)
+    };
+
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(label).color(text_color).size(13.5));
         });
     });
 

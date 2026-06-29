@@ -64,6 +64,7 @@ pub fn setup_studio(
             ..default()
         })),
         Transform::from_xyz(0.0, -0.05, 0.0),
+        Name::new("Baseplate"),
     ));
 
     spawn_brick(&mut commands, &mut meshes, &mut materials, &mut count);
@@ -76,6 +77,7 @@ pub fn spawn_brick(
     count: &mut BrickSpawnerCount,
 ) {
     let offset = (count.count as f32) * 5.0;
+    let current_index = count.count;
     count.count += 1;
 
     commands.spawn((
@@ -90,5 +92,6 @@ pub fn spawn_brick(
         Transform::from_xyz(offset, 0.5, 0.0),
         Brick,
         Pickable::default(),
+        Name::new(format!("Part{}", current_index)),
     ));
 }
