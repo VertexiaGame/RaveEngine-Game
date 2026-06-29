@@ -18,6 +18,7 @@ impl Plugin for StudioPlugin {
             .init_resource::<camera::BrickSpawnerCount>()
             .init_resource::<ui::StudioUiTextureIds>()
             .init_resource::<ui::CameraSpeedIndicator>()
+            .init_resource::<ui::CopiedEntityBuffer>()
             .add_plugins(MeshPickingPlugin)
             .add_plugins(FreeCameraPlugin)
             .add_systems(Startup, (camera::setup_studio, ui::setup_ui_assets, ui::configure_visuals))
@@ -33,7 +34,7 @@ impl Plugin for StudioPlugin {
                     tools::handle_drag_end,
                     tools::handle_hover,
                     tools::update_cursor,
-                    ui::update_camera_speed_indicator,
+                    ui::updatecameraspeedindicator,
                 ),
             )
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);

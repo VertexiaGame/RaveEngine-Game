@@ -64,6 +64,7 @@ pub fn handle_drag(
     mut bricks: Query<&mut Transform, With<Brick>>,
     drag_state: Res<DragState>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
     if !drag_state.active { return; }
     
@@ -71,6 +72,7 @@ pub fn handle_drag(
     let Ok(gizmo) = gizmos.get(gizmo_entity) else { return };
     let Ok(mut brick_transform) = bricks.get_mut(gizmo.target) else { return };
     let Some((camera, camera_transform)) = camera_query.iter().next() else { return };
+    let Ok(window) = windows.single() else { return };
 
     for drag in drags.read() {
         let delta = drag.delta;
@@ -78,25 +80,26 @@ pub fn handle_drag(
 
         if gizmo.tool == ToolState::Rotate {
             let axis_world = brick_transform.rotation.mul_vec3(gizmo.axis);
-            let view_dir = camera_transform.forward().as_vec3();
-            let tangent_3d = view_dir.cross(axis_world).normalize_or_zero();
-            let tangent_world = center_world + tangent_3d;
 
-            if let (Ok(c), Ok(t)) = (
-                camera.world_to_viewport(camera_transform, center_world),
-                camera.world_to_viewport(camera_transform, tangent_world)
-            ) {
-                let screen_vec = t - c;
-                let pixel_len = screen_vec.length();
-                let screen_dir = screen_vec.normalize_or_zero();
-                
-                let mut drag_world = 0.0;
-                if pixel_len > 0.0 {
-                    drag_world = delta.dot(screen_dir) / pixel_len;
-                }
-                
-                let amount = drag_world / 3.5;
-                let rot = Quat::from_axis_angle(gizmo.axis, amount);
+            if let Ok(center_screen) = camera.world_to_viewport(camera_transform, center_world) {
+                let cursor_pos = window.cursor_position().unwrap_or(center_screen + Vec2::new(100.0, 0.0));
+                let to_cursor = cursor_pos - center_screen;
+                let tangent = if to_cursor.length_squared() > 1.0 {
+                    Vec2::new(-to_cursor.y, to_cursor.x).normalize()
+                } else {
+                    Vec2::new(1.0, 0.0)
+                };
+
+                let drag_amount = delta.dot(tangent);
+
+                let to_camera = camera_transform.translation() - center_world;
+                let alignment = axis_world.dot(to_camera);
+                let sign = if alignment >= 0.0 { 1.0 } else { -1.0 };
+
+                let rotation_speed = 0.01;
+                let angle = -drag_amount * rotation_speed * sign;
+
+                let rot = Quat::from_axis_angle(gizmo.axis, angle);
                 brick_transform.rotate_local(rot);
             }
         } else {
