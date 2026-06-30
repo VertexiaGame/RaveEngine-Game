@@ -17,6 +17,7 @@ impl Plugin for StudioPlugin {
         app.init_state::<tools::ToolState>()
             .init_resource::<tools::Selection>()
             .init_resource::<tools::DragState>()
+            .init_resource::<tools::PartDragState>()
             .init_resource::<tools::HoverState>()
             .init_resource::<tools::CanvasContextMenu>()
             .init_resource::<bricks::BrickSpawnerCount>()
@@ -46,6 +47,9 @@ impl Plugin for StudioPlugin {
                     tools::handle_drag_start,
                     tools::handle_drag,
                     tools::handle_drag_end,
+                    tools::handle_part_drag_start,
+                    tools::handle_part_drag,
+                    tools::handle_part_drag_end,
                     tools::handle_hover,
                     tools::update_cursor,
                     ui::updatecameraspeedindicator,

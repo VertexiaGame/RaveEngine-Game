@@ -11,6 +11,7 @@ pub struct CameraSpeedIndicator {
 pub struct FovIndicator {
     pub visible_timer: f32,
     pub current_fov: f32,
+    pub interacting: bool,
 }
 
 pub fn updatecameraspeedindicator(
@@ -79,9 +80,11 @@ pub fn update_camera_fov(
 
     if indicator.visible_timer > 0.0 {
         indicator.visible_timer -= time.delta_secs();
-        if let Ok((_, projection)) = camera_query.single() {
-            if let Projection::Perspective(perspective) = projection {
-                indicator.current_fov = perspective.fov.to_degrees();
+        if !indicator.interacting {
+            if let Ok((_, projection)) = camera_query.single() {
+                if let Projection::Perspective(perspective) = projection {
+                    indicator.current_fov = perspective.fov.to_degrees();
+                }
             }
         }
     }
@@ -195,5 +198,6 @@ pub fn draw_fov_indicator(
         if arearesponse.response.hovered() || innerhovered || slideractive {
             fov_indicator.visible_timer = 2.0;
         }
+        fov_indicator.interacting = slideractive;
     }
 }

@@ -13,7 +13,7 @@ pub struct GizmoCamera;
 pub fn setup_studio(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    _materials: ResMut<Assets<StandardMaterial>>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::studio::studs::StudsExtension>>>,
     studs_assets: Res<crate::studio::studs::StudsAssets>,
     mut count: ResMut<crate::studio::bricks::BrickSpawnerCount>,
@@ -35,6 +35,7 @@ pub fn setup_studio(
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
             far: 3000.0,
+            fov: 80.0f32.to_radians(),
             ..default()
         }),
         Hdr,
