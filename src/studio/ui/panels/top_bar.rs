@@ -23,10 +23,11 @@ pub fn draw_top_bar(
     add_tex: egui::TextureId,
     diagnostics: &Res<bevy::diagnostic::DiagnosticsStore>,
     camera_transform: Option<&Transform>,
-    action_writer: &mut MessageWriter<crate::studio::tools::UndoRedoAction>,
+    _action_writer: &mut MessageWriter<crate::studio::tools::UndoRedoAction>,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     physics_state: crate::common::physics::PhysicsSimulationState,
     physics_action_writer: &mut MessageWriter<crate::common::physics::PhysicsSimulationAction>,
+    settings_window: &mut ResMut<crate::studio::ui::SettingsWindow>,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
 
@@ -41,7 +42,21 @@ pub fn draw_top_bar(
                 ui.label(egui::RichText::new("Insert").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                 ui.label(egui::RichText::new("View").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                 ui.label(egui::RichText::new("Test").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                ui.label(egui::RichText::new("Settings").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+
+                let settings_id = ui.make_persistent_id("settings_menu_btn");
+                let is_hovered = ui.data(|d| d.get_temp::<bool>(settings_id)).unwrap_or(false);
+                let text_color = if is_hovered {
+                    egui::Color32::from_rgb(80, 160, 240)
+                } else {
+                    egui::Color32::from_rgb(60, 60, 60)
+                };
+
+                let settings_btn = ui.add(egui::Label::new(egui::RichText::new("Settings").color(text_color).size(13.0)).sense(egui::Sense::click()));
+                ui.data_mut(|d| d.insert_temp(settings_id, settings_btn.hovered()));
+
+                if settings_btn.clicked() {
+                    settings_window.open = !settings_window.open;
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let fps = if let Some(diag) = diagnostics.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS) {

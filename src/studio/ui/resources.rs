@@ -15,3 +15,8 @@ pub struct CopiedEntityBuffer {
 pub struct HierarchyDraggedEntity {
     pub entity: Option<Entity>,
 }
+
+#[derive(Resource, Default)]
+pub struct SettingsWindow {
+    pub open: bool,
+}

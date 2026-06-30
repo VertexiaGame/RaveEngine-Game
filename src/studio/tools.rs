@@ -17,6 +17,7 @@ pub enum ToolState {
 #[derive(Resource, Default)]
 pub struct Selection {
     pub entity: Option<Entity>,
+    pub workspace_selected: bool,
 }
 
 #[derive(Resource, Default)]
@@ -327,8 +328,8 @@ pub fn handle_undo_redo_action(
                             if selection.entity == Some(entity) {
                                 selection.entity = Some(new_entity);
                             }
-                            let updated_command = UndoCommand::Spawn { entity: new_entity, data };
-                            history.undo_stack.push(updated_command);
+                            let _updated_command = UndoCommand::Spawn { entity: new_entity, data };
+                            history.undo_stack.push(_updated_command);
                         }
                         UndoCommand::Delete { entity, data: _ } => {
                             commands.entity(entity).despawn();
@@ -491,10 +492,12 @@ pub fn select_brick(
         if click.button == PointerButton::Primary {
             if bricks.get(target).is_ok() {
                 selection.entity = Some(target);
+                selection.workspace_selected = false;
                 context_menu.entity = None;
                 context_menu.position = None;
             } else if gizmos.get(target).is_err() {
                 selection.entity = None;
+                selection.workspace_selected = false;
                 context_menu.entity = None;
                 context_menu.position = None;
             }

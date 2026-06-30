@@ -81,6 +81,8 @@ fn draw_entity_node(
     copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
+    workspace_tex: egui::TextureId,
+    brick_tex: egui::TextureId,
 ) {
     let Ok((_, _, name, _, children_opt, _, _, _, _, _)) = entities_query.get(entity) else { return };
     let name_str = name.as_str().to_string();
@@ -95,14 +97,24 @@ fn draw_entity_node(
 
     if has_managed_children {
         let id = egui::Id::new(entity);
-        let collapsing_state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+        let mut collapsing_state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+        if ui.data_mut(|d| d.remove_temp::<bool>(id.with("should_toggle"))).unwrap_or(false) {
+            let open = collapsing_state.is_open();
+            collapsing_state.set_open(!open);
+            collapsing_state.store(ui.ctx());
+        }
 
         let header_res = collapsing_state.show_header(ui, |ui| {
             ui.push_id(id, |ui| {
-                let label_res = explorerlabel(ui, is_selected, &name_str);
+                let label_res = explorerlabel(ui, is_selected, &name_str, Some(brick_tex));
 
                 if label_res.clicked() {
                     selection.entity = Some(entity);
+                    selection.workspace_selected = false;
+                }
+
+                if label_res.double_clicked() {
+                    ui.data_mut(|d| d.insert_temp(id.with("should_toggle"), true));
                 }
 
                 label_res.context_menu(|ui| {
@@ -191,6 +203,8 @@ fn draw_entity_node(
                         copiedbuffer,
                         dragged_entity,
                         history,
+                        workspace_tex,
+                        brick_tex,
                     );
                 }
             }
@@ -200,12 +214,13 @@ fn draw_entity_node(
         let label_res = ui.horizontal(|ui| {
             ui.add_space(12.0);
             ui.push_id(id, |ui| {
-                explorerlabel(ui, is_selected, &name_str)
+                explorerlabel(ui, is_selected, &name_str, Some(brick_tex))
             }).inner
         }).inner;
 
         if label_res.clicked() {
             selection.entity = Some(entity);
+            selection.workspace_selected = false;
         }
 
         label_res.context_menu(|ui| {
@@ -291,6 +306,8 @@ pub fn draw_explorer(
     copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
+    workspace_tex: egui::TextureId,
+    brick_tex: egui::TextureId,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Explorer").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -325,24 +342,44 @@ pub fn draw_explorer(
         }
     });
 
-    let workspace_res = egui::CollapsingHeader::new(egui::RichText::new("Workspace").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
-        .default_open(true)
-        .show(ui, |ui| {
-            for (entity, _) in roots {
-                draw_entity_node(
-                    ui,
-                    entity,
-                    commands,
-                    selection,
-                    entities_query,
-                    copiedbuffer,
-                    dragged_entity,
-                    history,
-                );
-            }
-        });
+    let workspace_id = ui.make_persistent_id("workspace_collapsing_header");
+    let mut workspace_state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), workspace_id, true);
+    if ui.data_mut(|d| d.remove_temp::<bool>(workspace_id.with("should_toggle"))).unwrap_or(false) {
+        let open = workspace_state.is_open();
+        workspace_state.set_open(!open);
+        workspace_state.store(ui.ctx());
+    }
 
-    let header_res = workspace_res.header_response;
+    let workspace_res = workspace_state.show_header(ui, |ui| {
+        let label_res = explorerlabel(ui, selection.workspace_selected, "Workspace", Some(workspace_tex));
+        if label_res.clicked() {
+            selection.entity = None;
+            selection.workspace_selected = true;
+        }
+        if label_res.double_clicked() {
+            ui.data_mut(|d| d.insert_temp(workspace_id.with("should_toggle"), true));
+        }
+    });
+
+    let body_res = workspace_res.body(|ui| {
+        for (entity, _) in roots {
+            draw_entity_node(
+                ui,
+                entity,
+                commands,
+                selection,
+                entities_query,
+                copiedbuffer,
+                dragged_entity,
+                history,
+                workspace_tex,
+                brick_tex,
+            );
+        }
+    });
+
+    let header_res = body_res.0;
+
     if let Some(dragged) = dragged_entity.entity {
         if header_res.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -390,6 +427,7 @@ fn explorerlabel(
     ui: &mut egui::Ui,
     selected: bool,
     label: &str,
+    icon: Option<egui::TextureId>,
 ) -> egui::Response {
     let size = egui::vec2(ui.available_width(), 20.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
@@ -431,6 +469,10 @@ fn explorerlabel(
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
         ui.horizontal(|ui| {
             ui.add_space(4.0);
+            if let Some(tex_id) = icon {
+                ui.add(egui::Image::new((tex_id, egui::vec2(14.0, 14.0))));
+                ui.add_space(2.0);
+            }
             ui.add(egui::Label::new(egui::RichText::new(label).color(text_color).size(13.5)).selectable(false));
         });
     });

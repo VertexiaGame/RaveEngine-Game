@@ -26,6 +26,7 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::FovIndicator>()
             .init_resource::<ui::CopiedEntityBuffer>()
             .init_resource::<ui::HierarchyDraggedEntity>()
+            .init_resource::<ui::SettingsWindow>()
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
             .add_message::<tools::UndoRedoAction>()

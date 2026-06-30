@@ -8,6 +8,8 @@ pub struct StudioUiAssets {
     pub rotate_icon: Handle<Image>,
     pub scale_icon: Handle<Image>,
     pub add_icon: Handle<Image>,
+    pub workspace_icon: Handle<Image>,
+    pub brick_icon: Handle<Image>,
 }
 
 #[derive(Resource, Default)]
@@ -16,6 +18,8 @@ pub struct StudioUiTextureIds {
     pub rotate_tex: Option<bevy_egui::egui::TextureId>,
     pub scale_tex: Option<bevy_egui::egui::TextureId>,
     pub add_tex: Option<bevy_egui::egui::TextureId>,
+    pub workspace_tex: Option<bevy_egui::egui::TextureId>,
+    pub brick_tex: Option<bevy_egui::egui::TextureId>,
 }
 
 fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
@@ -58,11 +62,15 @@ pub fn setup_ui_assets(
     let rotate_icon = load_icon_image("content/studio/icons/Tools/Rotate.png", &mut images);
     let scale_icon = load_icon_image("content/studio/icons/Tools/Scale.png", &mut images);
     let add_icon = load_icon_image("content/studio/icons/Tools/Add.png", &mut images);
+    let workspace_icon = load_icon_image("content/studio/icons/Items/workspace.png", &mut images);
+    let brick_icon = load_icon_image("content/studio/icons/Items/brick.png", &mut images);
 
     commands.insert_resource(StudioUiAssets {
         move_icon,
         rotate_icon,
         scale_icon,
         add_icon,
+        workspace_icon,
+        brick_icon,
     });
 }

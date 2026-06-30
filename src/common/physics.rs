@@ -94,7 +94,7 @@ fn handle_physics_simulation_actions(
                                     2.0 * 0.28,
                                 ),
                                 Friction::new(0.3),
-                                Restitution::new(0.0),
+                                Restitution::new(0.3),
                             ));
                         }
                     }
@@ -170,7 +170,7 @@ fn handle_physics_simulation_actions(
                                 2.0 * 0.28,
                             ),
                             Friction::new(0.3),
-                            Restitution::new(0.0),
+                            Restitution::new(0.3),
                         ));
                     }
                 }
@@ -210,7 +210,7 @@ fn handle_newly_spawned_bricks(
                         2.0 * 0.28,
                     ),
                     Friction::new(0.3),
-                    Restitution::new(0.0),
+                    Restitution::new(0.3),
                 ));
             }
         }

@@ -18,7 +18,7 @@ use bevy::pbr::ExtendedMaterial;
 pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
 pub use indicator::{CameraSpeedIndicator, updatecameraspeedindicator, FovIndicator, update_camera_fov};
 pub use visuals::configure_visuals;
-pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity};
+pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow};
 
 #[derive(SystemParam)]
 pub struct UiResources<'w, 's> {
@@ -33,6 +33,7 @@ pub struct UiResources<'w, 's> {
     pub action_writer: MessageWriter<'w, crate::studio::tools::UndoRedoAction>,
     pub physics_state: Res<'w, crate::common::physics::PhysicsSimulationState>,
     pub physics_action_writer: MessageWriter<'w, crate::common::physics::PhysicsSimulationAction>,
+    pub gravity: Option<ResMut<'w, avian3d::prelude::Gravity>>,
 }
 
 #[derive(SystemParam)]
@@ -49,6 +50,7 @@ pub struct UiStateResources<'w> {
     pub dragged_entity: ResMut<'w, HierarchyDraggedEntity>,
     pub context_menu: ResMut<'w, crate::studio::tools::CanvasContextMenu>,
     pub hover_state: ResMut<'w, crate::studio::tools::HoverState>,
+    pub settings_window: ResMut<'w, SettingsWindow>,
 }
 
 #[derive(SystemParam)]
@@ -103,6 +105,12 @@ pub fn studio_ui(
     let add_tex = *ui_state.texture_ids.add_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.add_icon.clone()))
     });
+    let workspace_tex = *ui_state.texture_ids.workspace_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.workspace_icon.clone()))
+    });
+    let brick_tex = *ui_state.texture_ids.brick_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.brick_icon.clone()))
+    });
 
     let Ok(ctx) = contexts.ctx_mut() else { return; };
     ctx.set_visuals(egui::Visuals::light());
@@ -136,6 +144,7 @@ pub fn studio_ui(
                 &mut ui_res.history,
                 *ui_res.physics_state,
                 &mut ui_res.physics_action_writer,
+                &mut ui_state.settings_window,
             );
         });
 
@@ -155,7 +164,7 @@ pub fn studio_ui(
                 }
             }
 
-            let has_selection = selected_brick.is_some();
+            let has_selection = selected_brick.is_some() || ui_state.selection.workspace_selected;
             let mut explorer_height = if has_selection {
                 let id = ui.make_persistent_id("explorer_height_split");
                 ui.data_mut(|d| d.get_temp::<f32>(id).unwrap_or(180.0))
@@ -179,6 +188,8 @@ pub fn studio_ui(
                                 &mut ui_state.copiedbuffer,
                                 &mut ui_state.dragged_entity,
                                 &mut ui_res.history,
+                                workspace_tex,
+                                brick_tex,
                             );
                         });
                 }
@@ -222,6 +233,41 @@ pub fn studio_ui(
                             &mut ui_res.studs_materials,
                         );
                     });
+            } else if ui_state.selection.workspace_selected {
+                let sep_height = 20.0;
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), sep_height),
+                    egui::Sense::click_and_drag()
+                );
+
+                if response.hovered() || response.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+
+                if response.dragged() {
+                    let delta_y = response.drag_delta().y;
+                    let max_limit = (total_height - 100.0).max(100.0);
+                    explorer_height = (explorer_height + delta_y).clamp(50.0, max_limit);
+                    let id = ui.make_persistent_id("explorer_height_split");
+                    ui.data_mut(|d| d.insert_temp(id, explorer_height));
+                }
+
+                let line_y = rect.center().y;
+                let line_rect = egui::Rect::from_x_y_ranges(
+                    rect.left()..=rect.right(),
+                    (line_y - 0.5)..=(line_y + 0.5)
+                );
+                ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+
+                egui::ScrollArea::vertical()
+                    .id_source("properties_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        panels::draw_workspace_properties(
+                            ui,
+                            &mut ui_res.gravity,
+                        );
+                    });
             }
         });
 
@@ -250,6 +296,10 @@ pub fn studio_ui(
             }
             ui_state.dragged_entity.entity = None;
         }
+    }
+
+    if ui_state.settings_window.open {
+        panels::draw_settings_window(ctx, &mut ui_state.settings_window.open);
     }
 
     indicator::draw_indicator(ctx, &mut ui_state.cameraindicator, &mut queries.cameraquery);
