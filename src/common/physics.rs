@@ -25,6 +25,7 @@ pub struct PhysicsSimulationPlugin;
 //Physics simulation MOSTLY  for the studio for now. TODO:
 //IMPLEMENT proper physics plugin for server & client replication
 //move physics to folder
+//remove things specific to the current playtest (this is basically just a showcase), like "baseplate" sdhould just become a checkbox "enable physics"... :3
 
 
 

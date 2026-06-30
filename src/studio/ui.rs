@@ -3,17 +3,18 @@ pub mod indicator;
 pub mod panels;
 pub mod visuals;
 pub mod resources;
-//////////
-//todo
-//make it so you cannot interact with the viewport while hovering over UI
-//qol updates to general usage of UI, like double clicking a grouped part displays the children of the part
+
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
-use crate::studio::tools::{ToolState, Selection};
+use crate::studio::tools::ToolState;
+use crate::studio::tools::Selection;
 use crate::common::components::Brick;
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::ExtendedMaterial;
-
+//////////
+//todo
+//make it so you cannot interact with the viewport while hovering over UI !!DONE
+//qol updates to general usage of UI, like double clicking a grouped part displays the children of the part
 pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
 pub use indicator::{CameraSpeedIndicator, updatecameraspeedindicator, FovIndicator, update_camera_fov};
 pub use visuals::configure_visuals;
@@ -47,6 +48,7 @@ pub struct UiStateResources<'w> {
     pub copiedbuffer: ResMut<'w, CopiedEntityBuffer>,
     pub dragged_entity: ResMut<'w, HierarchyDraggedEntity>,
     pub context_menu: ResMut<'w, crate::studio::tools::CanvasContextMenu>,
+    pub hover_state: ResMut<'w, crate::studio::tools::HoverState>,
 }
 
 #[derive(SystemParam)]
@@ -111,7 +113,7 @@ pub fn studio_ui(
 
     let camera_transform = queries.camera_transform_query.iter().next();
 
-    egui::Panel::top("topbar")
+    let top_bar_res = egui::Panel::top("topbar")
         .frame(frame)
         .show(ctx, |ui| {
             panels::draw_top_bar(
@@ -294,4 +296,18 @@ pub fn studio_ui(
             ui_state.context_menu.position = None;
         }
     }
+
+    let mut is_hovering_ui = false;
+    if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+        if top_bar_res.response.rect.contains(pos) {
+            is_hovering_ui = true;
+        }
+        if panel_res.response.rect.contains(pos) {
+            is_hovering_ui = true;
+        }
+        if ctx.is_pointer_over_area() {
+            is_hovering_ui = true;
+        }
+    }
+    ui_state.hover_state.is_hovering_ui = is_hovering_ui;
 }

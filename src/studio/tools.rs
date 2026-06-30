@@ -39,6 +39,7 @@ pub struct PartDragState {
 #[derive(Resource, Default)]
 pub struct HoverState {
     pub hovered_gizmo: Option<Entity>,
+    pub is_hovering_ui: bool,
 }
 
 #[derive(Resource, Default)]

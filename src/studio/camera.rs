@@ -104,12 +104,15 @@ pub fn setup_studio(
 pub fn disable_camera_on_ui_interaction(
     mut camera_query: Query<&mut bevy::camera_controller::free_camera::FreeCameraState>,
     mut contexts: bevy_egui::EguiContexts,
+    mut picking_settings: ResMut<bevy::picking::PickingSettings>,
+    hover_state: Res<crate::studio::tools::HoverState>,
 ) {
     if let Ok(ctx) = contexts.ctx_mut() {
-        let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input();
+        let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui;
         for mut state in &mut camera_query {
             state.enabled = !wants_input;
         }
+        picking_settings.is_enabled = !wants_input;
     }
 }
 
