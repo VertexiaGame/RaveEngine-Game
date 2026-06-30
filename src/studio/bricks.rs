@@ -14,7 +14,7 @@ pub fn spawn_brick(
     studs_assets: &crate::studio::studs::StudsAssets,
     count: &mut BrickSpawnerCount,
     spawn_pos: Vec3,
-) {
+) -> Entity {
     let current_index = count.count;
     count.count += 1;
 
@@ -35,5 +35,5 @@ pub fn spawn_brick(
         Brick,
         Pickable::default(),
         Name::new(format!("Part{}", current_index)),
-    ));
+    )).id()
 }

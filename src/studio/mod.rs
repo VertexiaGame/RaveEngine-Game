@@ -27,6 +27,8 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::CopiedEntityBuffer>()
             .init_resource::<ui::HierarchyDraggedEntity>()
             .init_resource::<tools::SnapConfig>()
+            .init_resource::<tools::UndoRedoHistory>()
+            .add_message::<tools::UndoRedoAction>()
             .add_plugins(MeshPickingPlugin)
             .add_plugins(FreeCameraPlugin)
             .add_plugins(MaterialPlugin::<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>::default())
@@ -52,6 +54,8 @@ impl Plugin for StudioPlugin {
                     tools::handle_part_drag_end,
                     tools::handle_hover,
                     tools::update_cursor,
+                    tools::handle_keyboard_shortcuts,
+                    tools::handle_undo_redo_action,
                     ui::updatecameraspeedindicator,
                     ui::update_camera_fov
                         .before(bevy::camera_controller::free_camera::run_freecamera_controller),
@@ -59,6 +63,10 @@ impl Plugin for StudioPlugin {
                         .before(bevy::camera_controller::free_camera::run_freecamera_controller),
                     camera::sync_gizmo_camera,
                 ),
+            )
+            .add_systems(
+                PostUpdate,
+                tools::correct_child_transforms.after(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);
     }

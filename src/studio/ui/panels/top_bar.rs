@@ -23,6 +23,10 @@ pub fn draw_top_bar(
     add_tex: egui::TextureId,
     diagnostics: &Res<bevy::diagnostic::DiagnosticsStore>,
     camera_transform: Option<&Transform>,
+    action_writer: &mut MessageWriter<crate::studio::tools::UndoRedoAction>,
+    history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
+    physics_state: crate::common::physics::PhysicsSimulationState,
+    physics_action_writer: &mut MessageWriter<crate::common::physics::PhysicsSimulationAction>,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
 
@@ -91,6 +95,27 @@ pub fn draw_top_bar(
                 }
 
                 ui.add_space(8.0);
+                let (sep_rect_phys, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
+                ui.painter().rect_filled(sep_rect_phys, 0.0, egui::Color32::from_rgb(212, 212, 212));
+                ui.add_space(8.0);
+
+                match physics_state {
+                    crate::common::physics::PhysicsSimulationState::Stopped => {
+                        if ribbonbutton(ui, None, "Play", false).clicked() {
+                            physics_action_writer.write(crate::common::physics::PhysicsSimulationAction::Play);
+                        }
+                    }
+                    crate::common::physics::PhysicsSimulationState::Running => {
+                        if ribbonbutton(ui, None, "Stop", false).clicked() {
+                            physics_action_writer.write(crate::common::physics::PhysicsSimulationAction::Stop);
+                        }
+                        if ribbonbutton(ui, None, "Replay", false).clicked() {
+                            physics_action_writer.write(crate::common::physics::PhysicsSimulationAction::Replay);
+                        }
+                    }
+                }
+
+                ui.add_space(8.0);
                 let (sep_rect_snap, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
                 ui.painter().rect_filled(sep_rect_snap, 0.0, egui::Color32::from_rgb(212, 212, 212));
                 ui.add_space(8.0);
@@ -148,7 +173,7 @@ pub fn draw_top_bar(
 
                         ui.set_min_width(150.0);
                         ui.horizontal(|ui| {
-                            ui.label("🔍");
+                            ui.label("🔍"); //KEEP THIS!! It looks kinda good ngl
                             let text_edit_res = ui.text_edit_singleline(&mut search_query);
                             if text_edit_res.changed() {
                                 ui.data_mut(|d| d.insert_temp(popup_id, search_query.clone()));
@@ -164,7 +189,7 @@ pub fn draw_top_bar(
                                     if let Some(cam_t) = camera_transform {
                                         let camera_pos = cam_t.translation;
                                         let camera_forward = cam_t.forward();
-                                        
+
                                         let mut found_hit = false;
                                         if camera_forward.y.abs() > 0.001 {
                                             let resting_y = 0.5 * 0.28;
@@ -181,7 +206,7 @@ pub fn draw_top_bar(
                                             spawn_pos = camera_pos + camera_forward * (10.0 * 0.28);
                                         }
                                     }
-                                    
+
                                     if snap_config.enabled && snap_config.distance > 0.0 {
                                         let snap_interval = snap_config.distance * 0.28;
                                         spawn_pos.x = (spawn_pos.x / snap_interval).round() * snap_interval;
@@ -192,7 +217,33 @@ pub fn draw_top_bar(
                                         }
                                     }
 
-                                    spawn_brick(commands, meshes, studs_materials, studs_assets, count, spawn_pos);
+                                    let new_entity = spawn_brick(commands, meshes, studs_materials, studs_assets, count, spawn_pos);
+
+                                    let data = crate::studio::tools::BrickData {
+                                        transform: Transform::from_translation(spawn_pos),
+                                        name: format!("Part{}", count.count - 1),
+                                        is_brick: true,
+                                        mesh: Some(Mesh3d(meshes.add(Cuboid::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)))),
+                                        standard_material: None,
+                                        studs_material: Some(MeshMaterial3d(studs_materials.add(ExtendedMaterial {
+                                            base: StandardMaterial {
+                                                base_color: Color::srgb(0.84, 0.24, 0.16),
+                                                perceptual_roughness: 0.9,
+                                                ..default()
+                                            },
+                                            extension: crate::studio::studs::StudsExtension {
+                                                stud_texture: studs_assets.stud.clone(),
+                                                inlet_texture: studs_assets.inlet.clone(),
+                                            },
+                                        }))),
+                                        parent: None,
+                                    };
+
+                                    history.push_command(crate::studio::tools::UndoCommand::Spawn {
+                                        entity: new_entity,
+                                        data,
+                                    });
+
                                     ui.memory_mut(|mem| mem.close_popup(popup_id));
                                 }
                             }
@@ -247,11 +298,13 @@ fn ribbonbutton(
 
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
         ui.vertical_centered(|ui| {
-            ui.add_space(7.0);
             if let Some(texture_id) = icon {
+                ui.add_space(7.0);
                 ui.add(egui::Image::new((texture_id, egui::vec2(24.0, 24.0))));
+                ui.add_space(3.0);
+            } else {
+                ui.add_space(18.0);
             }
-            ui.add_space(3.0);
             let text_color = egui::Color32::from_rgb(20, 20, 20);
             ui.label(egui::RichText::new(label).color(text_color).size(11.5));
         });

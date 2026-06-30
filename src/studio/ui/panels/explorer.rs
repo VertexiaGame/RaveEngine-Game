@@ -80,6 +80,7 @@ fn draw_entity_node(
     ), Without<Camera3d>>,
     copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
+    history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
 ) {
     let Ok((_, _, name, _, children_opt, _, _, _, _, _)) = entities_query.get(entity) else { return };
     let name_str = name.as_str().to_string();
@@ -95,15 +96,15 @@ fn draw_entity_node(
     if has_managed_children {
         let id = egui::Id::new(entity);
         let collapsing_state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
-        
+
         let header_res = collapsing_state.show_header(ui, |ui| {
             ui.push_id(id, |ui| {
                 let label_res = explorerlabel(ui, is_selected, &name_str);
-                
+
                 if label_res.clicked() {
                     selection.entity = Some(entity);
                 }
-                
+
                 label_res.context_menu(|ui| {
                     draw_entity_context_menu(
                         ui,
@@ -112,6 +113,7 @@ fn draw_entity_node(
                         selection,
                         copiedbuffer,
                         entities_query,
+                        history,
                     );
                 });
 
@@ -129,31 +131,34 @@ fn draw_entity_node(
                                 entities_query.get(entity),
                                 entities_query.get(dragged)
                             ) {
-                                let parent_scale = parent_global.scale();
                                 let parent_rotation = parent_global.rotation();
                                 let parent_translation = parent_global.translation();
-                                
+
                                 let child_scale = child_global.scale();
                                 let child_rotation = child_global.rotation();
                                 let child_translation = child_global.translation();
 
-                                let local_scale = Vec3::new(
-                                    if parent_scale.x != 0.0 { child_scale.x / parent_scale.x } else { child_scale.x },
-                                    if parent_scale.y != 0.0 { child_scale.y / parent_scale.y } else { child_scale.y },
-                                    if parent_scale.z != 0.0 { child_scale.z / parent_scale.z } else { child_scale.z },
-                                );
+                                let local_scale = child_scale;
                                 let local_rotation = parent_rotation.inverse() * child_rotation;
-                                let unscaled_translation = parent_rotation.inverse().mul_vec3(child_translation - parent_translation);
-                                let local_translation = Vec3::new(
-                                    if parent_scale.x != 0.0 { unscaled_translation.x / parent_scale.x } else { unscaled_translation.x },
-                                    if parent_scale.y != 0.0 { unscaled_translation.y / parent_scale.y } else { unscaled_translation.y },
-                                    if parent_scale.z != 0.0 { unscaled_translation.z / parent_scale.z } else { unscaled_translation.z },
-                                );
+                                let local_translation = parent_rotation.inverse().mul_vec3(child_translation - parent_translation);
 
-                                commands.entity(dragged).insert(Transform {
+                                let old_parent = entities_query.get(dragged).ok().and_then(|(_, _, _, child_of_opt, _, _, _, _, _, _)| child_of_opt.map(|co| co.parent()));
+                                let old_transform = entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
+
+                                let new_transform = Transform {
                                     translation: local_translation,
                                     rotation: local_rotation,
                                     scale: local_scale,
+                                };
+
+                                commands.entity(dragged).insert(new_transform);
+
+                                history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                                    entity: dragged,
+                                    old_parent,
+                                    new_parent: Some(entity),
+                                    old_transform,
+                                    new_transform,
                                 });
                             }
                             commands.entity(entity).add_child(dragged);
@@ -185,6 +190,7 @@ fn draw_entity_node(
                         entities_query,
                         copiedbuffer,
                         dragged_entity,
+                        history,
                     );
                 }
             }
@@ -210,6 +216,7 @@ fn draw_entity_node(
                 selection,
                 copiedbuffer,
                 entities_query,
+                history,
             );
         });
 
@@ -227,31 +234,34 @@ fn draw_entity_node(
                         entities_query.get(entity),
                         entities_query.get(dragged)
                     ) {
-                        let parent_scale = parent_global.scale();
                         let parent_rotation = parent_global.rotation();
                         let parent_translation = parent_global.translation();
-                        
+
                         let child_scale = child_global.scale();
                         let child_rotation = child_global.rotation();
                         let child_translation = child_global.translation();
 
-                        let local_scale = Vec3::new(
-                            if parent_scale.x != 0.0 { child_scale.x / parent_scale.x } else { child_scale.x },
-                            if parent_scale.y != 0.0 { child_scale.y / parent_scale.y } else { child_scale.y },
-                            if parent_scale.z != 0.0 { child_scale.z / parent_scale.z } else { child_scale.z },
-                        );
+                        let local_scale = child_scale;
                         let local_rotation = parent_rotation.inverse() * child_rotation;
-                        let unscaled_translation = parent_rotation.inverse().mul_vec3(child_translation - parent_translation);
-                        let local_translation = Vec3::new(
-                            if parent_scale.x != 0.0 { unscaled_translation.x / parent_scale.x } else { unscaled_translation.x },
-                            if parent_scale.y != 0.0 { unscaled_translation.y / parent_scale.y } else { unscaled_translation.y },
-                            if parent_scale.z != 0.0 { unscaled_translation.z / parent_scale.z } else { unscaled_translation.z },
-                        );
+                        let local_translation = parent_rotation.inverse().mul_vec3(child_translation - parent_translation);
 
-                        commands.entity(dragged).insert(Transform {
+                        let old_parent = entities_query.get(dragged).ok().and_then(|(_, _, _, child_of_opt, _, _, _, _, _, _)| child_of_opt.map(|co| co.parent()));
+                        let old_transform = entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
+
+                        let new_transform = Transform {
                             translation: local_translation,
                             rotation: local_rotation,
                             scale: local_scale,
+                        };
+
+                        commands.entity(dragged).insert(new_transform);
+
+                        history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                            entity: dragged,
+                            old_parent,
+                            new_parent: Some(entity),
+                            old_transform,
+                            new_transform,
                         });
                     }
                     commands.entity(entity).add_child(dragged);
@@ -280,6 +290,7 @@ pub fn draw_explorer(
     ), Without<Camera3d>>,
     copiedbuffer: &mut CopiedEntityBuffer,
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
+    history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Explorer").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -326,6 +337,7 @@ pub fn draw_explorer(
                     entities_query,
                     copiedbuffer,
                     dragged_entity,
+                    history,
                 );
             }
         });
@@ -336,14 +348,27 @@ pub fn draw_explorer(
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
         if ui.input(|i| i.pointer.any_released()) && header_res.hovered() {
-            if let Ok((_, _, _, _, _, _, child_global, _, _, _)) = entities_query.get(dragged) {
-                commands.entity(dragged).insert(Transform {
+            if let Ok((_, _, _, child_of_opt, _, _, child_global, _, _, _)) = entities_query.get(dragged) {
+                let old_parent = child_of_opt.map(|co| co.parent());
+                let old_transform = entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
+
+                let new_transform = Transform {
                     translation: child_global.translation(),
                     rotation: child_global.rotation(),
                     scale: child_global.scale(),
+                };
+
+                commands.entity(dragged).insert(new_transform);
+                commands.entity(dragged).remove::<ChildOf>();
+
+                history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                    entity: dragged,
+                    old_parent,
+                    new_parent: None,
+                    old_transform,
+                    new_transform,
                 });
             }
-            commands.entity(dragged).remove::<ChildOf>();
             dragged_entity.entity = None;
         }
     }

@@ -3,7 +3,10 @@ pub mod indicator;
 pub mod panels;
 pub mod visuals;
 pub mod resources;
-
+//////////
+//todo
+//make it so you cannot interact with the viewport while hovering over UI
+//qol updates to general usage of UI, like double clicking a grouped part displays the children of the part
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
 use crate::studio::tools::{ToolState, Selection};
@@ -25,6 +28,10 @@ pub struct UiResources<'w, 's> {
     pub studs_assets: Res<'w, crate::studio::studs::StudsAssets>,
     pub count: ResMut<'w, crate::studio::bricks::BrickSpawnerCount>,
     pub snap_config: ResMut<'w, crate::studio::tools::SnapConfig>,
+    pub history: ResMut<'w, crate::studio::tools::UndoRedoHistory>,
+    pub action_writer: MessageWriter<'w, crate::studio::tools::UndoRedoAction>,
+    pub physics_state: Res<'w, crate::common::physics::PhysicsSimulationState>,
+    pub physics_action_writer: MessageWriter<'w, crate::common::physics::PhysicsSimulationAction>,
 }
 
 #[derive(SystemParam)]
@@ -123,6 +130,10 @@ pub fn studio_ui(
                 add_tex,
                 &ui_state.diagnostics,
                 camera_transform,
+                &mut ui_res.action_writer,
+                &mut ui_res.history,
+                *ui_res.physics_state,
+                &mut ui_res.physics_action_writer,
             );
         });
 
@@ -165,6 +176,7 @@ pub fn studio_ui(
                                 &queries.entities_query,
                                 &mut ui_state.copiedbuffer,
                                 &mut ui_state.dragged_entity,
+                                &mut ui_res.history,
                             );
                         });
                 }
@@ -213,14 +225,27 @@ pub fn studio_ui(
 
     if let Some(dragged) = ui_state.dragged_entity.entity {
         if panel_res.response.hovered() && ctx.input(|i| i.pointer.any_released()) {
-            if let Ok((_, _, _, _, _, _, child_global, _, _, _)) = queries.entities_query.get(dragged) {
-                ui_res.commands.entity(dragged).insert(Transform {
+            if let Ok((_, _, _, child_of_opt, _, _, child_global, _, _, _)) = queries.entities_query.get(dragged) {
+                let old_parent = child_of_opt.map(|co| co.parent());
+                let old_transform = queries.entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
+
+                let new_transform = Transform {
                     translation: child_global.translation(),
                     rotation: child_global.rotation(),
                     scale: child_global.scale(),
+                };
+
+                ui_res.commands.entity(dragged).insert(new_transform);
+                ui_res.commands.entity(dragged).remove::<ChildOf>();
+
+                ui_res.history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                    entity: dragged,
+                    old_parent,
+                    new_parent: None,
+                    old_transform,
+                    new_transform,
                 });
             }
-            ui_res.commands.entity(dragged).remove::<ChildOf>();
             ui_state.dragged_entity.entity = None;
         }
     }
@@ -230,7 +255,7 @@ pub fn studio_ui(
 
     if let (Some(entity), Some(pos)) = (ui_state.context_menu.entity, ui_state.context_menu.position) {
         let mut close_menu = false;
-        
+
         let inner_res = egui::Area::new(egui::Id::new("hahasosigma"))
             .fixed_pos(egui::pos2(pos.x, pos.y))
             .show(ctx, |ui| {
@@ -244,6 +269,7 @@ pub fn studio_ui(
                         &mut ui_state.selection,
                         &mut ui_state.copiedbuffer,
                         &queries.entities_query,
+                        &mut ui_res.history,
                     )
                 })
             });

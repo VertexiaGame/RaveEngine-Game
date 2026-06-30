@@ -14,16 +14,21 @@ pub fn update_gizmos(
     mut commands: Commands,
     selection: Res<Selection>,
     tool_state: Res<State<ToolState>>,
+    physics_state: Res<crate::common::physics::PhysicsSimulationState>,
     gizmos: Query<Entity, With<ToolGizmo>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !selection.is_changed() && !tool_state.is_changed() {
+    if !selection.is_changed() && !tool_state.is_changed() && !physics_state.is_changed() {
         return;
     }
 
     for entity in &gizmos {
         commands.entity(entity).despawn();
+    }
+
+    if *physics_state == crate::common::physics::PhysicsSimulationState::Running {
+        return;
     }
 
     let Some(selected_entity) = selection.entity else { return };
@@ -162,9 +167,13 @@ fn draw_outline_recursive(
 
 pub fn draw_selection_outline(
     selection: Res<Selection>,
+    physics_state: Res<crate::common::physics::PhysicsSimulationState>,
     bricks: Query<(&GlobalTransform, Option<&Children>), With<Brick>>,
     mut gizmos: Gizmos,
 ) {
+    if *physics_state == crate::common::physics::PhysicsSimulationState::Running {
+        return;
+    }
     let Some(selected_entity) = selection.entity else { return };
     draw_outline_recursive(selected_entity, &bricks, &mut gizmos);
 }
