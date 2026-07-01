@@ -79,7 +79,7 @@ pub fn disable_camera_on_ui_interaction(
     hover_state: Res<crate::studio::tools::HoverState>,
     onboarding_state: Res<State<crate::studio::tools::OnboardingState>>,
 ) {
-    let onboarding_active = *onboarding_state.get() == crate::studio::tools::OnboardingState::Active;
+    let onboarding_active = *onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
 
     if let Ok(ctx) = contexts.ctx_mut() {
         let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui || onboarding_active;

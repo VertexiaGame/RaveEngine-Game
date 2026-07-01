@@ -26,6 +26,7 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::SettingsWindow>()
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
+            .init_resource::<ui::panels::onboarding::OnboardingData>()
             .add_message::<tools::UndoRedoAction>()
             .add_plugins(MeshPickingPlugin)
             .add_plugins(FreeCameraPlugin)

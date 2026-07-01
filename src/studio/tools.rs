@@ -17,7 +17,9 @@ pub enum ToolState {
 #[derive(Default, States, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum OnboardingState {
     #[default]
-    Active,
+    TemplateSelection,
+    BasicInfo,
+    Login,
     Inactive,
 }
 
@@ -666,7 +668,7 @@ pub fn handle_part_drag(
         let plane_y = scaled_half_extents.y;
         if ray.direction.y.abs() > 0.001 {
             let t = (plane_y - ray.origin.y) / ray.direction.y;
-            if t > 0.0 {
+            if t > 0.0 && t < 1000.0 {
                 ray.origin + ray.direction * t
             } else {
                 return;

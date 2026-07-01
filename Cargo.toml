@@ -21,6 +21,7 @@ bevy_egui = "0.40.1"
 rand = "0.10.1"
 avian3d = "0.7.0"
 tobj = "4.0.4"
+rfd = "0.17.2"
 
 [profile.dev]
 opt-level = 1

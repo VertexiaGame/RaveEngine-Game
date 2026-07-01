@@ -53,6 +53,7 @@ pub struct UiStateResources<'w> {
     pub settings_window: ResMut<'w, SettingsWindow>,
     pub onboarding_state: Res<'w, State<crate::studio::tools::OnboardingState>>,
     pub next_onboarding_state: ResMut<'w, NextState<crate::studio::tools::OnboardingState>>,
+    pub onboarding_data: ResMut<'w, crate::studio::ui::panels::onboarding::OnboardingData>,
 }
 
 #[derive(SystemParam)]
@@ -369,10 +370,12 @@ pub fn studio_ui(
     }
     ui_state.hover_state.is_hovering_ui = is_hovering_ui;
 
-    if *ui_state.onboarding_state.get() == crate::studio::tools::OnboardingState::Active {
+    if *ui_state.onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive {
         panels::draw_onboarding(
             ctx,
             &mut ui_state.next_onboarding_state,
+            &ui_state.onboarding_state,
+            &mut ui_state.onboarding_data,
             &mut ui_res.commands,
             &mut ui_res.meshes,
             &mut ui_res.studs_materials,
