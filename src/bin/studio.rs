@@ -1,10 +1,9 @@
-mod common;
-mod studio;
-
 use bevy::prelude::*;
 use bevy::pbr::DefaultOpaqueRendererMethod;
 use bevy::light::{DirectionalLightShadowMap, PointLightShadowMap};
 use bevy_egui::EguiPlugin;
+use RaveEngineLib::common;
+use RaveEngineLib::studio;
 
 fn main() {
     App::new()
