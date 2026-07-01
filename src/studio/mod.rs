@@ -11,9 +11,7 @@ pub struct StudioPlugin;
 
 impl Plugin for StudioPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(bevy::winit::WinitSettings::desktop_app())
-            .init_resource::<ui::GraphicsSettings>()
-            .init_state::<tools::ToolState>()
+        app.init_state::<tools::ToolState>()
             .init_state::<tools::OnboardingState>()
             .init_resource::<tools::Selection>()
             .init_resource::<tools::DragState>()
@@ -60,8 +58,6 @@ impl Plugin for StudioPlugin {
                     camera::disable_camera_on_ui_interaction
                         .before(bevy::camera_controller::free_camera::run_freecamera_controller),
                     camera::sync_gizmo_camera,
-                    camera::apply_graphics_settings,
-                    camera::manage_winit_performance,
                 ),
             )
             .add_systems(

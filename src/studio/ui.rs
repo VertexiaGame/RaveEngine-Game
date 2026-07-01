@@ -15,7 +15,8 @@ use bevy::pbr::ExtendedMaterial;
 pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
 pub use indicator::{CameraSpeedIndicator, updatecameraspeedindicator, FovIndicator, update_camera_fov};
 pub use visuals::configure_visuals;
-pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow, GraphicsSettings};
+pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow};
+pub use crate::common::performance::GraphicsSettings;
 
 #[derive(SystemParam)]
 pub struct UiResources<'w, 's> {
