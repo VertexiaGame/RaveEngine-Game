@@ -25,7 +25,7 @@ pub fn load_fallback_map(
             scale: Vec3::new(25.0, 1.0, 50.0),
         },
         RigidBody::Static,
-        Collider::cuboid(25.0 * 4.0 * 0.28, 1.0 * 1.0 * 0.28, 50.0 * 2.0 * 0.28),
+        Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
         Friction::new(0.3),
         Restitution::new(0.3),
         Replicate::default(),
@@ -79,13 +79,12 @@ pub fn load_map(
 }
 
 pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::vrtx::VrtxBrick) {
-    let size = brick.transform.scale * Vec3::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28);
     let collider = match brick.shape {
         BrickShape::Block => {
-            Collider::cuboid(size.x, size.y, size.z)
+            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)
         }
         BrickShape::Sphere => {
-            Collider::sphere(1.0 * 0.28 * brick.transform.scale.x)
+            Collider::sphere(1.0 * 0.28)
         }
     };
 

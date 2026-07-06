@@ -13,7 +13,7 @@ pub fn setup_studio(
     mut commands: Commands,
     mut egui_global_settings: ResMut<bevy_egui::EguiGlobalSettings>,
     graphics_settings: Res<crate::studio::ui::GraphicsSettings>,
-    mut ambient: Option<ResMut<GlobalAmbientLight>>,
+    ambient: Option<ResMut<GlobalAmbientLight>>,
 ) {
     egui_global_settings.auto_create_primary_context = false;
 

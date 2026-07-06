@@ -29,6 +29,7 @@ pub struct VrtxFileState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum GodotVariant {
     Nil,
     Bool(bool),
@@ -114,7 +115,7 @@ impl<'a> GodotParser<'a> {
         let flags = (type_header >> 16) & 0xFF;
         let is_64 = flags == 1;
 
-        info!("parse_variant at offset {}: type_id={}, flags={}, is_64={}", start_offset, type_id, flags, is_64);
+        trace!("parse_variant at offset {}: type_id={}, flags={}, is_64={}", start_offset, type_id, flags, is_64);
 
         let var = match type_id {
             0 | 25 | 26 => Ok(GodotVariant::Nil),
@@ -249,12 +250,12 @@ impl<'a> GodotParser<'a> {
             27 => {
                 let count_header = self.read_u32()?;
                 let count = count_header & 0x7FFFFFFF;
-                info!("parse_variant at offset {}: parsing dictionary with {} elements", start_offset, count);
+                trace!("parse_variant at offset {}: parsing dictionary with {} elements", start_offset, count);
                 let mut dict = std::collections::HashMap::new();
                 for i in 0..count {
                     let key_var = self.parse_variant()?;
                     let val_var = self.parse_variant()?;
-                    info!("parse_variant dictionary element {}: key={:?}, val_type={:?}", i, key_var, val_var);
+                    trace!("parse_variant dictionary element {}: key={:?}, val_type={:?}", i, key_var, val_var);
                     if let GodotVariant::String(key_str) = key_var {
                         dict.insert(key_str, val_var);
                     }
@@ -264,7 +265,7 @@ impl<'a> GodotParser<'a> {
             28 => {
                 let count_header = self.read_u32()?;
                 let count = count_header & 0x7FFFFFFF;
-                info!("parse_variant at offset {}: parsing array with {} elements", start_offset, count);
+                trace!("parse_variant at offset {}: parsing array with {} elements", start_offset, count);
                 let mut arr = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     let val_var = self.parse_variant()?;
@@ -281,8 +282,8 @@ impl<'a> GodotParser<'a> {
             }
         };
 
-        if let Ok(ref value) = var {
-            info!("parse_variant at offset {} successfully parsed", start_offset);
+        if let Ok(ref _value) = var {
+            trace!("parse_variant at offset {} successfully parsed", start_offset);
         }
         var
     }
@@ -300,7 +301,7 @@ fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let block_size = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
     let uncompressed_size = u32::from_le_bytes([data[12], data[13], data[14], data[15]]) as usize;
 
-    info!("GCPF decompress: mode={}, block_size={}, uncompressed_size={}", comp_mode, block_size, uncompressed_size);
+    debug!("GCPF decompress: mode={}, block_size={}, uncompressed_size={}", comp_mode, block_size, uncompressed_size);
 
     if block_size == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: Block size is zero"));
@@ -308,7 +309,7 @@ fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
 
     let num_blocks = (uncompressed_size + block_size - 1) / block_size;
     let header_size = 16 + num_blocks * 4;
-    info!("GCPF decompress: num_blocks={}, header_size={}", num_blocks, header_size);
+    debug!("GCPF decompress: num_blocks={}, header_size={}", num_blocks, header_size);
 
     if data.len() < header_size {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: Header size exceeds file length"));
@@ -325,10 +326,10 @@ fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut uncompressed_data = Vec::with_capacity(uncompressed_size);
 
     for (i, size) in block_sizes.into_iter().enumerate() {
-        info!("GCPF decompressing block {}: offset={}, size={}", i, current_offset, size);
+        trace!("GCPF decompressing block {}: offset={}, size={}", i, current_offset, size);
         if current_offset + size > data.len() {
             if current_offset + 4 == data.len() && &data[current_offset..current_offset + 4] == b"GCPF" {
-                info!("GCPF footer magic reached, stopping decompression cleanly");
+                debug!("GCPF footer magic reached, stopping decompression cleanly");
                 break;
             }
             return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "GCPF: Block data truncated"));
@@ -504,10 +505,10 @@ fn collect_bricks_recursive(
 }
 
 fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
-    info!("Parsing Godot VRTX, decompressed length={}", decompressed.len());
+    debug!("Parsing Godot VRTX, decompressed length={}", decompressed.len());
     if decompressed.len() >= 4 {
         let first_u32 = u32::from_le_bytes([decompressed[0], decompressed[1], decompressed[2], decompressed[3]]);
-        info!("First 4 bytes of decompressed payload: {} (0x{:X})", first_u32, first_u32);
+        debug!("First 4 bytes of decompressed payload: {} (0x{:X})", first_u32, first_u32);
     }
 
     let mut parser = GodotParser::new(decompressed);
@@ -515,7 +516,7 @@ fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
     if decompressed.len() >= 8 {
         let prefix = u32::from_le_bytes([decompressed[0], decompressed[1], decompressed[2], decompressed[3]]) as usize;
         if prefix == decompressed.len() - 4 {
-            info!("Detected Godot store_var length prefix: {} bytes. Skipping prefix.", prefix);
+            debug!("Detected Godot store_var length prefix: {} bytes. Skipping prefix.", prefix);
             parser.offset = 4;
         }
     }
@@ -542,7 +543,7 @@ fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
 
         let camera_transform = Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y);
 
-        info!("Parsing complete: version={}, bricks={}", version, bricks.len());
+        debug!("Parsing complete: version={}, bricks={}", version, bricks.len());
         Ok(VrtxFileState {
             version,
             gravity,
@@ -627,21 +628,21 @@ impl VrtxFileState {
     }
 
     pub fn load_from_file(path: &str) -> std::io::Result<Self> {
-        info!("load_from_file: Attempting to open file: {}", path);
+        debug!("load_from_file: Attempting to open file: {}", path);
         let mut file = File::open(path)?;
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
-        info!("load_from_file: Read {} bytes from {}", data.len(), path);
+        debug!("load_from_file: Read {} bytes from {}", data.len(), path);
 
         if data.len() >= 4 && &data[0..4] == b"VRTX" {
             let mut reader = BufReader::new(&data[4..]);
             let mut version_bytes = [0u8; 4];
             reader.read_exact(&mut version_bytes)?;
             let version = u32::from_le_bytes(version_bytes);
-            info!("load_from_file: VRTX format version is {}", version);
+            debug!("load_from_file: VRTX format version is {}", version);
 
             let (gravity, settings, camera_transform, count) = if version == 1 {
-                info!("load_from_file: Parsing version 1 header");
+                debug!("load_from_file: Parsing version 1 header");
                 let mut gx = [0u8; 4]; reader.read_exact(&mut gx)?;
                 let mut gy = [0u8; 4]; reader.read_exact(&mut gy)?;
                 let mut gz = [0u8; 4]; reader.read_exact(&mut gz)?;
@@ -691,7 +692,7 @@ impl VrtxFileState {
 
                 (gravity, settings, camera_transform, count)
             } else if version == 0 {
-                info!("load_from_file: Parsing version 0 header");
+                debug!("load_from_file: Parsing version 0 header");
                 let mut gx = [0u8; 4]; reader.read_exact(&mut gx)?;
                 let mut gy = [0u8; 4]; reader.read_exact(&mut gy)?;
                 let mut gz = [0u8; 4]; reader.read_exact(&mut gz)?;
@@ -721,7 +722,7 @@ impl VrtxFileState {
                 ));
             };
 
-            info!("load_from_file: Expecting {} bricks", count);
+            debug!("load_from_file: Expecting {} bricks", count);
             let mut bricks = Vec::with_capacity(count as usize);
             for _ in 0..count {
                 let mut name_len_bytes = [0u8; 2];
@@ -810,7 +811,7 @@ impl VrtxFileState {
                 });
             }
 
-            info!("load_from_file: Successfully parsed {} bricks from standard VRTX file", bricks.len());
+            debug!("load_from_file: Successfully parsed {} bricks from standard VRTX file", bricks.len());
             Ok(Self {
                 version,
                 gravity,
@@ -819,11 +820,11 @@ impl VrtxFileState {
                 bricks,
             })
         } else if data.len() >= 4 && &data[0..4] == b"GCPF" {
-            info!("load_from_file: Detected legacy GCPF (Godot) file format");
+            debug!("load_from_file: Detected legacy GCPF (Godot) file format");
             let decompressed = decompress_gcpf_file(&data)?;
-            info!("load_from_file: Successfully decompressed GCPF file into {} bytes", decompressed.len());
+            debug!("load_from_file: Successfully decompressed GCPF file into {} bytes", decompressed.len());
             let parsed_state = parse_godot_vrtx(&decompressed)?;
-            info!("load_from_file: Successfully parsed Godot VRTX map with {} bricks", parsed_state.bricks.len());
+            debug!("load_from_file: Successfully parsed Godot VRTX map with {} bricks", parsed_state.bricks.len());
             Ok(parsed_state)
         } else {
             error!("load_from_file: Unknown or invalid file signature");

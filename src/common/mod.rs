@@ -5,6 +5,7 @@ pub mod performance;
 pub mod vrtx;
 pub mod components;
 pub mod network;
+pub mod vuis;
 
 use bevy::prelude::*;
 
@@ -15,6 +16,7 @@ impl Plugin for CommonPlugin {
         app.add_plugins(environment::EnvironmentPlugin)
            .add_plugins(physics::PhysicsSimulationPlugin)
            .add_plugins(bricks::BricksPlugin)
-           .add_plugins(performance::PerformancePlugin);
+           .add_plugins(performance::PerformancePlugin)
+           .add_plugins(vuis::VuisPlugin);
     }
 }

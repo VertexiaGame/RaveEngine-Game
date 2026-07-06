@@ -32,6 +32,11 @@ pub struct NeedsCharacterVisuals;
 #[derive(Component)]
 pub struct CharacterVisualsSpawned;
 
+#[derive(Component)]
+pub struct PlayerVisualChild {
+    pub parent: Entity,
+}
+
 pub struct ClientPlugin;
 
 impl Plugin for ClientPlugin {
@@ -41,17 +46,20 @@ impl Plugin for ClientPlugin {
             .add_systems(Startup, (
                 setup_physics_initializer,
                 setup_player_assets,
+                load_vuis_ui,
             ))
             .add_systems(PreUpdate, initialize_client_physics)
             .add_systems(Update, (
                 sync_network_transforms_to_client,
                 send_player_inputs,
                 sync_local_player,
-                attach_character_visuals,
+                attach_character_visuals.after(sync_local_player),
                 update_local_player_transparency,
+                cleanup_orphaned_visuals,
             ))
             .add_observer(on_client_connected)
             .add_observer(on_player_added)
+            .add_observer(on_player_removed)
             .add_observer(on_brick_added)
             .add_observer(on_network_transform_added);
     }
@@ -66,6 +74,15 @@ fn setup_physics_initializer(mut commands: Commands) {
         Msaa::Sample4,
         bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         ShadowFilteringMethod::Gaussian,
+    ));
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        bevy::ui::prelude::IsDefaultUiCamera,
     ));
 }
 
@@ -146,7 +163,7 @@ fn send_player_inputs(
     let in_first_person = camera_settings.distance <= 0.6;
 
     if w || a || s || d || jump {
-        info!("Client transmitting PlayerInputMessage: w={}, a={}, s={}, d={}, jump={}, yaw={}, in_first_person={}",
+        trace!("Client transmitting PlayerInputMessage: w={}, a={}, s={}, d={}, jump={}, yaw={}, in_first_person={}",
             w, a, s, d, jump, camera_settings.yaw, in_first_person);
     }
 
@@ -168,7 +185,7 @@ fn on_client_connected(
     query: Query<&LocalId>,
     mut commands: Commands,
 ) {
-    info!("on_client_connected observer triggered for entity: {:?}", trigger.entity);
+    debug!("on_client_connected observer triggered for entity: {:?}", trigger.entity);
     if let Ok(local_id) = query.get(trigger.entity) {
         let client_id = local_id.0.to_bits();
         info!("Client connected successfully! Mapped Local Client ID: {}", client_id);
@@ -187,8 +204,33 @@ fn on_player_added(
     if query.get(entity).is_err() {
         return;
     }
-    info!("REMOTE PLAYER ADDED: {:?}", entity);
+    debug!("REMOTE PLAYER ADDED: {:?}", entity);
     commands.entity(entity).insert(NeedsCharacterVisuals);
+}
+
+fn on_player_removed(
+    trigger: On<Remove, crate::common::components::Player>,
+    mut commands: Commands,
+) {
+    debug!("CLIENT PLAYER REMOVED: {:?}, performing recursive despawn of children", trigger.entity);
+    if let Ok(mut entity_cmd) = commands.get_entity(trigger.entity) {
+        entity_cmd.despawn();
+    }
+}
+
+fn cleanup_orphaned_visuals(
+    mut commands: Commands,
+    query_visuals: Query<(Entity, &PlayerVisualChild)>,
+    query_parents: Query<Entity, With<crate::common::components::Player>>,
+) {
+    for (entity, visual_child) in &query_visuals {
+        if query_parents.get(visual_child.parent).is_err() {
+            debug!("CLIENT: Despawning orphaned player visual child {:?} as its parent has been despawned", entity);
+            if let Ok(mut entity_cmd) = commands.get_entity(entity) {
+                entity_cmd.despawn();
+            }
+        }
+    }
 }
 
 fn attach_character_visuals(
@@ -204,7 +246,7 @@ fn attach_character_visuals(
     let local_id = local_client_id.map(|id| id.0);
 
     for (entity, player_comp, local_player_opt) in &query {
-        info!("ATTACHING CHARACTER VISUALS TO {:?}", entity);
+        debug!("ATTACHING CHARACTER VISUALS TO {:?}", entity);
         let is_local = (local_id == Some(player_comp.client_id)) || local_player_opt.is_some();
 
         let mut child_cmd = commands.spawn((
@@ -212,6 +254,7 @@ fn attach_character_visuals(
             Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
                 .with_scale(Vec3::splat(0.28)),
             GlobalTransform::default(),
+            PlayerVisualChild { parent: entity },
         ));
 
         if is_local {
@@ -241,7 +284,7 @@ fn sync_local_player(
         trace!("sync_local_player checking entity={:?}, player client_id={}, expected client_id={}",
             entity, player.client_id, local_client_id);
         if player.client_id == local_client_id {
-            info!("Local player match verified! Inserting LocalPlayer and spawning camera on entity: {:?}", entity);
+            debug!("Local player match verified! Inserting LocalPlayer and spawning camera on entity: {:?}", entity);
             commands.entity(entity).insert(LocalPlayer);
 
             for camera_entity in &startup_cameras {
@@ -262,6 +305,7 @@ fn sync_local_player(
                 Msaa::Sample4,
                 bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
                 ShadowFilteringMethod::Gaussian,
+                bevy::ui::prelude::IsDefaultUiCamera,
             ));
         }
     }
@@ -309,7 +353,7 @@ fn on_brick_added(
     color_query: Query<&crate::common::bricks::components::BrickColor>,
 ) {
     let entity = trigger.entity;
-    info!("Brick added to scene: {:?}", entity);
+    trace!("Brick added to scene: {:?}", entity);
     let shape = shape_query.get(entity).map(|s| s.shape).unwrap_or(crate::common::bricks::components::BrickShape::Block);
 
     let mesh_handle = match shape {
@@ -364,4 +408,48 @@ fn on_network_transform_added(
         GlobalTransform::default(),
         Visibility::Inherited,
     ));
+}
+
+fn load_vuis_ui(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut fonts: ResMut<Assets<Font>>,
+    vuis_engine: Res<crate::common::vuis::api::VuisEngine>,
+) {
+    info!("VUIS: Loading main VUIS UI file on client startup...");
+    let root = commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+    )).id();
+
+    let path = "assets/content/game/ui/main.vuis";
+    match vuis_engine.load(&mut commands, &mut images, &mut fonts, root, path) {
+        Ok(entity) => {
+            info!("VUIS: Successfully loaded UI from {} with root entity: {:?}", path, entity);
+        }
+        Err(e) => {
+            warn!("VUIS: Could not load UI from {}: {}. Spawning fallback UI element.", path, e);
+            let fallback_node = crate::common::vuis::types::VuisNode {
+                Id: "FallbackRoot".to_string(),
+                BackgroundColor: Color::LinearRgba(LinearRgba::new(0.1, 0.1, 0.1, 0.95)),
+                WidthPx: 360.0,
+                HeightPx: 120.0,
+                PositionX: 40.0,
+                PositionY: 40.0,
+                HasText: true,
+                FontSizePx: 18.0,
+                TextColor: Color::WHITE,
+                BorderRadiusPx: 8.0,
+                ..default()
+            };
+            let entity = vuis_engine.add_element(&mut commands, root, fallback_node);
+            vuis_engine.edit_element(&mut commands, entity, |node| {
+                node.Id = "FallbackEdited".to_string();
+                node.WidthPx = 380.0;
+            });
+        }
+    }
 }

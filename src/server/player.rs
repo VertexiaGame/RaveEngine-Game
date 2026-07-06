@@ -118,7 +118,7 @@ pub fn handle_player_inputs(
                         transform.rotation = Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2);
                     }
 
-                    info!("Player ID: {} - Position: {:?}", player.client_id, transform.translation);
+                    trace!("Player ID: {} - Position: {:?}", player.client_id, transform.translation);
                     break;
                 }
             }

@@ -41,6 +41,9 @@ lightyear = { version = "0.28.0", default-features = false, features = [
 serde = { version = "1.0", features = ["derive"] }
 bevy_replicon = "0.41.1"
 zstd = "0.13"
+serde_json = "1.0"
+base64 = "0.22.1"
+flate2 = "1.0"
 
 [profile.dev]
 opt-level = 1

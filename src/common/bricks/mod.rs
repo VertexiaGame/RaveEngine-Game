@@ -54,13 +54,13 @@ pub fn update_brick_meshes_on_shape_change(
 fn links_optimizer_system() {} // dummy hook for common optimization module
 
 pub fn optimize_brick_visibility(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::bricks::studs::StudsExtension>>>,
-    studs_assets: Res<crate::common::bricks::studs::StudsAssets>,
-    camera_query: Query<&Transform, With<Camera3d>>,
-    mut bricks_query: Query<(
+    _commands: Commands,
+    _meshes: ResMut<Assets<Mesh>>,
+    _materials: ResMut<Assets<StandardMaterial>>,
+    _studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::bricks::studs::StudsExtension>>>,
+    _studs_assets: Res<crate::common::bricks::studs::StudsAssets>,
+    _camera_query: Query<&Transform, With<Camera3d>>,
+    _bricks_query: Query<(
         Entity,
         &GlobalTransform,
         &components::BrickShapeComponent,

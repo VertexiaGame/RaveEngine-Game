@@ -19,7 +19,7 @@ pub struct StudsExtension {
     pub inlet_texture: Handle<Image>,
 }
 
-impl Map_samplers for StudsExtension {
+impl MapSamplers for StudsExtension {
 }
 
 impl MaterialExtension for StudsExtension {
@@ -67,4 +67,4 @@ pub fn configure_studs_samplers(
     *configured = true;
 }
 
-pub trait Map_samplers {}
+pub trait MapSamplers {}

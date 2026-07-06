@@ -177,12 +177,10 @@ fn handle_physics_simulation_actions(
                     let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::bricks::components::BrickShape::Block);
                     let collider = match shape {
                         crate::common::bricks::components::BrickShape::Block => {
-                            let size = transform.scale * Vec3::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28);
-                            Collider::cuboid(size.x, size.y, size.z)
+                            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)
                         }
                         crate::common::bricks::components::BrickShape::Sphere => {
-                            let radius = 1.0 * 0.28 * transform.scale.x;
-                            Collider::sphere(radius)
+                            Collider::sphere(1.0 * 0.28)
                         }
                     };
 
