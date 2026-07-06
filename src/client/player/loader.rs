@@ -8,7 +8,7 @@ use super::{Player, PlayerController, CameraSettings, PlayerCamera};
 
 #[derive(Resource)]
 pub struct PlayerCharacterAssets {
-    pub parts: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
+    pub avatar_scene: Handle<WorldAsset>,
 }
 
 pub fn load_obj_file(
@@ -116,18 +116,8 @@ pub fn load_obj_file(
 
 pub fn spawn_player(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
-    let parts_to_load = [
-        "content/game/character/Head.obj",
-        "content/game/character/Torso.obj",
-        "content/game/character/LeftArm.obj",
-        "content/game/character/RightArm.obj",
-        "content/game/character/LeftLeg.obj",
-        "content/game/character/RightLeg.obj",
-    ];
-
     let player_id = commands
         .spawn((
             Name::new("Player"),
@@ -148,21 +138,17 @@ pub fn spawn_player(
         ))
         .id();
 
-    for part_path in parts_to_load {
-        let loaded = load_obj_file(part_path, &mut meshes, &mut materials);
-        for (mesh, mat) in loaded {
-            let child_id = commands
-                .spawn((
-                    Mesh3d(mesh),
-                    MeshMaterial3d(mat),
-                    Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
-                        .with_scale(Vec3::splat(0.28)),
-                    GlobalTransform::default(),
-                ))
-                .id();
-            commands.entity(player_id).add_child(child_id);
-        }
-    }
+    let avatar_scene = asset_server.load("content/game/character/Avatar.glb#Scene0");
+
+    let child_id = commands
+        .spawn((
+            WorldAssetRoot(avatar_scene),
+            Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
+                .with_scale(Vec3::splat(0.28)),
+            GlobalTransform::default(),
+        ))
+        .id();
+    commands.entity(player_id).add_child(child_id);
 
     commands.spawn((
         Camera3d::default(),

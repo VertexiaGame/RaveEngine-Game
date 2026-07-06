@@ -71,26 +71,12 @@ fn setup_physics_initializer(mut commands: Commands) {
 
 pub fn setup_player_assets(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
-    let parts_to_load = [
-        "content/game/character/Head.obj",
-        "content/game/character/Torso.obj",
-        "content/game/character/LeftArm.obj",
-        "content/game/character/RightArm.obj",
-        "content/game/character/LeftLeg.obj",
-        "content/game/character/RightLeg.obj",
-    ];
-
-    let mut cached_parts = Vec::new();
-    for part_path in parts_to_load {
-        let loaded = player::loader::load_obj_file(part_path, &mut meshes, &mut materials);
-        cached_parts.extend(loaded);
-    }
+    let avatar_scene = asset_server.load("content/game/character/Avatar.glb#Scene0");
 
     commands.insert_resource(player::loader::PlayerCharacterAssets {
-        parts: cached_parts,
+        avatar_scene,
     });
 }
 
@@ -210,7 +196,6 @@ fn attach_character_visuals(
     character_assets: Option<Res<player::loader::PlayerCharacterAssets>>,
     query: Query<(Entity, &crate::common::components::Player, Option<&LocalPlayer>), (With<NeedsCharacterVisuals>, Without<CharacterVisualsSpawned>, Without<Replicate>)>,
     local_client_id: Option<Res<LocalClientId>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Some(assets) = character_assets else {
         return;
@@ -222,34 +207,19 @@ fn attach_character_visuals(
         info!("ATTACHING CHARACTER VISUALS TO {:?}", entity);
         let is_local = (local_id == Some(player_comp.client_id)) || local_player_opt.is_some();
 
-        for (mesh, mat_handle) in &assets.parts {
-            let final_mat_handle = if is_local {
-                if let Some(mat) = materials.get(mat_handle) {
-                    let mut unique_mat = mat.clone();
-                    unique_mat.alpha_mode = AlphaMode::Blend;
-                    materials.add(unique_mat)
-                } else {
-                    mat_handle.clone()
-                }
-            } else {
-                mat_handle.clone()
-            };
+        let mut child_cmd = commands.spawn((
+            WorldAssetRoot(assets.avatar_scene.clone()),
+            Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
+                .with_scale(Vec3::splat(0.28)),
+            GlobalTransform::default(),
+        ));
 
-            let mut child_cmd = commands.spawn((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(final_mat_handle),
-                Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
-                    .with_scale(Vec3::splat(0.28)),
-                GlobalTransform::default(),
-            ));
-
-            if is_local {
-                child_cmd.insert(UniqueLocalMaterial);
-            }
-
-            let child_id = child_cmd.id();
-            commands.entity(entity).add_child(child_id);
+        if is_local {
+            child_cmd.insert(UniqueLocalMaterial);
         }
+
+        let child_id = child_cmd.id();
+        commands.entity(entity).add_child(child_id);
 
         commands.entity(entity)
             .remove::<NeedsCharacterVisuals>()
@@ -300,8 +270,7 @@ fn sync_local_player(
 fn update_local_player_transparency(
     camera_query: Query<(&Transform, &player::CameraSettings), With<player::PlayerCamera>>,
     local_player_query: Query<(&Transform, &Children), With<LocalPlayer>>,
-    child_material_query: Query<(Entity, &MeshMaterial3d<StandardMaterial>), With<UniqueLocalMaterial>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    child_query: Query<Entity, With<UniqueLocalMaterial>>,
     mut visibility_query: Query<&mut Visibility>,
 ) {
     let Some((camera_transform, camera_settings)) = camera_query.iter().next() else {
@@ -314,18 +283,15 @@ fn update_local_player_transparency(
     let player_target = player_transform.translation + camera_settings.target_offset;
     let distance = camera_transform.translation.distance(player_target);
 
-    let alpha = ((distance - 0.3) / 1.2).clamp(0.0, 1.0);
+    let show = distance > 0.6;
 
     for child in children.iter() {
-        if let Ok((child_entity, mesh_mat)) = child_material_query.get(child) {
-            if let Some(mut mat) = materials.get_mut(&mesh_mat.0) {
-                mat.base_color = mat.base_color.with_alpha(alpha);
-            }
+        if let Ok(child_entity) = child_query.get(child) {
             if let Ok(mut visibility) = visibility_query.get_mut(child_entity) {
-                if alpha <= 0.001 {
-                    *visibility = Visibility::Hidden;
-                } else {
+                if show {
                     *visibility = Visibility::Inherited;
+                } else {
+                    *visibility = Visibility::Hidden;
                 }
             }
         }
