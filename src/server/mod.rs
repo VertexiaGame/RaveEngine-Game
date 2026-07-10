@@ -60,4 +60,10 @@ fn setup_server(
 
     commands.trigger(Start { entity: server_entity });
     info!("Server entity spawned and Start trigger dispatched");
+
+    commands.spawn((
+        Name::new("Players"),
+        crate::common::net::components::PlayersServiceContainer,
+        Replicate::default(),
+    ));
 }

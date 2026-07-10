@@ -5,6 +5,10 @@ pub mod auth;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
+pub mod replicon {
+    pub use bevy_replicon::prelude::*;
+}
+
 pub struct NetPlugin;
 
 impl Plugin for NetPlugin {
@@ -30,6 +34,7 @@ impl Plugin for ProtocolPlugin {
 pub fn register_protocol(app: &mut App) {
     app.register_type::<components::Player>();
     app.register_type::<components::NetworkTransform>();
+    app.register_type::<components::PlayersServiceContainer>();
 
     app.add_channel::<messages::GameChannel>(ChannelSettings {
         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -39,6 +44,7 @@ pub fn register_protocol(app: &mut App) {
 
     app.component::<components::Player>().replicate();
     app.component::<components::NetworkTransform>().replicate();
+    app.component::<components::PlayersServiceContainer>().replicate();
     app.component::<crate::common::game::bricks::components::Brick>().replicate();
     app.component::<crate::common::game::bricks::components::BrickShapeComponent>().replicate();
     app.component::<crate::common::game::bricks::components::BrickPhysics>().replicate();

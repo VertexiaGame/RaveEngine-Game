@@ -440,7 +440,7 @@ fn cleanup_duplicate_gltf_nodes(
     player_visuals: Query<(Entity, &Children), With<PlayerVisualChild>>,
     name_query: Query<&Name>,
 ) {
-    for (visual_entity, children) in &player_visuals {
+    for (_visual_entity, children) in &player_visuals {
         for child in children.iter() {
             if let Ok(name) = name_query.get(child) {
                 let name_str = name.as_str();

@@ -9,6 +9,7 @@ pub fn handle_new_client(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
+    _players_service_query: Query<Entity, With<crate::common::net::components::PlayersServiceContainer>>,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         warn!("handle_new_client failed: RemoteId missing on entity {:?}", trigger.entity);
@@ -20,6 +21,7 @@ pub fn handle_new_client(
     commands.entity(trigger.entity).insert(ReplicationSender);
 
     let player_entity = commands.spawn((
+        Name::new(format!("Player_{}", client_id)),
         Player {
             client_id,
             speed: 16.0 * 0.28,

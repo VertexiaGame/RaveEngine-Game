@@ -19,3 +19,7 @@ pub struct NetworkTransform {
     pub rotation: Quat,
     pub scale: Vec3,
 }
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct PlayersServiceContainer;

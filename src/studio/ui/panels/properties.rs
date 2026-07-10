@@ -455,3 +455,48 @@ pub fn draw_workspace_properties(
                 });
         });
 }
+
+pub fn draw_players_properties(
+    ui: &mut egui::Ui,
+    players_service: &mut Option<ResMut<'_, crate::studio::tools::PlayersService>>,
+) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+    });
+
+    ui.add_space(8.0);
+    let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+    ui.add_space(8.0);
+
+    egui::CollapsingHeader::new(egui::RichText::new("Basic").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("properties_players_basic_grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Player Speed").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    if let Some(service) = players_service {
+                        let mut speed_studs = service.speed / 0.28;
+                        if ui.add(egui::DragValue::new(&mut speed_studs).speed(0.5).range(0.0..=1000.0).suffix(" studs/s")).changed() {
+                            service.speed = speed_studs * 0.28;
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Player Jump Power").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    if let Some(service) = players_service {
+                        let mut jump_power_studs = service.jump_power / 0.28;
+                        if ui.add(egui::DragValue::new(&mut jump_power_studs).speed(1.0).range(0.0..=1000.0).suffix(" studs/s")).changed() {
+                            service.jump_power = jump_power_studs * 0.28;
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+                });
+        });
+}

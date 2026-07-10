@@ -5,6 +5,7 @@ use bevy::camera_controller::free_camera::FreeCamera;
 use bevy::camera::Hdr;
 use bevy::post_process::bloom::Bloom;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
+use bevy::light::ShadowFilteringMethod;
 
 #[derive(Component)]
 pub struct GizmoCamera;
@@ -21,43 +22,17 @@ pub fn setup_studio(
         amb.color = Color::srgb(0.85, 0.88, 1.0);
         amb.brightness = 1000.0;
     }
-
-    commands.spawn((
-        DirectionalLight {
-            color: Color::srgb(1.0, 0.96, 0.85),
-            illuminance: 12000.0,
-            shadow_maps_enabled: true,
-            contact_shadows_enabled: true,
-            shadow_depth_bias: 0.1,
-            shadow_normal_bias: 1.2,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.32, 0.95, 0.0)),
-    ));
-
-    commands.spawn((
-        PointLight {
-            intensity: 1500.0,
-            shadow_maps_enabled: true,
-            contact_shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0),
-    ));
     
     let mut camera = commands.spawn((
         Camera3d::default(),
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.70, 0.90, 1.00)),
-            ..default()
-        },
+        Camera::default(),
         Projection::Perspective(PerspectiveProjection {
             far: 3000.0,
             fov: 80.0f32.to_radians(),
             ..default()
         }),
         Hdr,
-        Msaa::Off,
+        Msaa::Sample4,
         bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
         MeshPickingCamera,
@@ -65,19 +40,12 @@ pub fn setup_studio(
         DepthPrepass,
         NormalPrepass,
         bevy::render::occlusion_culling::OcclusionCulling,
+        ShadowFilteringMethod::Gaussian,
     ));
 
     camera.insert((
         MotionVectorPrepass,
         Fxaa::default(),
-        DistanceFog {
-            color: Color::srgb(0.70, 0.90, 1.00),
-            falloff: FogFalloff::Linear {
-                start: 400.0,
-                end: 1100.0,
-            },
-            ..default()
-        },
     ));
 
     let ssao_val = if graphics_settings.ssao { Some(ScreenSpaceAmbientOcclusion::default()) } else { None };
@@ -102,7 +70,7 @@ pub fn setup_studio(
             ..default()
         },
         Hdr,
-        Msaa::Off,
+        Msaa::Sample4,
         bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         bevy::camera::visibility::RenderLayers::layer(1),
         bevy_egui::PrimaryEguiContext,
@@ -110,14 +78,6 @@ pub fn setup_studio(
         DepthPrepass,
         NormalPrepass,
         MotionVectorPrepass,
-        DistanceFog {
-            color: Color::srgb(0.70, 0.90, 1.00),
-            falloff: FogFalloff::Linear {
-                start: 400.0,
-                end: 1100.0,
-            },
-            ..default()
-        },
         bevy::render::occlusion_culling::OcclusionCulling,
     ));
 
@@ -130,6 +90,11 @@ pub fn setup_studio(
     if let Some(bloom) = bloom_val {
         gizmo_camera.insert(bloom);
     }
+
+    commands.spawn((
+        Name::new("Players"),
+        crate::common::net::components::PlayersServiceContainer,
+    ));
 }
 
 pub fn disable_camera_on_ui_interaction(

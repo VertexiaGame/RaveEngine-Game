@@ -118,6 +118,7 @@ fn draw_entity_node(
                     selection.entity = Some(entity);
                     selection.entities = vec![entity];
                     selection.workspace_selected = false;
+                    selection.players_selected = false;
                 }
 
                 if label_res.double_clicked() {
@@ -229,6 +230,7 @@ fn draw_entity_node(
             selection.entity = Some(entity);
             selection.entities = vec![entity];
             selection.workspace_selected = false;
+            selection.players_selected = false;
         }
 
         label_res.context_menu(|ui| {
@@ -295,6 +297,46 @@ fn draw_entity_node(
     }
 }
 
+fn draw_player_node(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    selection: &mut ResMut<Selection>,
+    entities_query: &Query<(
+        Entity,
+        &mut Transform,
+        &mut Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+        Option<&mut crate::common::game::bricks::components::BrickPhysics>,
+    ), Without<Camera3d>>,
+    players_tex: egui::TextureId,
+) {
+    let Ok((_, _, name, _, _, _, _, _, _, _, _, _)) = entities_query.get(entity) else { return };
+    let name_str = name.as_str().to_string();
+    let is_selected = selection.entity == Some(entity);
+
+    let id = egui::Id::new(entity);
+    let label_res = ui.horizontal(|ui| {
+        ui.add_space(12.0);
+        ui.push_id(id, |ui| {
+            explorerlabel(ui, is_selected, &name_str, Some(players_tex))
+        }).inner
+    }).inner;
+
+    if label_res.clicked() {
+        selection.entity = Some(entity);
+        selection.entities = vec![entity];
+        selection.workspace_selected = false;
+        selection.players_selected = false;
+    }
+}
+
 pub fn draw_explorer(
     ui: &mut egui::Ui,
     commands: &mut Commands,
@@ -318,6 +360,7 @@ pub fn draw_explorer(
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     workspace_tex: egui::TextureId,
     brick_tex: egui::TextureId,
+    players_tex: egui::TextureId,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Explorer").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -366,6 +409,7 @@ pub fn draw_explorer(
             selection.entity = None;
             selection.entities.clear();
             selection.workspace_selected = true;
+            selection.players_selected = false;
         }
         if label_res.double_clicked() {
             ui.data_mut(|d| d.insert_temp(workspace_id.with("should_toggle"), true));
@@ -420,6 +464,53 @@ pub fn draw_explorer(
             dragged_entity.entity = None;
         }
     }
+
+    let players_id = ui.make_persistent_id("players_collapsing_header");
+    let mut players_state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), players_id, true);
+    if ui.data_mut(|d| d.remove_temp::<bool>(players_id.with("should_toggle"))).unwrap_or(false) {
+        let open = players_state.is_open();
+        players_state.set_open(!open);
+        players_state.store(ui.ctx());
+    }
+
+    let players_res = players_state.show_header(ui, |ui| {
+        let label_res = explorerlabel(ui, selection.players_selected, "Players", Some(players_tex));
+        if label_res.clicked() {
+            selection.entity = None;
+            selection.entities.clear();
+            selection.workspace_selected = false;
+            selection.players_selected = true;
+        }
+        if label_res.double_clicked() {
+            ui.data_mut(|d| d.insert_temp(players_id.with("should_toggle"), true));
+        }
+    });
+
+    players_res.body(|ui| {
+        let mut sorted_players = Vec::new();
+        for (entity, _, name, _, _, _, _, _, _, _, _, _) in entities_query {
+            let name_str = name.as_str();
+            if name_str == "Player" || name_str.starts_with("Player_") {
+                sorted_players.push(entity);
+            }
+        }
+
+        sorted_players.sort_by(|&a, &b| {
+            let name_a = entities_query.get(a).map(|(_, _, n, _, _, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+            let name_b = entities_query.get(b).map(|(_, _, n, _, _, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+            name_a.cmp(name_b)
+        });
+
+        for child in sorted_players {
+            draw_player_node(
+                ui,
+                child,
+                selection,
+                entities_query,
+                players_tex,
+            );
+        }
+    });
 
     if ui.input(|i| i.pointer.any_released()) {
         dragged_entity.entity = None;

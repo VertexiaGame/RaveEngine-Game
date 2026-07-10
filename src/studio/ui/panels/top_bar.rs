@@ -22,6 +22,9 @@ pub fn draw_top_bar(
     rotate_tex: egui::TextureId,
     scale_tex: egui::TextureId,
     add_tex: egui::TextureId,
+    play_tex: egui::TextureId,
+    playc_tex: egui::TextureId,
+    stopp_tex: egui::TextureId,
     diagnostics: &Res<bevy::diagnostic::DiagnosticsStore>,
     camera_transform: Option<&Transform>,
     _action_writer: &mut MessageWriter<crate::studio::tools::UndoRedoAction>,
@@ -333,27 +336,6 @@ pub fn draw_top_bar(
                 }
 
                 ui.add_space(8.0);
-                let (sep_rect_phys, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
-                ui.painter().rect_filled(sep_rect_phys, 0.0, egui::Color32::from_rgb(212, 212, 212));
-                ui.add_space(8.0);
-
-                match physics_state {
-                    crate::common::game::physics::PhysicsSimulationState::Stopped => {
-                        if ribbonbutton(ui, None, "Play", false).clicked() {
-                            physics_action_writer.write(crate::common::game::physics::PhysicsSimulationAction::Play);
-                        }
-                    }
-                    crate::common::game::physics::PhysicsSimulationState::Running => {
-                        if ribbonbutton(ui, None, "Stop", false).clicked() {
-                            physics_action_writer.write(crate::common::game::physics::PhysicsSimulationAction::Stop);
-                        }
-                        if ribbonbutton(ui, None, "Replay", false).clicked() {
-                            physics_action_writer.write(crate::common::game::physics::PhysicsSimulationAction::Replay);
-                        }
-                    }
-                }
-
-                ui.add_space(8.0);
                 let (sep_rect_snap, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
                 ui.painter().rect_filled(sep_rect_snap, 0.0, egui::Color32::from_rgb(212, 212, 212));
                 ui.add_space(8.0);
@@ -512,6 +494,26 @@ pub fn draw_top_bar(
                 ui.add_space(8.0);
                 ui.visuals_mut().window_fill = original_window_fill;
                 ui.visuals_mut().window_stroke = original_window_stroke;
+
+                ui.add_space(8.0);
+                let (sep_rect_play, _) = ui.allocate_exact_size(egui::vec2(1.0, 56.0), egui::Sense::hover());
+                ui.painter().rect_filled(sep_rect_play, 0.0, egui::Color32::from_rgb(212, 212, 212));
+                ui.add_space(8.0);
+
+                let is_playing = physics_state == crate::common::game::physics::PhysicsSimulationState::Running;
+                let play_btn_tex = if is_playing { stopp_tex } else { play_tex };
+                let play_btn_label = if is_playing { "Stop" } else { "Play" };
+
+                if ribbonbutton(ui, Some(play_btn_tex), play_btn_label, is_playing).clicked() {
+                    if is_playing {
+                        physics_action_writer.write(crate::common::game::physics::PhysicsSimulationAction::Stop);
+                    } else {
+                        physics_action_writer.write(crate::common::game::physics::PhysicsSimulationAction::Play);
+                    }
+                }
+
+                if ribbonbutton(ui, Some(playc_tex), "Play in Client", false).clicked() {
+                }
             });
         });
 
@@ -526,7 +528,8 @@ fn ribbonbutton(
     label: &str,
     selected: bool,
 ) -> egui::Response {
-    let size = egui::vec2(56.0, 56.0);
+    let width = if label.len() > 8 { 88.0 } else { 56.0 };
+    let size = egui::vec2(width, 56.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     if selected {
@@ -557,15 +560,22 @@ fn ribbonbutton(
 
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
         ui.vertical_centered(|ui| {
-            if let Some(texture_id) = icon {
-                ui.add_space(7.0);
-                ui.add(egui::Image::new((texture_id, egui::vec2(24.0, 24.0))));
-                ui.add_space(3.0);
+            if label.is_empty() {
+                if let Some(texture_id) = icon {
+                    ui.add_space(14.0);
+                    ui.add(egui::Image::new((texture_id, egui::vec2(28.0, 28.0))));
+                }
             } else {
-                ui.add_space(18.0);
+                if let Some(texture_id) = icon {
+                    ui.add_space(5.0);
+                    ui.add(egui::Image::new((texture_id, egui::vec2(28.0, 28.0))));
+                    ui.add_space(1.0);
+                } else {
+                    ui.add_space(18.0);
+                }
+                let text_color = egui::Color32::from_rgb(20, 20, 20);
+                ui.label(egui::RichText::new(label).color(text_color).size(11.0));
             }
-            let text_color = egui::Color32::from_rgb(20, 20, 20);
-            ui.label(egui::RichText::new(label).color(text_color).size(11.5));
         });
     });
 

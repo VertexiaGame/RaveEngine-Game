@@ -28,6 +28,7 @@ pub struct Selection {
     pub entity: Option<Entity>,
     pub entities: Vec<Entity>,
     pub workspace_selected: bool,
+    pub players_selected: bool,
 }
 
 #[derive(Resource, Default)]
@@ -171,6 +172,22 @@ impl UndoRedoHistory {
 pub enum UndoRedoAction {
     Undo,
     Redo,
+}
+
+#[derive(Resource, Clone, Debug, Reflect)]
+#[reflect(Resource)]
+pub struct PlayersService {
+    pub speed: f32,
+    pub jump_power: f32,
+}
+
+impl Default for PlayersService {
+    fn default() -> Self {
+        Self {
+            speed: 16.0 * 0.28,
+            jump_power: 50.0 * 0.28,
+        }
+    }
 }
 
 pub fn handle_keyboard_shortcuts(
@@ -436,12 +453,14 @@ pub fn select_brick(
                 selection.entity = Some(target);
                 selection.entities = vec![target];
                 selection.workspace_selected = false;
+                selection.players_selected = false;
                 context_menu.entity = None;
                 context_menu.position = None;
             } else if gizmos.get(target).is_err() {
                 selection.entity = None;
                 selection.entities.clear();
                 selection.workspace_selected = false;
+                selection.players_selected = false;
                 context_menu.entity = None;
                 context_menu.position = None;
             }
@@ -741,12 +760,12 @@ pub fn handle_part_drag_end(
         if drag.button != PointerButton::Primary {
             continue;
         }
-        if let (Some(dragged_entity), Some(start_transform)) = (part_drag_state.dragged_entity, part_drag_state.start_transform) {
+        if let (Some(dragged_entity), Some(part_drag_state_start_transform)) = (part_drag_state.dragged_entity, part_drag_state.start_transform) {
             if let Ok(final_transform) = bricks.get(dragged_entity) {
-                if start_transform != *final_transform {
+                if part_drag_state_start_transform != *final_transform {
                     history.push_command(UndoCommand::TransformChange {
                         entity: dragged_entity,
-                        old_transform: start_transform,
+                        old_transform: part_drag_state_start_transform,
                         new_transform: *final_transform,
                     });
                 }
@@ -903,6 +922,7 @@ pub fn handle_marquee_selection(
                     selection.entities = selected_entities.clone();
                     selection.entity = Some(selected_entities[0]);
                     selection.workspace_selected = false;
+                    selection.players_selected = false;
                 } else {
                     selection.entities.clear();
                     selection.entity = None;
