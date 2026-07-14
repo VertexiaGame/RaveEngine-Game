@@ -5,6 +5,7 @@ use crate::common::game::bricks::data::spawn_brick;
 use crate::common::game::bricks::studs::StudsAssets;
 use crate::common::game::bricks::data::BrickSpawnerCount;
 use bevy::pbr::ExtendedMaterial;
+use avian3d::prelude::CollisionLayers;
 
 #[allow(deprecated)]
 pub fn draw_top_bar(
@@ -50,7 +51,7 @@ pub fn draw_top_bar(
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
     onboarding_data: &mut crate::studio::ui::panels::onboarding::OnboardingData,
-    play_processes: &mut ResMut<crate::studio::ui::resources::PlayInClientProcesses>,
+    _play_processes: &mut ResMut<crate::studio::ui::resources::PlayInClientProcesses>,
     playtest_state: &mut ResMut<crate::client::PlaytestState>,
     playtest_backup: &mut ResMut<crate::studio::ui::resources::PlaytestBackup>,
     playtest_client_query: &Query<Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
@@ -102,10 +103,10 @@ pub fn draw_top_bar(
                                             current_color = mat.base_color;
                                         }
                                     }
-                                    let (physics_enabled, bounciness) = if let Some(phys) = phys_opt {
-                                        (phys.enabled, phys.bounciness)
+                                    let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                                        (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                                     } else {
-                                        (true, 0.3)
+                                        (true, 0.3, true, 0.3, 1.0, 1.0)
                                     };
                                     bricks_data.push(crate::common::core::vrtx::VrtxBrick {
                                         name: name.to_string(),
@@ -114,6 +115,10 @@ pub fn draw_top_bar(
                                         color: current_color,
                                         physics_enabled,
                                         bounciness,
+                                        player_can_collide,
+                                        friction,
+                                        gravity_scale,
+                                        mass,
                                     });
                                 }
                             }
@@ -128,7 +133,7 @@ pub fn draw_top_bar(
                         Transform::IDENTITY
                     };
                     let state = crate::common::core::vrtx::VrtxFileState {
-                        version: 1,
+                        version: 3,
                         gravity: gravity_val,
                         settings: crate::common::core::vrtx::VrtxSettings {
                             ssao: graphics_settings.ssao,
@@ -163,10 +168,10 @@ pub fn draw_top_bar(
                                                 current_color = mat.base_color;
                                             }
                                         }
-                                        let (physics_enabled, bounciness) = if let Some(phys) = phys_opt {
-                                            (phys.enabled, phys.bounciness)
+                                        let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                                            (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                                         } else {
-                                            (true, 0.3)
+                                            (true, 0.3, true, 0.3, 1.0, 1.0)
                                         };
                                         bricks_data.push(crate::common::core::vrtx::VrtxBrick {
                                             name: name.to_string(),
@@ -175,6 +180,10 @@ pub fn draw_top_bar(
                                             color: current_color,
                                             physics_enabled,
                                             bounciness,
+                                            player_can_collide,
+                                            friction,
+                                            gravity_scale,
+                                            mass,
                                         });
                                     }
                                 }
@@ -189,7 +198,7 @@ pub fn draw_top_bar(
                                     Transform::IDENTITY
                                 };
                                 let state = crate::common::core::vrtx::VrtxFileState {
-                                    version: 1,
+                                    version: 3,
                                     gravity: gravity_val,
                                     settings: crate::common::core::vrtx::VrtxSettings {
                                         ssao: graphics_settings.ssao,
@@ -234,6 +243,11 @@ pub fn draw_top_bar(
                                                 meshes.add(Sphere::new(1.0 * 0.28))
                                             }
                                         };
+                                        let layers = if brick.player_can_collide {
+                                            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                                        } else {
+                                            CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                                        };
                                         commands.spawn((
                                             Mesh3d(mesh_handle),
                                             MeshMaterial3d(studs_materials.add(ExtendedMaterial {
@@ -241,6 +255,7 @@ pub fn draw_top_bar(
                                                     base_color: brick.color,
                                                     perceptual_roughness: 0.95,
                                                     reflectance: 0.1,
+                                                    alpha_mode: if brick.color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                                                     ..default()
                                                 },
                                                 extension: crate::common::game::bricks::studs::StudsExtension {
@@ -254,8 +269,13 @@ pub fn draw_top_bar(
                                             crate::common::game::bricks::components::BrickPhysics {
                                                 enabled: brick.physics_enabled,
                                                 bounciness: brick.bounciness,
+                                                player_can_collide: brick.player_can_collide,
+                                                friction: brick.friction,
+                                                gravity_scale: brick.gravity_scale,
+                                                mass: brick.mass,
                                             },
                                             crate::common::game::bricks::components::BrickColor { color: brick.color },
+                                            layers,
                                             Pickable::default(),
                                             Name::new(brick.name),
                                         ));
@@ -564,7 +584,7 @@ pub fn draw_top_bar(
 
                         let temp_map_path = "temp_play.vrtx".to_string();
                         let state = crate::common::core::vrtx::VrtxFileState {
-                            version: 1,
+                            version: 3,
                             gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                             settings: crate::common::core::vrtx::VrtxSettings {
                                 ssao: graphics_settings.ssao,
@@ -583,10 +603,10 @@ pub fn draw_top_bar(
                                         current_color = mat.base_color;
                                     }
                                 }
-                                let (physics_enabled, bounciness) = if let Some(phys) = b.physics {
-                                    (phys.enabled, phys.bounciness)
+                                let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = b.physics {
+                                    (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                                 } else {
-                                    (true, 0.3)
+                                    (true, 0.3, true, 0.3, 1.0, 1.0)
                                 };
                                 crate::common::core::vrtx::VrtxBrick {
                                     name: b.name.clone(),
@@ -595,6 +615,10 @@ pub fn draw_top_bar(
                                     color: current_color,
                                     physics_enabled,
                                     bounciness,
+                                    player_can_collide,
+                                    friction,
+                                    gravity_scale,
+                                    mass,
                                 }
                             }).collect(),
                         };

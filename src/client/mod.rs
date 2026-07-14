@@ -456,6 +456,7 @@ fn on_brick_added(
             base: StandardMaterial {
                 base_color,
                 perceptual_roughness: 0.9,
+                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                 ..default()
             },
             extension: StudsExtension {
@@ -514,6 +515,7 @@ fn sync_brick_color_to_material(
     for (brick_color, material_handle) in &query {
         if let Some(mut material) = studs_materials.get_mut(&material_handle.0) {
             material.base.base_color = brick_color.color;
+            material.base.alpha_mode = if brick_color.color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
         }
     }
 }

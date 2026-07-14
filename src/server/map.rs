@@ -17,6 +17,10 @@ pub fn load_fallback_map(
         BrickPhysics {
             enabled: false,
             bounciness: 0.3,
+            player_can_collide: true,
+            friction: 0.3,
+            gravity_scale: 1.0,
+            mass: 1.0,
         },
         BrickColor { color: Color::srgb(0.28, 0.62, 0.32) },
         NetworkTransform {
@@ -26,6 +30,7 @@ pub fn load_fallback_map(
         },
         RigidBody::Static,
         Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
         Friction::new(0.3),
         Restitution::new(0.3),
         Replicate::default(),
@@ -39,6 +44,10 @@ pub fn load_fallback_map(
         BrickPhysics {
             enabled: true,
             bounciness: 0.3,
+            player_can_collide: true,
+            friction: 0.3,
+            gravity_scale: 1.0,
+            mass: 1.0,
         },
         BrickColor { color: Color::srgb(0.84, 0.24, 0.16) },
         NetworkTransform {
@@ -48,6 +57,7 @@ pub fn load_fallback_map(
         },
         RigidBody::Dynamic,
         Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
         Friction::new(0.3),
         Restitution::new(0.3),
         SleepingDisabled,
@@ -94,6 +104,12 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
         RigidBody::Static
     };
 
+    let layers = if brick.player_can_collide {
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+    } else {
+        CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+    };
+
     commands.spawn((
         brick.transform,
         Name::new(brick.name.clone()),
@@ -102,6 +118,10 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
         BrickPhysics {
             enabled: brick.physics_enabled,
             bounciness: brick.bounciness,
+            player_can_collide: brick.player_can_collide,
+            friction: brick.friction,
+            gravity_scale: brick.gravity_scale,
+            mass: brick.mass,
         },
         BrickColor { color: brick.color },
         NetworkTransform {
@@ -111,8 +131,12 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
         },
         body_type,
         collider,
-        Friction::new(0.3),
+        layers,
+    )).insert((
+        Friction::new(brick.friction),
         Restitution::new(brick.bounciness),
+        GravityScale(brick.gravity_scale),
+        Mass(brick.mass),
         SleepingDisabled,
         Replicate::default(),
     ));

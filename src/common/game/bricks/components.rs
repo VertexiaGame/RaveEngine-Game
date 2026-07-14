@@ -23,6 +23,10 @@ pub struct BrickShapeComponent {
 pub struct BrickPhysics {
     pub enabled: bool,
     pub bounciness: f32,
+    pub player_can_collide: bool,
+    pub friction: f32,
+    pub gravity_scale: f32,
+    pub mass: f32,
 }
 
 impl Default for BrickPhysics {
@@ -30,6 +34,10 @@ impl Default for BrickPhysics {
         Self {
             enabled: true,
             bounciness: 0.3,
+            player_can_collide: true,
+            friction: 0.3,
+            gravity_scale: 1.0,
+            mass: 1.0,
         }
     }
 }

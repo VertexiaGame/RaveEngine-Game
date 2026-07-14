@@ -20,16 +20,6 @@ pub struct TransformBackup(pub Transform);
 
 pub struct PhysicsSimulationPlugin;
 
-
-////////
-//Physics simulation MOSTLY  for the studio for now. TODO:
-//IMPLEMENT proper physics plugin for server & client replication
-//move physics to folder
-//remove things specific to the current playtest (this is basically just a showcase), like "baseplate" sdhould just become a checkbox "enable physics"... :3
-
-
-
-
 impl Plugin for PhysicsSimulationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PhysicsPlugins::default())
@@ -83,10 +73,10 @@ fn handle_physics_simulation_actions(
                             commands.entity(entity).insert(TransformBackup(*transform));
                         }
 
-                        let (enabled, bounciness) = if let Some(phys) = phys_opt {
-                            (phys.enabled, phys.bounciness)
+                        let (enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                            (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                         } else {
-                            (true, 0.3)
+                            (true, 0.3, true, 0.3, 1.0, 1.0)
                         };
 
                         let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
@@ -99,20 +89,30 @@ fn handle_physics_simulation_actions(
                             }
                         };
 
+                        let layers = if player_can_collide {
+                            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                        } else {
+                            CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                        };
+
                         if enabled {
                             commands.entity(entity).insert((
                                 RigidBody::Dynamic,
                                 collider,
-                                Friction::new(0.3),
+                                Friction::new(friction),
                                 Restitution::new(bounciness),
+                                GravityScale(gravity_scale),
+                                Mass(mass),
+                                layers,
                                 SleepingDisabled,
                             ));
                         } else {
                             commands.entity(entity).insert((
                                 RigidBody::Static,
                                 collider,
-                                Friction::new(0.3),
+                                Friction::new(friction),
                                 Restitution::new(0.0),
+                                layers,
                             ));
                         }
                     }
@@ -136,6 +136,8 @@ fn handle_physics_simulation_actions(
                             Mass,
                             LinearVelocity,
                             AngularVelocity,
+                            GravityScale,
+                            CollisionLayers,
                             SleepingDisabled,
                         )>();
                     }
@@ -155,6 +157,8 @@ fn handle_physics_simulation_actions(
                             Mass,
                             LinearVelocity,
                             AngularVelocity,
+                            GravityScale,
+                            CollisionLayers,
                             SleepingDisabled,
                         )>();
                     }
@@ -168,10 +172,10 @@ fn handle_physics_simulation_actions(
                         commands.entity(entity).insert(TransformBackup(*transform));
                     }
 
-                    let (enabled, bounciness) = if let Some(phys) = phys_opt {
-                        (phys.enabled, phys.bounciness)
+                    let (enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                        (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                     } else {
-                        (true, 0.3)
+                        (true, 0.3, true, 0.3, 1.0, 1.0)
                     };
 
                     let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
@@ -184,20 +188,30 @@ fn handle_physics_simulation_actions(
                         }
                     };
 
+                    let layers = if player_can_collide {
+                        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                    } else {
+                        CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                    };
+
                     if enabled {
                         commands.entity(entity).insert((
                             RigidBody::Dynamic,
                             collider,
-                            Friction::new(0.3),
+                            Friction::new(friction),
                             Restitution::new(bounciness),
+                            GravityScale(gravity_scale),
+                            Mass(mass),
+                            layers,
                             SleepingDisabled,
                         ));
                     } else {
                         commands.entity(entity).insert((
                             RigidBody::Static,
                             collider,
-                            Friction::new(0.3),
+                            Friction::new(friction),
                             Restitution::new(0.0),
+                            layers,
                         ));
                     }
                 }
@@ -215,10 +229,10 @@ fn handle_newly_spawned_bricks(
         for (entity, transform, _name, shape_opt, phys_opt) in &query {
             commands.entity(entity).insert(TransformBackup(*transform));
 
-            let (enabled, bounciness) = if let Some(phys) = phys_opt {
-                (phys.enabled, phys.bounciness)
+            let (enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
             } else {
-                (true, 0.3)
+                (true, 0.3, true, 0.3, 1.0, 1.0)
             };
 
             let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
@@ -231,20 +245,30 @@ fn handle_newly_spawned_bricks(
                 }
             };
 
+            let layers = if player_can_collide {
+                CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+            } else {
+                CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+            };
+
             if enabled {
                 commands.entity(entity).insert((
                     RigidBody::Dynamic,
                     collider,
-                    Friction::new(0.3),
+                    Friction::new(friction),
                     Restitution::new(bounciness),
+                    GravityScale(gravity_scale),
+                    Mass(mass),
+                    layers,
                     SleepingDisabled,
                 ));
             } else {
                 commands.entity(entity).insert((
                     RigidBody::Static,
                     collider,
-                    Friction::new(0.3),
+                    Friction::new(friction),
                     Restitution::new(0.0),
+                    layers,
                 ));
             }
         }

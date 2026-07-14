@@ -10,6 +10,10 @@ pub struct VrtxBrick {
     pub color: Color,
     pub physics_enabled: bool,
     pub bounciness: f32,
+    pub player_can_collide: bool,
+    pub friction: f32,
+    pub gravity_scale: f32,
+    pub mass: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -469,6 +473,10 @@ fn collect_bricks_recursive(
                     color,
                     physics_enabled,
                     bounciness,
+                    player_can_collide: true,
+                    friction: 0.3,
+                    gravity_scale: 1.0,
+                    mass: 1.0,
                 });
             }
 
@@ -621,6 +629,10 @@ impl VrtxFileState {
 
             writer.write_all(&[if brick.physics_enabled { 1 } else { 0 }])?;
             writer.write_all(&brick.bounciness.to_le_bytes())?;
+            writer.write_all(&[if brick.player_can_collide { 1 } else { 0 }])?;
+            writer.write_all(&brick.friction.to_le_bytes())?;
+            writer.write_all(&brick.gravity_scale.to_le_bytes())?;
+            writer.write_all(&brick.mass.to_le_bytes())?;
         }
 
         writer.flush()?;
@@ -641,8 +653,8 @@ impl VrtxFileState {
             let version = u32::from_le_bytes(version_bytes);
             debug!("load_from_file: VRTX format version is {}", version);
 
-            let (gravity, settings, camera_transform, count) = if version == 1 {
-                debug!("load_from_file: Parsing version 1 header");
+            let (gravity, settings, camera_transform, count) = if version == 3 || version == 2 || version == 1 {
+                debug!("load_from_file: Parsing version 1/2/3 header");
                 let mut gx = [0u8; 4]; reader.read_exact(&mut gx)?;
                 let mut gy = [0u8; 4]; reader.read_exact(&mut gy)?;
                 let mut gz = [0u8; 4]; reader.read_exact(&mut gz)?;
@@ -801,6 +813,30 @@ impl VrtxFileState {
                 reader.read_exact(&mut bounciness_bytes)?;
                 let bounciness = f32::from_le_bytes(bounciness_bytes);
 
+                let player_can_collide = if version >= 2 {
+                    let mut player_can_collide_bytes = [0u8; 1];
+                    reader.read_exact(&mut player_can_collide_bytes)?;
+                    player_can_collide_bytes[0] != 0
+                } else {
+                    true
+                };
+
+                let (friction, gravity_scale, mass) = if version >= 3 {
+                    let mut friction_bytes = [0u8; 4];
+                    reader.read_exact(&mut friction_bytes)?;
+                    let mut gravity_scale_bytes = [0u8; 4];
+                    reader.read_exact(&mut gravity_scale_bytes)?;
+                    let mut mass_bytes = [0u8; 4];
+                    reader.read_exact(&mut mass_bytes)?;
+                    (
+                        f32::from_le_bytes(friction_bytes),
+                        f32::from_le_bytes(gravity_scale_bytes),
+                        f32::from_le_bytes(mass_bytes),
+                    )
+                } else {
+                    (0.3, 1.0, 1.0)
+                };
+
                 bricks.push(VrtxBrick {
                     name,
                     transform,
@@ -808,6 +844,10 @@ impl VrtxFileState {
                     color,
                     physics_enabled,
                     bounciness,
+                    player_can_collide,
+                    friction,
+                    gravity_scale,
+                    mass,
                 });
             }
 

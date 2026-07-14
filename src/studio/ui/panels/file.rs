@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy::pbr::ExtendedMaterial;
+use avian3d::prelude::CollisionLayers;
 
 pub fn draw_file_window(
     ctx: &egui::Context,
@@ -72,10 +73,10 @@ pub fn draw_file_window(
                                     current_color = mat.base_color;
                                 }
                             }
-                            let (physics_enabled, bounciness) = if let Some(phys) = phys_opt {
-                                (phys.enabled, phys.bounciness)
+                            let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                                (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
                             } else {
-                                (true, 0.3)
+                                (true, 0.3, true, 0.3, 1.0, 1.0)
                             };
                             bricks_data.push(crate::common::core::vrtx::VrtxBrick {
                                 name: name.to_string(),
@@ -84,6 +85,10 @@ pub fn draw_file_window(
                                 color: current_color,
                                 physics_enabled,
                                 bounciness,
+                                player_can_collide,
+                                friction,
+                                gravity_scale,
+                                mass,
                             });
                         }
                     }
@@ -98,7 +103,7 @@ pub fn draw_file_window(
                         Transform::IDENTITY
                     };
                     let state = crate::common::core::vrtx::VrtxFileState {
-                        version: 1,
+                        version: 3,
                         gravity: gravity_val,
                         settings: crate::common::core::vrtx::VrtxSettings {
                             ssao: graphics_settings.ssao,
@@ -142,6 +147,11 @@ pub fn draw_file_window(
                                         meshes.add(Sphere::new(1.0 * 0.28))
                                     }
                                 };
+                                let layers = if brick.player_can_collide {
+                                    CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                                } else {
+                                    CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                                };
                                 commands.spawn((
                                     Mesh3d(mesh_handle),
                                     MeshMaterial3d(studs_materials.add(ExtendedMaterial {
@@ -149,6 +159,7 @@ pub fn draw_file_window(
                                             base_color: brick.color,
                                             perceptual_roughness: 0.95,
                                             reflectance: 0.1,
+                                            alpha_mode: if brick.color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                                             ..default()
                                         },
                                         extension: crate::common::game::bricks::studs::StudsExtension {
@@ -162,8 +173,13 @@ pub fn draw_file_window(
                                     crate::common::game::bricks::components::BrickPhysics {
                                         enabled: brick.physics_enabled,
                                         bounciness: brick.bounciness,
+                                        player_can_collide: brick.player_can_collide,
+                                        friction: brick.friction,
+                                        gravity_scale: brick.gravity_scale,
+                                        mass: brick.mass,
                                     },
                                     crate::common::game::bricks::components::BrickColor { color: brick.color },
+                                    layers,
                                     Pickable::default(),
                                     Name::new(brick.name),
                                 ));

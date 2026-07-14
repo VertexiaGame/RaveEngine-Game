@@ -14,7 +14,7 @@ pub fn handle_new_client(
         warn!("handle_new_client failed: RemoteId missing on entity {:?}", trigger.entity);
         return;
     };
-    let client_id = remote_id.0.to_bits();
+    let _client_id = remote_id.0.to_bits();
 }
 
 pub fn handle_hello_messages(
@@ -44,12 +44,18 @@ pub fn handle_hello_messages(
 
                     commands.entity(client_entity).insert(ReplicationSender);
 
+                    let (speed, jump_power, gravity_scale, friction, bounciness) = if let Ok(shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.read() {
+                        (shared.speed, shared.jump_power, shared.gravity_scale, shared.friction, shared.bounciness)
+                    } else {
+                        (16.0 * 0.28, 50.0 * 0.28, 1.0, 0.0, 0.0)
+                    };
+
                     let player_entity = commands.spawn((
                         Name::new(response.username.clone()),
                         Player {
                             client_id,
-                            speed: 16.0 * 0.28,
-                            jump_power: 50.0 * 0.28,
+                            speed,
+                            jump_power,
                             username: response.username.clone(),
                         },
                         Transform::from_xyz(0.0, 5.0, 0.0),
@@ -64,9 +70,12 @@ pub fn handle_hello_messages(
                         },
                         RigidBody::Dynamic,
                         Collider::capsule(1.0 * 0.28, 3.0 * 0.28),
+                        CollisionLayers::from_bits(0b0010, 0b0011),
                         LockedAxes::ROTATION_LOCKED,
-                        Friction::new(0.0),
-                        Restitution::new(0.0),
+                    )).insert((
+                        Friction::new(friction),
+                        Restitution::new(bounciness),
+                        GravityScale(gravity_scale),
                         CollidingEntities::default(),
                         SleepingDisabled,
                         Replicate::default(),
@@ -153,7 +162,9 @@ pub fn handle_player_inputs(
                             let ray_start = transform.translation + step_check_offset;
                             let ray_origin = Vec3::new(ray_start.x, player_bottom_y + 0.32, ray_start.z);
 
-                            let filter = SpatialQueryFilter::default().with_excluded_entities([player_entity]);
+                            let filter = SpatialQueryFilter::default()
+                                .with_excluded_entities([player_entity])
+                                .with_mask(0b0011);
                             if let Some(hit) = spatial_query.cast_ray(ray_origin, Dir3::NEG_Y, 0.45, true, &filter) {
                                 let hit_point_y = ray_origin.y - hit.distance;
                                 let step_height = hit_point_y - player_bottom_y;
@@ -180,7 +191,9 @@ pub fn handle_player_inputs(
                         if !grounded {
                             let ray_origin = transform.translation;
                             let max_ray_dist = 2.5 * 0.28 + 0.15;
-                            let filter = SpatialQueryFilter::default().with_excluded_entities([player_entity]);
+                            let filter = SpatialQueryFilter::default()
+                                .with_excluded_entities([player_entity])
+                                .with_mask(0b0011);
                             if spatial_query.cast_ray(ray_origin, Dir3::NEG_Y, max_ray_dist, true, &filter).is_some() {
                                 grounded = true;
                             }
@@ -207,6 +220,46 @@ pub fn handle_player_inputs(
                 warn!("handle_player_inputs: No player entity found for client_id: {} / entity: {:?}", client_id, client_entity);
             }
         }
+    }
+}
+
+pub fn sync_players_service_properties(
+    mut last_service: Local<crate::studio::tools::PlayersService>,
+    mut query: Query<(&mut Player, &mut Friction, &mut Restitution, &mut GravityScale)>,
+) {
+    let current_service = if let Ok(shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.read() {
+        shared.clone()
+    } else {
+        return;
+    };
+
+    if current_service.speed != last_service.speed
+        || current_service.jump_power != last_service.jump_power
+        || current_service.gravity_scale != last_service.gravity_scale
+        || current_service.friction != last_service.friction
+        || current_service.bounciness != last_service.bounciness
+    {
+        for (mut player, mut friction, mut restitution, mut gravity_scale) in &mut query {
+            if player.speed != current_service.speed {
+                player.speed = current_service.speed;
+            }
+            if player.jump_power != current_service.jump_power {
+                player.jump_power = current_service.jump_power;
+            }
+            let new_friction = Friction::new(current_service.friction);
+            if *friction != new_friction {
+                *friction = new_friction;
+            }
+            let new_restitution = Restitution::new(current_service.bounciness);
+            if *restitution != new_restitution {
+                *restitution = new_restitution;
+            }
+            let new_gravity_scale = GravityScale(current_service.gravity_scale);
+            if *gravity_scale != new_gravity_scale {
+                *gravity_scale = new_gravity_scale;
+            }
+        }
+        *last_service = current_service;
     }
 }
 

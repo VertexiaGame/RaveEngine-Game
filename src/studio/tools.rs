@@ -4,6 +4,7 @@ use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use crate::common::game::bricks::components::Brick;
 use crate::common::game::bricks::data::{BrickData, spawn_from_data};
 use crate::studio::gizmos::ToolGizmo;
+use std::sync::RwLock;
 
 #[derive(Default, States, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ToolState {
@@ -179,6 +180,9 @@ pub enum UndoRedoAction {
 pub struct PlayersService {
     pub speed: f32,
     pub jump_power: f32,
+    pub gravity_scale: f32,
+    pub friction: f32,
+    pub bounciness: f32,
 }
 
 impl Default for PlayersService {
@@ -186,9 +190,20 @@ impl Default for PlayersService {
         Self {
             speed: 16.0 * 0.28,
             jump_power: 50.0 * 0.28,
+            gravity_scale: 1.0,
+            friction: 0.0,
+            bounciness: 0.0,
         }
     }
 }
+
+pub static SHARED_PLAYERS_SERVICE: RwLock<PlayersService> = RwLock::new(PlayersService {
+    speed: 16.0 * 0.28,
+    jump_power: 50.0 * 0.28,
+    gravity_scale: 1.0,
+    friction: 0.0,
+    bounciness: 0.0,
+});
 
 pub fn handle_keyboard_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,

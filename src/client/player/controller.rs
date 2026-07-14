@@ -92,7 +92,9 @@ pub fn player_movement(
             let ray_start = player_transform.translation + step_check_offset;
             let ray_origin = Vec3::new(ray_start.x, player_bottom_y + 0.32, ray_start.z);
 
-            let filter = SpatialQueryFilter::default().with_excluded_entities([player_entity]);
+            let filter = SpatialQueryFilter::default()
+                .with_excluded_entities([player_entity])
+                .with_mask(0b0011);
             if let Some(hit) = spatial_query.cast_ray(ray_origin, Dir3::NEG_Y, 0.45, true, &filter) {
                 let hit_point_y = ray_origin.y - hit.distance;
                 let step_height = hit_point_y - player_bottom_y;
@@ -129,7 +131,9 @@ pub fn player_movement(
         if !grounded {
             let ray_origin = player_transform.translation;
             let max_ray_dist = 2.5 * 0.28 + 0.15;
-            let filter = SpatialQueryFilter::default().with_excluded_entities([player_entity]);
+            let filter = SpatialQueryFilter::default()
+                .with_excluded_entities([player_entity])
+                .with_mask(0b0011);
             if spatial_query.cast_ray(ray_origin, Dir3::NEG_Y, max_ray_dist, true, &filter).is_some() {
                 grounded = true;
             }

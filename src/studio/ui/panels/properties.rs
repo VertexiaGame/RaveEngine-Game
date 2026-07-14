@@ -2,17 +2,19 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy::pbr::ExtendedMaterial;
 use crate::common::game::bricks::components::Brick;
+use avian3d::prelude::{CollisionLayers, Friction, GravityScale, Mass, Restitution};
 
 fn draw_coord_edit(
     ui: &mut egui::Ui,
     label: &str,
     val: &mut f32,
     all_same: bool,
+    unique_key: &str,
 ) -> Option<f32> {
     if !label.is_empty() {
         ui.label(label);
     }
-    let id = ui.make_persistent_id(format!("coord_edit_{}", label));
+    let id = ui.make_persistent_id(unique_key);
     let mut text = ui.data_mut(|d| d.get_temp::<String>(id).unwrap_or_else(|| {
         if all_same { format!("{:.2}", val) } else { "—".to_string() }
     }));
@@ -26,6 +28,7 @@ fn draw_coord_edit(
     } else if !res.has_focus() {
         let expected = if all_same { format!("{:.2}", val) } else { "—".to_string() };
         if text != expected {
+            text = expected.clone();
             ui.data_mut(|d| d.insert_temp(id, expected));
         }
     }
@@ -59,6 +62,8 @@ pub fn draw_properties(
     }
 
     let first_entity = selected_entities[0];
+    let selection_salt = first_entity.to_bits();
+
     let (
         first_transform_val,
         first_name_str,
@@ -67,6 +72,10 @@ pub fn draw_properties(
         is_extended,
         first_phys_enabled,
         first_bounciness,
+        first_player_can_collide,
+        first_friction,
+        first_gravity_scale,
+        first_mass,
         has_phys_opt,
     ) = {
         let Ok((_, first_transform, first_name, _, _, _, first_shape_opt, _, _, first_mat_opt, first_studs_mat_opt, first_phys_opt)) = properties_query.get(first_entity) else {
@@ -89,10 +98,10 @@ pub fn draw_properties(
             }
         }
 
-        let (first_phys_enabled, first_bounciness) = if let Some(phys) = first_phys_opt {
-            (phys.enabled, phys.bounciness)
+        let (first_phys_enabled, first_bounciness, first_player_can_collide, first_friction, first_gravity_scale, first_mass) = if let Some(phys) = first_phys_opt {
+            (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
         } else {
-            (true, 0.3)
+            (true, 0.3, true, 0.3, 1.0, 1.0)
         };
 
         (
@@ -103,6 +112,10 @@ pub fn draw_properties(
             is_extended,
             first_phys_enabled,
             first_bounciness,
+            first_player_can_collide,
+            first_friction,
+            first_gravity_scale,
+            first_mass,
             first_phys_opt.is_some(),
         )
     };
@@ -111,6 +124,7 @@ pub fn draw_properties(
     let first_scale = first_transform_val.scale;
     let first_rot = first_transform_val.rotation;
     let first_shape = first_shape_opt_val.unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+    let first_alpha = first_color.to_srgba().alpha;
 
     let mut all_names_same = true;
     let mut all_pos_x_same = true;
@@ -121,9 +135,14 @@ pub fn draw_properties(
     let mut all_scale_z_same = true;
     let mut all_rot_same = true;
     let mut all_color_same = true;
+    let mut all_transparency_same = true;
     let mut all_shape_same = true;
     let mut all_phys_enabled_same = true;
     let mut all_bounciness_same = true;
+    let mut all_player_can_collide_same = true;
+    let mut all_friction_same = true;
+    let mut all_gravity_scale_same = true;
+    let mut all_mass_same = true;
 
     for &entity in &selected_entities[1..] {
         if let Ok((_, transform, name, _, _, _, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt)) = properties_query.get(entity) {
@@ -155,14 +174,19 @@ pub fn draw_properties(
                 }
             }
             if color != first_color { all_color_same = false; }
+            if (color.to_srgba().alpha - first_alpha).abs() > 0.001 { all_transparency_same = false; }
             
-            let (phys_enabled, bounciness) = if let Some(phys) = phys_opt {
-                (phys.enabled, phys.bounciness)
+            let (phys_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
+                (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
             } else {
-                (true, 0.3)
+                (true, 0.3, true, 0.3, 1.0, 1.0)
             };
             if phys_enabled != first_phys_enabled { all_phys_enabled_same = false; }
             if (bounciness - first_bounciness).abs() > 0.001 { all_bounciness_same = false; }
+            if player_can_collide != first_player_can_collide { all_player_can_collide_same = false; }
+            if (friction - first_friction).abs() > 0.001 { all_friction_same = false; }
+            if (gravity_scale - first_gravity_scale).abs() > 0.001 { all_gravity_scale_same = false; }
+            if (mass - first_mass).abs() > 0.001 { all_mass_same = false; }
         }
     }
 
@@ -173,251 +197,440 @@ pub fn draw_properties(
         first_color.to_srgba().alpha,
     ];
 
-    ui.vertical(|ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
-        });
+    ui.push_id(selection_salt, |ui| {
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+            });
 
-        ui.add_space(8.0);
-        let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-        ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
-        ui.add_space(8.0);
+            ui.add_space(8.0);
+            let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+            ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+            ui.add_space(8.0);
 
-        egui::CollapsingHeader::new(egui::RichText::new("Information").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
-            .default_open(true)
-            .show(ui, |ui| {
-                egui::Grid::new("properties_info_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                        let name_id = ui.make_persistent_id("properties_name_input");
-                        let mut name_str = ui.data_mut(|d| d.get_temp::<String>(name_id).unwrap_or_else(|| {
-                            if all_names_same { first_name_str.clone() } else { "".to_string() }
-                        }));
-                        let placeholder = if all_names_same { "" } else { "Mixed" };
-                        let res = ui.add(egui::TextEdit::singleline(&mut name_str).hint_text(placeholder));
-                        if res.changed() {
-                            ui.data_mut(|d| d.insert_temp(name_id, name_str.clone()));
-                            for &entity in selected_entities {
-                                commands.entity(entity).insert(Name::new(name_str.clone()));
-                            }
-                        } else if !res.has_focus() {
-                            let current_expected = if all_names_same { first_name_str.clone() } else { "".to_string() };
-                            if name_str != current_expected {
-                                name_str = current_expected;
+            egui::CollapsingHeader::new(egui::RichText::new("Information").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_info_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let name_id = ui.make_persistent_id("properties_name_input");
+                            let mut name_str = ui.data_mut(|d| d.get_temp::<String>(name_id).unwrap_or_else(|| {
+                                if all_names_same { first_name_str.clone() } else { "".to_string() }
+                            }));
+                            let placeholder = if all_names_same { "" } else { "Mixed" };
+                            let res = ui.add(egui::TextEdit::singleline(&mut name_str).hint_text(placeholder));
+                            if res.changed() {
                                 ui.data_mut(|d| d.insert_temp(name_id, name_str.clone()));
-                            }
-                        }
-                        ui.end_row();
-                    });
-            });
-
-        ui.add_space(8.0);
-
-        egui::CollapsingHeader::new(egui::RichText::new("Transform").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
-            .default_open(true)
-            .show(ui, |ui| {
-                egui::Grid::new("properties_transform_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Position").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                        let mut pos_studs = first_pos;
-                        let mut new_px = None;
-                        let mut new_py = None;
-                        let mut new_pz = None;
-                        ui.horizontal(|ui| {
-                            new_px = draw_coord_edit(ui, "X", &mut pos_studs.x, all_pos_x_same);
-                            new_py = draw_coord_edit(ui, "Y", &mut pos_studs.y, all_pos_y_same);
-                            new_pz = draw_coord_edit(ui, "Z", &mut pos_studs.z, all_pos_z_same);
-                        });
-                        if new_px.is_some() || new_py.is_some() || new_pz.is_some() {
-                            for &entity in selected_entities {
-                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
-                                    if let Some(x) = new_px { transform.translation.x = x * 0.28; }
-                                    if let Some(y) = new_py { transform.translation.y = y * 0.28; }
-                                    if let Some(z) = new_pz { transform.translation.z = z * 0.28; }
-                                }
-                            }
-                        }
-                        ui.end_row();
-
-                        ui.label(egui::RichText::new("Size").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                        let mut scale_val = first_scale;
-                        let mut new_sx = None;
-                        let mut new_sy = None;
-                        let mut new_sz = None;
-                        ui.horizontal(|ui| {
-                            new_sx = draw_coord_edit(ui, "X", &mut scale_val.x, all_scale_x_same);
-                            new_sy = draw_coord_edit(ui, "Y", &mut scale_val.y, all_scale_y_same);
-                            new_sz = draw_coord_edit(ui, "Z", &mut scale_val.z, all_scale_z_same);
-                        });
-                        if new_sx.is_some() || new_sy.is_some() || new_sz.is_some() {
-                            for &entity in selected_entities {
-                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
-                                    if let Some(x) = new_sx { transform.scale.x = x.max(0.01); }
-                                    if let Some(y) = new_sy { transform.scale.y = y.max(0.01); }
-                                    if let Some(z) = new_sz { transform.scale.z = z.max(0.01); }
-                                }
-                            }
-                        }
-                        ui.end_row();
-
-                        ui.label(egui::RichText::new("Rotation").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                        let (rx, ry, rz) = first_rot.to_euler(EulerRot::XYZ);
-                        let mut rot_deg = Vec3::new(rx.to_degrees(), ry.to_degrees(), rz.to_degrees());
-                        let mut new_rx = None;
-                        let mut new_ry = None;
-                        let mut new_rz = None;
-                        ui.horizontal(|ui| {
-                            new_rx = draw_coord_edit(ui, "X", &mut rot_deg.x, all_rot_same);
-                            new_ry = draw_coord_edit(ui, "Y", &mut rot_deg.y, all_rot_same);
-                            new_rz = draw_coord_edit(ui, "Z", &mut rot_deg.z, all_rot_same);
-                        });
-                        if new_rx.is_some() || new_ry.is_some() || new_rz.is_some() {
-                            let rx_val = new_rx.unwrap_or(rot_deg.x).to_radians();
-                            let ry_val = new_ry.unwrap_or(rot_deg.y).to_radians();
-                            let rz_val = new_rz.unwrap_or(rot_deg.z).to_radians();
-                            for &entity in selected_entities {
-                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
-                                    transform.rotation = Quat::from_euler(EulerRot::XYZ, rx_val, ry_val, rz_val);
-                                }
-                            }
-                        }
-                        ui.end_row();
-                    });
-            });
-
-        ui.add_space(8.0);
-
-        egui::CollapsingHeader::new(egui::RichText::new("Appearance").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
-            .default_open(true)
-            .show(ui, |ui| {
-                egui::Grid::new("properties_appearance_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Color").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                        ui.horizontal(|ui| {
-                            let color_btn = ui.color_edit_button_rgba_unmultiplied(&mut color_array);
-                            if !all_color_same {
-                                ui.label(egui::RichText::new("Mixed").italics().color(egui::Color32::from_rgb(120, 120, 120)));
-                            }
-                            if color_btn.changed() {
-                                let new_color = Color::Srgba(Srgba::new(color_array[0], color_array[1], color_array[2], color_array[3]));
                                 for &entity in selected_entities {
-                                    if let Ok((_, _, _, _, _, _, _, _, _, mat_opt, studs_mat_opt, _)) = properties_query.get_mut(entity) {
-                                        if is_extended {
-                                            if let Some(studs_mat_handle) = studs_mat_opt {
-                                                if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
-                                                    mat.base.base_color = new_color;
-                                                }
-                                            }
-                                        } else {
-                                            if let Some(mat_handle) = mat_opt {
-                                                if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                    mat.base_color = new_color;
-                                                }
-                                            }
-                                        }
-                                        if let Ok(mut bc) = brick_colors.get_mut(entity) {
-                                            bc.color = new_color;
-                                        }
-                                    }
+                                    commands.entity(entity).insert(Name::new(name_str.clone()));
+                                }
+                            } else if !res.has_focus() {
+                                let current_expected = if all_names_same { first_name_str.clone() } else { "".to_string() };
+                                if name_str != current_expected {
+                                    name_str = current_expected;
+                                    ui.data_mut(|d| d.insert_temp(name_id, name_str.clone()));
                                 }
                             }
+                            ui.end_row();
                         });
-                        ui.end_row();
+                });
 
-                        if first_shape_opt_val.is_some() {
-                            ui.label(egui::RichText::new("Shape").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                            let mut current_shape = first_shape;
-                            let combo_label = if all_shape_same { format!("{:?}", current_shape) } else { "Mixed".to_string() };
-                            let mut selection_changed = false;
-                            egui::ComboBox::from_id_salt("brick_shape_select")
-                                .selected_text(combo_label)
-                                .show_ui(ui, |ui| {
-                                    if ui.selectable_value(&mut current_shape, crate::common::game::bricks::components::BrickShape::Block, "Block").clicked() {
-                                        selection_changed = true;
-                                    }
-                                    if ui.selectable_value(&mut current_shape, crate::common::game::bricks::components::BrickShape::Sphere, "Sphere").clicked() {
-                                        selection_changed = true;
-                                    }
-                                });
-                            if selection_changed {
+            ui.add_space(8.0);
+
+            egui::CollapsingHeader::new(egui::RichText::new("Transform").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_transform_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Position").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut pos_studs = first_pos;
+                            let mut new_px = None;
+                            let mut new_py = None;
+                            let mut new_pz = None;
+                            ui.horizontal(|ui| {
+                                new_px = draw_coord_edit(ui, "X", &mut pos_studs.x, all_pos_x_same, "pos_x");
+                                new_py = draw_coord_edit(ui, "Y", &mut pos_studs.y, all_pos_y_same, "pos_y");
+                                new_pz = draw_coord_edit(ui, "Z", &mut pos_studs.z, all_pos_z_same, "pos_z");
+                            });
+                            if new_px.is_some() || new_py.is_some() || new_pz.is_some() {
                                 for &entity in selected_entities {
-                                    if let Ok((_, _, _, _, _, _, Some(mut shape_comp), _, _, _, _, _)) = properties_query.get_mut(entity) {
-                                        shape_comp.shape = current_shape;
+                                    if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                        if let Some(x) = new_px { transform.translation.x = x * 0.28; }
+                                        if let Some(y) = new_py { transform.translation.y = y * 0.28; }
+                                        if let Some(z) = new_pz { transform.translation.z = z * 0.28; }
                                     }
                                 }
                             }
                             ui.end_row();
-                        }
-                    });
-            });
 
-        ui.add_space(8.0);
+                            ui.label(egui::RichText::new("Size").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut scale_val = first_scale;
+                            let mut new_sx = None;
+                            let mut new_sy = None;
+                            let mut new_sz = None;
+                            ui.horizontal(|ui| {
+                                new_sx = draw_coord_edit(ui, "X", &mut scale_val.x, all_scale_x_same, "size_x");
+                                new_sy = draw_coord_edit(ui, "Y", &mut scale_val.y, all_scale_y_same, "size_y");
+                                new_sz = draw_coord_edit(ui, "Z", &mut scale_val.z, all_scale_z_same, "size_z");
+                            });
+                            if new_sx.is_some() || new_sy.is_some() || new_sz.is_some() {
+                                for &entity in selected_entities {
+                                    if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                        if let Some(x) = new_sx { transform.scale.x = x.max(0.01); }
+                                        if let Some(y) = new_sy { transform.scale.y = y.max(0.01); }
+                                        if let Some(z) = new_sz { transform.scale.z = z.max(0.01); }
+                                    }
+                                }
+                            }
+                            ui.end_row();
 
-        egui::CollapsingHeader::new(egui::RichText::new("Physics").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
-            .default_open(true)
-            .show(ui, |ui| {
-                egui::Grid::new("properties_physics_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 8.0])
-                    .show(ui, |ui| {
-                        if has_phys_opt {
-                            ui.label(egui::RichText::new("Physics Enabled").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                            
-                            let mut enabled = first_phys_enabled;
-                            let checkbox_res = if all_phys_enabled_same {
-                                Some(ui.checkbox(&mut enabled, ""))
-                            } else {
-                                let mut clicked = false;
-                                ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Rotation").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let (rx, ry, rz) = first_rot.to_euler(EulerRot::XYZ);
+                            let mut rot_deg = Vec3::new(rx.to_degrees(), ry.to_degrees(), rz.to_degrees());
+                            let mut new_rx = None;
+                            let mut new_ry = None;
+                            let mut new_rz = None;
+                            ui.horizontal(|ui| {
+                                new_rx = draw_coord_edit(ui, "X", &mut rot_deg.x, all_rot_same, "rot_x");
+                                new_ry = draw_coord_edit(ui, "Y", &mut rot_deg.y, all_rot_same, "rot_y");
+                                new_rz = draw_coord_edit(ui, "Z", &mut rot_deg.z, all_rot_same, "rot_z");
+                            });
+                            if new_rx.is_some() || new_ry.is_some() || new_rz.is_some() {
+                                let rx_val = new_rx.unwrap_or(rot_deg.x).to_radians();
+                                let ry_val = new_ry.unwrap_or(rot_deg.y).to_radians();
+                                let rz_val = new_rz.unwrap_or(rot_deg.z).to_radians();
+                                for &entity in selected_entities {
+                                    if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                        transform.rotation = Quat::from_euler(EulerRot::XYZ, rx_val, ry_val, rz_val);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+                        });
+                });
+
+            ui.add_space(8.0);
+
+            egui::CollapsingHeader::new(egui::RichText::new("Appearance").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_appearance_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Color").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.horizontal(|ui| {
+                                let color_btn = ui.color_edit_button_rgba_unmultiplied(&mut color_array);
+                                if !all_color_same {
+                                    ui.label(egui::RichText::new("Mixed").italics().color(egui::Color32::from_rgb(120, 120, 120)));
+                                }
+                                if color_btn.changed() {
+                                    let new_color = Color::Srgba(Srgba::new(color_array[0], color_array[1], color_array[2], color_array[3]));
+                                    let new_alpha_mode = if new_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, _, _, _, mat_opt, studs_mat_opt, _)) = properties_query.get_mut(entity) {
+                                            if is_extended {
+                                                if let Some(studs_mat_handle) = studs_mat_opt {
+                                                    if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
+                                                        mat.base.base_color = new_color;
+                                                        mat.base.alpha_mode = new_alpha_mode;
+                                                    }
+                                                }
+                                            } else {
+                                                if let Some(mat_handle) = mat_opt {
+                                                    if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
+                                                        mat.base_color = new_color;
+                                                        mat.alpha_mode = new_alpha_mode;
+                                                    }
+                                                }
+                                            }
+                                            if let Ok(mut bc) = brick_colors.get_mut(entity) {
+                                                bc.color = new_color;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Transparency").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.horizontal(|ui| {
+                                let mut transparency = 1.0 - first_color.to_srgba().alpha;
+                                if all_transparency_same {
+                                    let slider_res = ui.add(egui::Slider::new(&mut transparency, 0.0..=1.0).step_by(0.01));
+                                    if slider_res.changed() {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, mat_opt, studs_mat_opt, _)) = properties_query.get_mut(entity) {
+                                                let mut current_color = Color::srgb(0.84, 0.24, 0.16);
+                                                if let Some(studs_mat_handle) = studs_mat_opt {
+                                                    if let Some(mat) = studs_materials.get(&studs_mat_handle.0) {
+                                                        current_color = mat.base.base_color;
+                                                    }
+                                                } else if let Some(mat_handle) = mat_opt {
+                                                    if let Some(mat) = materials.get(&mat_handle.0) {
+                                                        current_color = mat.base_color;
+                                                    }
+                                                }
+                                                let mut srgba = current_color.to_srgba();
+                                                srgba.alpha = 1.0 - transparency;
+                                                let new_color = Color::Srgba(srgba);
+                                                let new_alpha_mode = if srgba.alpha < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
+                                                if is_extended {
+                                                    if let Some(studs_mat_handle) = studs_mat_opt {
+                                                        if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
+                                                            mat.base.base_color = new_color;
+                                                            mat.base.alpha_mode = new_alpha_mode;
+                                                        }
+                                                    }
+                                                } else {
+                                                    if let Some(mat_handle) = mat_opt {
+                                                        if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
+                                                            mat.base_color = new_color;
+                                                            mat.alpha_mode = new_alpha_mode;
+                                                        }
+                                                    }
+                                                }
+                                                if let Ok(mut bc) = brick_colors.get_mut(entity) {
+                                                    bc.color = new_color;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let mut clicked = false;
                                     if ui.button("Mixed (Click to set)").clicked() {
                                         clicked = true;
-                                        enabled = true;
+                                        transparency = 0.0;
                                     }
-                                });
-                                if clicked {
-                                    for &entity in selected_entities {
-                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
-                                            phys.enabled = enabled;
+                                    if clicked {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, mat_opt, studs_mat_opt, _)) = properties_query.get_mut(entity) {
+                                                let mut current_color = Color::srgb(0.84, 0.24, 0.16);
+                                                if let Some(studs_mat_handle) = studs_mat_opt {
+                                                    if let Some(mat) = studs_materials.get(&studs_mat_handle.0) {
+                                                        current_color = mat.base.base_color;
+                                                    }
+                                                } else if let Some(mat_handle) = mat_opt {
+                                                    if let Some(mat) = materials.get(&mat_handle.0) {
+                                                        current_color = mat.base_color;
+                                                    }
+                                                }
+                                                let mut srgba = current_color.to_srgba();
+                                                srgba.alpha = 1.0 - transparency;
+                                                let new_color = Color::Srgba(srgba);
+                                                let new_alpha_mode = if srgba.alpha < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
+                                                if is_extended {
+                                                    if let Some(studs_mat_handle) = studs_mat_opt {
+                                                        if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
+                                                            mat.base.base_color = new_color;
+                                                            mat.base.alpha_mode = new_alpha_mode;
+                                                        }
+                                                    }
+                                                } else {
+                                                    if let Some(mat_handle) = mat_opt {
+                                                        if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
+                                                            mat.base_color = new_color;
+                                                            mat.alpha_mode = new_alpha_mode;
+                                                        }
+                                                    }
+                                                }
+                                                if let Ok(mut bc) = brick_colors.get_mut(entity) {
+                                                    bc.color = new_color;
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                None
-                            };
-                            if let Some(res) = checkbox_res {
-                                if res.changed() {
-                                    for &entity in selected_entities {
-                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
-                                            phys.enabled = enabled;
-                                        }
-                                    }
-                                }
-                            }
+                            });
                             ui.end_row();
 
-                            ui.label(egui::RichText::new("Bounciness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                            let mut bounciness_val = first_bounciness;
-                            let mut new_bounciness = None;
-                            ui.horizontal(|ui| {
-                                new_bounciness = draw_coord_edit(ui, "", &mut bounciness_val, all_bounciness_same);
-                            });
-                            
-                            if let Some(new_val) = new_bounciness {
-                                for &entity in selected_entities {
-                                    if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
-                                        phys.bounciness = new_val.clamp(0.0, 1.0);
+                            if first_shape_opt_val.is_some() {
+                                ui.label(egui::RichText::new("Shape").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut current_shape = first_shape;
+                                let combo_label = if all_shape_same { format!("{:?}", current_shape) } else { "Mixed".to_string() };
+                                let mut selection_changed = false;
+                                egui::ComboBox::from_id_salt("brick_shape_select")
+                                    .selected_text(combo_label)
+                                    .show_ui(ui, |ui| {
+                                        if ui.selectable_value(&mut current_shape, crate::common::game::bricks::components::BrickShape::Block, "Block").clicked() {
+                                            selection_changed = true;
+                                        }
+                                        if ui.selectable_value(&mut current_shape, crate::common::game::bricks::components::BrickShape::Sphere, "Sphere").clicked() {
+                                            selection_changed = true;
+                                        }
+                                    });
+                                if selection_changed {
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, Some(mut shape_comp), _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                            shape_comp.shape = current_shape;
+                                        }
                                     }
                                 }
+                                ui.end_row();
                             }
-                            ui.end_row();
-                        }
-                    });
-            });
+                        });
+                });
+
+            ui.add_space(8.0);
+
+            egui::CollapsingHeader::new(egui::RichText::new("Physics").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_physics_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            if has_phys_opt {
+                                ui.label(egui::RichText::new("Physics Enabled").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                
+                                let mut enabled = first_phys_enabled;
+                                let checkbox_res = if all_phys_enabled_same {
+                                    Some(ui.checkbox(&mut enabled, ""))
+                                } else {
+                                    let mut clicked = false;
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Mixed (Click to set)").clicked() {
+                                            clicked = true;
+                                            enabled = true;
+                                        }
+                                    });
+                                    if clicked {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                                phys.enabled = enabled;
+                                            }
+                                        }
+                                    }
+                                    None
+                                };
+                                if let Some(res) = checkbox_res {
+                                    if res.changed() {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                                phys.enabled = enabled;
+                                            }
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Player can collide").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut player_can_collide = first_player_can_collide;
+                                let can_collide_checkbox_res = if all_player_can_collide_same {
+                                    Some(ui.checkbox(&mut player_can_collide, ""))
+                                } else {
+                                    let mut clicked = false;
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Mixed (Click to set)").clicked() {
+                                            clicked = true;
+                                            player_can_collide = true;
+                                        }
+                                    });
+                                    if clicked {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                                phys.player_can_collide = player_can_collide;
+                                                let layers = if player_can_collide {
+                                                    CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                                                } else {
+                                                    CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                                                };
+                                                commands.entity(entity).insert(layers);
+                                            }
+                                        }
+                                    }
+                                    None
+                                };
+                                if let Some(res) = can_collide_checkbox_res {
+                                    if res.changed() {
+                                        for &entity in selected_entities {
+                                            if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                                phys.player_can_collide = player_can_collide;
+                                                let layers = if player_can_collide {
+                                                    CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                                                } else {
+                                                    CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                                                };
+                                                commands.entity(entity).insert(layers);
+                                            }
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Friction").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut friction = first_friction;
+                                let mut new_friction = None;
+                                ui.horizontal(|ui| {
+                                    new_friction = draw_coord_edit(ui, "", &mut friction, all_friction_same, "friction");
+                                });
+                                if let Some(new_val) = new_friction {
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                            phys.friction = new_val.clamp(0.0, 1.0);
+                                            commands.entity(entity).insert(Friction::new(phys.friction));
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Gravity Scale").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut gravity_scale = first_gravity_scale;
+                                let mut new_gravity_scale = None;
+                                ui.horizontal(|ui| {
+                                    new_gravity_scale = draw_coord_edit(ui, "", &mut gravity_scale, all_gravity_scale_same, "gravity_scale");
+                                });
+                                if let Some(new_val) = new_gravity_scale {
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                            phys.gravity_scale = new_val;
+                                            commands.entity(entity).insert(GravityScale(phys.gravity_scale));
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Mass").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut mass = first_mass;
+                                let mut new_mass = None;
+                                ui.horizontal(|ui| {
+                                    new_mass = draw_coord_edit(ui, "", &mut mass, all_mass_same, "mass");
+                                });
+                                if let Some(new_val) = new_mass {
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                            phys.mass = new_val.max(0.001);
+                                            commands.entity(entity).insert(Mass(phys.mass));
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Bounciness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                                let mut bounciness_val = first_bounciness;
+                                let mut new_bounciness = None;
+                                ui.horizontal(|ui| {
+                                    new_bounciness = draw_coord_edit(ui, "", &mut bounciness_val, all_bounciness_same, "bounciness");
+                                });
+                                
+                                if let Some(new_val) = new_bounciness {
+                                    for &entity in selected_entities {
+                                        if let Ok((_, _, _, _, _, _, _, _, _, _, _, Some(mut phys))) = properties_query.get_mut(entity) {
+                                            phys.bounciness = new_val.clamp(0.0, 1.0);
+                                            commands.entity(entity).insert(Restitution::new(phys.bounciness));
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
     });
 }
 
@@ -480,6 +693,9 @@ pub fn draw_players_properties(
                         let mut speed_studs = service.speed / 0.28;
                         if ui.add(egui::DragValue::new(&mut speed_studs).speed(0.5).range(0.0..=1000.0).suffix(" studs/s")).changed() {
                             service.speed = speed_studs * 0.28;
+                            if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
+                                shared.speed = service.speed;
+                            }
                         }
                     } else {
                         ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
@@ -491,6 +707,45 @@ pub fn draw_players_properties(
                         let mut jump_power_studs = service.jump_power / 0.28;
                         if ui.add(egui::DragValue::new(&mut jump_power_studs).speed(1.0).range(0.0..=1000.0).suffix(" studs/s")).changed() {
                             service.jump_power = jump_power_studs * 0.28;
+                            if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
+                                shared.jump_power = service.jump_power;
+                            }
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Player Gravity Scale").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    if let Some(service) = players_service {
+                        if ui.add(egui::DragValue::new(&mut service.gravity_scale).speed(0.1).range(0.0..=10.0)).changed() {
+                            if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
+                                shared.gravity_scale = service.gravity_scale;
+                            }
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Player Friction").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    if let Some(service) = players_service {
+                        if ui.add(egui::DragValue::new(&mut service.friction).speed(0.05).range(0.0..=1.0)).changed() {
+                            if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
+                                shared.friction = service.friction;
+                            }
+                        }
+                    } else {
+                        ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Player Bounciness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    if let Some(service) = players_service {
+                        if ui.add(egui::DragValue::new(&mut service.bounciness).speed(0.05).range(0.0..=1.0)).changed() {
+                            if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
+                                shared.bounciness = service.bounciness;
+                            }
                         }
                     } else {
                         ui.label(egui::RichText::new("Players resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));

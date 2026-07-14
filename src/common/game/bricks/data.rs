@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
 use crate::common::game::bricks::components::{Brick, BrickShape, BrickShapeComponent};
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
+use avian3d::prelude::CollisionLayers;
 
 #[derive(Resource, Default)]
 pub struct BrickSpawnerCount {
@@ -53,6 +54,7 @@ pub fn spawn_brick(
         BrickShapeComponent { shape },
         crate::common::game::bricks::components::BrickPhysics::default(),
         crate::common::game::bricks::components::BrickColor { color: Color::srgb(0.84, 0.24, 0.16) },
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
         Pickable::default(),
         Name::new(format!("{}{}", name_prefix, current_index)),
     )).id()
@@ -108,8 +110,15 @@ pub fn spawn_from_data(
     }
     if let Some(phys) = data.physics {
         spawned.insert(phys);
+        let layers = if phys.player_can_collide {
+            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+        } else {
+            CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+        };
+        spawned.insert(layers);
     } else if data.is_brick {
         spawned.insert(crate::common::game::bricks::components::BrickPhysics::default());
+        spawned.insert(CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF));
     }
     let new_entity = spawned.id();
     if let Some(parent) = data.parent {

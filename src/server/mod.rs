@@ -30,7 +30,11 @@ impl Plugin for ServerPlugin {
         })
         .add_plugins(crate::common::net::ProtocolPlugin)
         .add_systems(Startup, (setup_server, map::load_map))
-        .add_systems(Update, (player::handle_player_inputs, player::handle_hello_messages))
+        .add_systems(Update, (
+            player::handle_player_inputs,
+            player::handle_hello_messages,
+            player::sync_players_service_properties,
+        ))
         .add_systems(PostUpdate, player::sync_transforms_to_network)
         .add_observer(player::handle_new_client)
         .add_observer(player::handle_client_disconnect);

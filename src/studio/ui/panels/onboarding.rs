@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy::pbr::ExtendedMaterial;
 use crate::common::game::bricks::data::spawn_brick;
+use avian3d::prelude::CollisionLayers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SelectedTemplate {
@@ -210,6 +211,10 @@ pub fn draw_onboarding(
                                     color: Color::Srgba(Srgba::new(0.28, 0.62, 0.32, 1.0)),
                                     physics_enabled: false,
                                     bounciness: 0.3,
+                                    player_can_collide: true,
+                                    friction: 0.3,
+                                    gravity_scale: 1.0,
+                                    mass: 1.0,
                                 });
                                 bricks.push(crate::common::core::vrtx::VrtxBrick {
                                     name: "Part0".to_string(),
@@ -218,11 +223,15 @@ pub fn draw_onboarding(
                                     color: Color::Srgba(Srgba::new(0.84, 0.24, 0.16, 1.0)),
                                     physics_enabled: true,
                                     bounciness: 0.3,
+                                    player_can_collide: true,
+                                    friction: 0.3,
+                                    gravity_scale: 1.0,
+                                    mass: 1.0,
                                 });
                             }
 
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 1,
+                                version: 3,
                                 gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: false,
@@ -257,8 +266,13 @@ pub fn draw_onboarding(
                                     crate::common::game::bricks::components::BrickPhysics {
                                         enabled: false,
                                         bounciness: 0.3,
+                                        player_can_collide: true,
+                                        friction: 0.3,
+                                        gravity_scale: 1.0,
+                                        mass: 1.0,
                                     },
                                     crate::common::game::bricks::components::BrickColor { color: Color::srgb(0.28, 0.62, 0.32) },
+                                    CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
                                     Pickable::default(),
                                     Name::new("Baseplate"),
                                 ));
