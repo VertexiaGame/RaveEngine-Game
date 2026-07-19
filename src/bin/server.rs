@@ -84,6 +84,8 @@ fn main() {
     let mut bench_frames: u64 = 500;
     #[cfg(feature = "bench")]
     let mut bench_warmup: u64 = 100;
+    #[cfg(feature = "bench")]
+    let mut bench_scenario = "server".to_string();
 
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
@@ -111,6 +113,10 @@ fn main() {
                 bench_warmup = f;
             }
         }
+        #[cfg(feature = "bench")]
+        if args[i] == "--bench-scenario" && i + 1 < args.len() {
+            bench_scenario = args[i + 1].clone();
+        }
     }
 
     let mut app = App::new();
@@ -125,19 +131,28 @@ fn main() {
     app.add_plugins(StatesPlugin);
     app.add_plugins(TransformPlugin);
     app.add_plugins(CommonPlugin);
-    app.add_plugins(ServerPlugin {
-        map_path,
-        port,
-    });
+    #[cfg(feature = "bench")]
+    if !bench_mode || bench_scenario == "server" {
+        app.add_plugins(ServerPlugin { map_path: map_path.clone(), port });
+    }
+    #[cfg(not(feature = "bench"))]
+    app.add_plugins(ServerPlugin { map_path, port });
 
     #[cfg(feature = "bench")]
     if bench_mode {
+        if bench_scenario != "server" && bench_scenario != "client" {
+            panic!("unsupported benchmark scenario: {bench_scenario}");
+        }
         app.world_mut()
             .resource_mut::<RaveEngineLib::common::core::bench::BenchStats>()
-            .configure("server", bench_warmup, bench_frames);
-        app.add_systems(Startup, spawn_bench_players);
-        app.add_systems(Update, bench_move_players);
-        info!("BENCH: Running {} warmup and {} measured frames", bench_warmup, bench_frames);
+            .configure(&bench_scenario, bench_warmup, bench_frames);
+        if bench_scenario == "server" {
+            app.add_systems(Startup, spawn_bench_players);
+            app.add_systems(Update, bench_move_players);
+        } else {
+            RaveEngineLib::client::add_client_benchmark(&mut app);
+        }
+        info!("BENCH: Running {} with {} warmup and {} measured frames", bench_scenario, bench_warmup, bench_frames);
     }
 
     app.run();

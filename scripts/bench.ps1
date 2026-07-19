@@ -3,7 +3,9 @@ param(
     [string]$AfterCommit = "HEAD",
     [string]$MapPath = "assets/maps/temp_playtest.vrtx",
     [int]$Frames = 500,
-    [int]$WarmupFrames = 100
+    [int]$WarmupFrames = 100,
+    [ValidateSet("server", "client")]
+    [string]$Scenario = "server"
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,11 +48,11 @@ function Run-Bench {
     Push-Location $Worktree
     try {
         Invoke-Native { cargo build --release --features bench --bin RaveEngineServer } "Build failed for $Commit"
-        $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+        $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-scenario $Scenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $Commit" }
         $jsonLine = $result | Select-String '^\{"scenario"' | Select-Object -Last 1
         if (-not $jsonLine) { throw "No JSON output from benchmark for $Commit" }
-        $outFile = Join-Path $repo "bench_$Label.json"
+        $outFile = Join-Path $repo "bench_$($Label)_$Scenario.json"
         $jsonLine.Line | Out-File -Encoding utf8 $outFile
         Write-Host "  -> $outFile" -ForegroundColor Green
         return $outFile

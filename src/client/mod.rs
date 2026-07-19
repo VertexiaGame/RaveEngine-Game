@@ -677,6 +677,20 @@ mod tests {
 
         assert_eq!(index.get(&1), Some(&transforms[0]));
     }
+
+    #[cfg(feature = "bench")]
+    #[test]
+    fn client_benchmark_spawns_deterministic_players() {
+        let mut app = App::new();
+        app.add_systems(Startup, spawn_client_benchmark);
+        app.update();
+
+        let player_count = app.world_mut()
+            .query::<&crate::common::net::components::Player>()
+            .iter(app.world())
+            .count();
+        assert_eq!(player_count, 300);
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -792,4 +806,39 @@ fn print_hierarchy_from_root(world: &World, entity: Entity, depth: usize) {
             print_hierarchy_from_root(world, child, depth + 1);
         }
     }
+}
+
+#[cfg(feature = "bench")]
+fn spawn_client_benchmark(mut commands: Commands) {
+    use avian3d::prelude::*;
+
+    commands.spawn((
+        Transform::from_xyz(0.0, -0.14, 0.0),
+        RigidBody::Static,
+        Collider::cuboid(120.0, 0.28, 120.0),
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+    ));
+    for index in 0..100u64 {
+        let x = (index % 10) as f32 * 2.0;
+        let z = (index / 10) as f32 * 2.0;
+        let player = crate::common::net::components::Player {
+            client_id: index,
+            username: format!("BenchPlayer{index}"),
+            ..default()
+        };
+        let transform = Transform::from_xyz(x, 0.84, z);
+        commands.spawn((player.clone(), transform, Visibility::Inherited));
+        commands.spawn((player.clone(), transform, Predicted));
+        commands.spawn((player, transform, Interpolated));
+    }
+}
+
+#[cfg(feature = "bench")]
+pub fn add_client_benchmark(app: &mut App) {
+    app.add_systems(Startup, spawn_client_benchmark)
+        .add_systems(Update, (
+            sync_predicted_interpolated_transforms,
+            hide_confirmed_player_visuals,
+            player::animation::track_player_velocities,
+        ).chain());
 }
