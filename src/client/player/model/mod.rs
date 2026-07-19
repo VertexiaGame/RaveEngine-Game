@@ -203,12 +203,14 @@ pub fn inspect_meshes(
     }
     *last_log = now;
 
-    info!("PLAYER_LOG: Total entities with Mesh3d component: {}", query.iter().count());
+    let mut count = 0;
     for (entity, name, global_transform, vis_opt) in &query {
+        count += 1;
         let (scale, _rotation, translation) = global_transform.to_scale_rotation_translation();
         info!("PLAYER_LOG: Mesh3d Entity '{}' ({:?}): translation={:?}, scale={:?}, vis={:?}",
             name.as_str(), entity, translation, scale, vis_opt);
     }
+    info!("PLAYER_LOG: Total entities with Mesh3d component: {}", count);
 }
 
 pub fn inspect_gltf_container(
