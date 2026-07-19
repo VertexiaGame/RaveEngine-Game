@@ -447,6 +447,17 @@ impl LuaUserData for Instance {
 }
 
 pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> {
+    if let Some(cache) = world.get_resource::<crate::scripting::vm::scheduler::ServiceEntities>() {
+        let cached = match service_name {
+            "Workspace" => cache.workspace,
+            "Players" => cache.players,
+            "Lighting" => cache.lighting,
+            _ => None,
+        };
+        if cached.is_some() {
+            return cached;
+        }
+    }
     for archetype in world.archetypes().iter() {
         for entity in archetype.entities() {
             let entity = entity.id();

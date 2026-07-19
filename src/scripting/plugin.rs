@@ -9,18 +9,24 @@ pub struct ScriptingPlugin;
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<ServerScript>()
+        app.init_resource::<crate::scripting::vm::scheduler::ServiceEntities>()
+            .register_type::<ServerScript>()
             .register_type::<LocalScript>()
             .register_type::<ModuleScript>()
             .add_systems(Update, (
                 discover_and_run_server_scripts,
                 discover_and_run_local_scripts,
-                server_scheduler_system,
-                client_scheduler_system,
                 detect_touched_collisions,
                 detect_player_added_events,
                 trigger_run_service_events,
-            ));
+                server_scheduler_system,
+                client_scheduler_system,
+            ).chain())
+            .add_systems(PostUpdate, cache_service_entities
+                .run_if(|cache: Option<Res<crate::scripting::vm::scheduler::ServiceEntities>>| {
+                    cache.map_or(true, |c| c.workspace.is_none() || c.players.is_none() || c.lighting.is_none())
+                })
+            );
     }
 }
 
@@ -411,5 +417,19 @@ pub fn trigger_run_service_events(world: &mut World) {
         }
 
         world.insert_resource(client_vm);
+    }
+}
+
+fn cache_service_entities(
+    mut cache: ResMut<crate::scripting::vm::scheduler::ServiceEntities>,
+    query: Query<(Entity, &Name)>,
+) {
+    for (entity, name) in &query {
+        match name.as_str() {
+            "Workspace" => cache.workspace = Some(entity),
+            "Players" => cache.players = Some(entity),
+            "Lighting" => cache.lighting = Some(entity),
+            _ => {}
+        }
     }
 }
