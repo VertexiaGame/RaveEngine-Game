@@ -25,7 +25,7 @@ pub struct LuaScheduler {
 pub struct SchedulerRef(pub Arc<Mutex<LuaScheduler>>);
 
 pub struct ScriptRegistry {
-    pub connections: std::collections::HashMap<(Entity, String), Vec<std::sync::Arc<mlua::RegistryKey>>>,
+    pub connections: std::collections::HashMap<(Entity, &'static str), Vec<std::sync::Arc<mlua::RegistryKey>>>,
 }
 
 #[derive(Clone)]

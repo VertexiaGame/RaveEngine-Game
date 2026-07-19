@@ -242,7 +242,7 @@ pub fn detect_touched_collisions(world: &mut World) {
         {
             let registry = server_vm.registry.lock().unwrap();
             for &(entity, other) in &collisions {
-                if let Some(keys) = registry.connections.get(&(entity, "Touched".to_string())) {
+                if let Some(keys) = registry.connections.get(&(entity, "Touched")) {
                     for key in keys {
                         if let Ok(func) = server_vm.lua.registry_value::<LuaFunction>(&**key) {
                             if let Ok(other_inst) = server_vm.lua.create_userdata(crate::scripting::userdata::instance::Instance { entity: other }) {
@@ -251,7 +251,7 @@ pub fn detect_touched_collisions(world: &mut World) {
                         }
                     }
                 }
-                if let Some(keys) = registry.connections.get(&(other, "Touched".to_string())) {
+                if let Some(keys) = registry.connections.get(&(other, "Touched")) {
                     for key in keys {
                         if let Ok(func) = server_vm.lua.registry_value::<LuaFunction>(&**key) {
                             if let Ok(entity_inst) = server_vm.lua.create_userdata(crate::scripting::userdata::instance::Instance { entity }) {
@@ -272,7 +272,7 @@ pub fn detect_touched_collisions(world: &mut World) {
         {
             let registry = client_vm.registry.lock().unwrap();
             for &(entity, other) in &collisions {
-                if let Some(keys) = registry.connections.get(&(entity, "Touched".to_string())) {
+                if let Some(keys) = registry.connections.get(&(entity, "Touched")) {
                     for key in keys {
                         if let Ok(func) = client_vm.lua.registry_value::<LuaFunction>(&**key) {
                             if let Ok(other_inst) = client_vm.lua.create_userdata(crate::scripting::userdata::instance::Instance { entity: other }) {
@@ -281,7 +281,7 @@ pub fn detect_touched_collisions(world: &mut World) {
                         }
                     }
                 }
-                if let Some(keys) = registry.connections.get(&(other, "Touched".to_string())) {
+                if let Some(keys) = registry.connections.get(&(other, "Touched")) {
                     for key in keys {
                         if let Ok(func) = client_vm.lua.registry_value::<LuaFunction>(&**key) {
                             if let Ok(entity_inst) = client_vm.lua.create_userdata(crate::scripting::userdata::instance::Instance { entity }) {
@@ -320,7 +320,7 @@ pub fn detect_player_added_events(
         {
             let registry = server_vm.registry.lock().unwrap();
             let players_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
-            if let Some(keys) = registry.connections.get(&(players_entity, "PlayerAdded".to_string())) {
+            if let Some(keys) = registry.connections.get(&(players_entity, "PlayerAdded")) {
                 for key in keys {
                     if let Ok(func) = server_vm.lua.registry_value::<LuaFunction>(&**key) {
                         for &entity in &joined {
@@ -342,7 +342,7 @@ pub fn detect_player_added_events(
         {
             let registry = client_vm.registry.lock().unwrap();
             let players_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
-            if let Some(keys) = registry.connections.get(&(players_entity, "PlayerAdded".to_string())) {
+            if let Some(keys) = registry.connections.get(&(players_entity, "PlayerAdded")) {
                 for key in keys {
                     if let Ok(func) = client_vm.lua.registry_value::<LuaFunction>(&**key) {
                         for &entity in &joined {
@@ -372,7 +372,7 @@ pub fn trigger_run_service_events(world: &mut World) {
             let registry = server_vm.registry.lock().unwrap();
             let workspace_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
             
-            if let Some(keys) = registry.connections.get(&(workspace_entity, "Heartbeat".to_string())) {
+            if let Some(keys) = registry.connections.get(&(workspace_entity, "Heartbeat")) {
                 for key in keys {
                     if let Ok(func) = server_vm.lua.registry_value::<LuaFunction>(&**key) {
                         spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, LuaValue::Number(delta_secs as f64));
@@ -380,7 +380,7 @@ pub fn trigger_run_service_events(world: &mut World) {
                 }
             }
 
-            if let Some(keys) = registry.connections.get(&(workspace_entity, "Stepped".to_string())) {
+            if let Some(keys) = registry.connections.get(&(workspace_entity, "Stepped")) {
                 for key in keys {
                     if let Ok(func) = server_vm.lua.registry_value::<LuaFunction>(&**key) {
                         spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, LuaValue::Number(delta_secs as f64));
@@ -399,7 +399,7 @@ pub fn trigger_run_service_events(world: &mut World) {
             let registry = client_vm.registry.lock().unwrap();
             let workspace_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
             
-            if let Some(keys) = registry.connections.get(&(workspace_entity, "Heartbeat".to_string())) {
+            if let Some(keys) = registry.connections.get(&(workspace_entity, "Heartbeat")) {
                 for key in keys {
                     if let Ok(func) = client_vm.lua.registry_value::<LuaFunction>(&**key) {
                         spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, LuaValue::Number(delta_secs as f64));
@@ -407,7 +407,7 @@ pub fn trigger_run_service_events(world: &mut World) {
                 }
             }
 
-            if let Some(keys) = registry.connections.get(&(workspace_entity, "Stepped".to_string())) {
+            if let Some(keys) = registry.connections.get(&(workspace_entity, "Stepped")) {
                 for key in keys {
                     if let Ok(func) = client_vm.lua.registry_value::<LuaFunction>(&**key) {
                         spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, LuaValue::Number(delta_secs as f64));
