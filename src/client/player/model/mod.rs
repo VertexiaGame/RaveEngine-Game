@@ -108,6 +108,7 @@ pub fn update_local_player_transparency(
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn log_player_loading_precision(
     asset_server: Res<AssetServer>,
     character_assets: Option<Res<crate::client::player::loader::PlayerCharacterAssets>>,
@@ -137,6 +138,7 @@ pub fn log_player_loading_precision(
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn inspect_hierarchy_deep(
     world: &World,
     mut last_log: Local<f32>,
@@ -164,6 +166,7 @@ pub fn inspect_hierarchy_deep(
     }
 }
 
+#[cfg(debug_assertions)]
 fn print_entity_recursive(world: &World, entity: Entity, depth: usize) {
     let indent = "  ".repeat(depth);
     let name = world.get::<Name>(entity).map(|n| n.as_str().to_string()).unwrap_or_else(|| "Instance".to_string());
@@ -188,6 +191,7 @@ fn print_entity_recursive(world: &World, entity: Entity, depth: usize) {
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn inspect_meshes(
     query: Query<(Entity, &Name, &GlobalTransform, Option<&Visibility>), With<Mesh3d>>,
     mut last_log: Local<f32>,
@@ -199,12 +203,14 @@ pub fn inspect_meshes(
     }
     *last_log = now;
 
-    info!("PLAYER_LOG: Total entities with Mesh3d component: {}", query.iter().count());
+    let mut count = 0;
     for (entity, name, global_transform, vis_opt) in &query {
+        count += 1;
         let (scale, _rotation, translation) = global_transform.to_scale_rotation_translation();
         info!("PLAYER_LOG: Mesh3d Entity '{}' ({:?}): translation={:?}, scale={:?}, vis={:?}",
             name.as_str(), entity, translation, scale, vis_opt);
     }
+    info!("PLAYER_LOG: Total entities with Mesh3d component: {}", count);
 }
 
 pub fn inspect_gltf_container(

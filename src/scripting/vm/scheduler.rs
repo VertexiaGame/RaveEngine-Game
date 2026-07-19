@@ -1,9 +1,16 @@
 use std::time::Instant;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, Resource};
 use bevy::log::*;
 use mlua::prelude::*;
+
+#[derive(Resource, Default)]
+pub struct ServiceEntities {
+    pub workspace: Option<Entity>,
+    pub players: Option<Entity>,
+    pub lighting: Option<Entity>,
+}
 
 pub struct LuaTask {
     pub thread_key: mlua::RegistryKey,
@@ -18,7 +25,7 @@ pub struct LuaScheduler {
 pub struct SchedulerRef(pub Arc<Mutex<LuaScheduler>>);
 
 pub struct ScriptRegistry {
-    pub connections: std::collections::HashMap<(Entity, String), Vec<std::sync::Arc<mlua::RegistryKey>>>,
+    pub connections: std::collections::HashMap<(Entity, &'static str), Vec<std::sync::Arc<mlua::RegistryKey>>>,
 }
 
 #[derive(Clone)]

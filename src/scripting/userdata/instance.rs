@@ -108,7 +108,7 @@ impl LuaUserData for Instance {
                 }
                 "Touched" => {
                     lua.create_userdata(crate::scripting::userdata::instance::RBXScriptSignal {
-                        name: "Touched".to_string(),
+                        name: "Touched",
                         entity: this.entity,
                     }).map(LuaValue::UserData)
                 }
@@ -447,6 +447,19 @@ impl LuaUserData for Instance {
 }
 
 pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> {
+    if let Some(cache) = world.get_resource::<crate::scripting::vm::scheduler::ServiceEntities>() {
+        let cached = match service_name {
+            "Workspace" => cache.workspace,
+            "Players" => cache.players,
+            "Lighting" => cache.lighting,
+            _ => None,
+        };
+        if let Some(entity) = cached {
+            if world.get::<Name>(entity).is_some_and(|name| name.as_str() == service_name) {
+                return Some(entity);
+            }
+        }
+    }
     for archetype in world.archetypes().iter() {
         for entity in archetype.entities() {
             let entity = entity.id();
@@ -467,7 +480,7 @@ pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> 
 }
 
 pub struct RBXScriptSignal {
-    pub name: String,
+    pub name: &'static str,
     pub entity: Entity,
 }
 
@@ -477,18 +490,18 @@ impl LuaUserData for RBXScriptSignal {
             let registry_ref = lua.app_data_ref::<ScriptRegistryRef>().unwrap();
             let mut registry = registry_ref.0.lock().unwrap();
             let key = std::sync::Arc::new(lua.create_registry_value(callback)?);
-            registry.connections.entry((this.entity, this.name.clone()))
+            registry.connections.entry((this.entity, this.name))
                 .or_default()
                 .push(key.clone());
 
             let conn_table = lua.create_table()?;
             let key_clone = key.clone();
             let entity = this.entity;
-            let name = this.name.clone();
+            let name = this.name;
             let registry_ref_clone = (*registry_ref).clone();
             conn_table.set("Disconnect", lua.create_function(move |_, _: ()| {
                 let mut registry = registry_ref_clone.0.lock().unwrap();
-                if let Some(conns) = registry.connections.get_mut(&(entity, name.clone())) {
+                if let Some(conns) = registry.connections.get_mut(&(entity, name)) {
                     conns.retain(|k| k != &key_clone);
                 }
                 Ok(())

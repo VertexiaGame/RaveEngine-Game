@@ -47,6 +47,9 @@ base64 = "0.22.1"
 flate2 = "1.0"
 mlua = { version = "0.12", features = ["luau", "luau-jit", "send", "serde", "macros"] }
 
+[features]
+bench = []
+
 [profile.dev]
 opt-level = 1
 

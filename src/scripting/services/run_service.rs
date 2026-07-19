@@ -17,14 +17,14 @@ impl LuaUserData for RunService {
                 "Heartbeat" => {
                     let entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
                     lua.create_userdata(RBXScriptSignal {
-                        name: "Heartbeat".to_string(),
+                        name: "Heartbeat",
                         entity,
                     }).map(LuaValue::UserData)
                 }
                 "Stepped" => {
                     let entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace").unwrap_or(Entity::PLACEHOLDER);
                     lua.create_userdata(RBXScriptSignal {
-                        name: "Stepped".to_string(),
+                        name: "Stepped",
                         entity,
                     }).map(LuaValue::UserData)
                 }

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::animation::{AnimatedBy, AnimationTargetId};
+use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use crate::client::player::model::PlayerGltfHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -363,83 +364,82 @@ fn insert_animation_targets_recursive(
     }
 }
 
-pub fn track_player_velocities(
-    mut commands: Commands,
-    mut query: Query<(Entity, &Transform, Option<&mut PlayerVelocityTracker>), With<crate::common::net::components::Player>>,
-    bricks: Query<(&Transform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<crate::common::game::bricks::components::Brick>>,
-    time: Res<Time>,
-) {
-    let dt = time.delta_secs();
-    if dt <= 0.0 {
-        return;
+type PlayerGrid = std::collections::HashMap<(i32, i32), Vec<(Entity, Transform)>>;
+
+fn grid_cell(position: Vec3) -> (i32, i32) {
+    (position.x.floor() as i32, position.z.floor() as i32)
+}
+
+fn rebuild_player_grid(grid: &mut PlayerGrid, players: impl Iterator<Item = (Entity, Transform)>) {
+    grid.clear();
+    for (entity, transform) in players {
+        grid.entry(grid_cell(transform.translation)).or_default().push((entity, transform));
     }
+}
 
-    let all_players: Vec<(Entity, Transform)> = query.iter().map(|(e, t, _)| (e, *t)).collect();
-
-    for (entity, transform, tracker_opt) in &mut query {
-        let player_pos = transform.translation;
-        let mut is_grounded = false;
-
-        for (brick_transform, shape_opt) in &bricks {
-            let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
-            let (half_x, half_y, half_z) = match shape {
-                crate::common::game::bricks::components::BrickShape::Block => {
-                    let size = brick_transform.scale * Vec3::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28);
-                    (size.x * 0.5, size.y * 0.5, size.z * 0.5)
-                }
-                crate::common::game::bricks::components::BrickShape::Sphere => {
-                    let r = brick_transform.scale.x * 1.0 * 0.28;
-                    (r, r, r)
-                }
-            };
-
-            let local_y_world = brick_transform.rotation.mul_vec3(Vec3::Y);
-            let is_top_up = local_y_world.y >= 0.0;
-            
-            let player_local_pos = brick_transform.rotation.inverse().mul_vec3(player_pos - brick_transform.translation);
-            let dx = player_local_pos.x.abs();
-            let dz = player_local_pos.z.abs();
-            let dy = if is_top_up { player_local_pos.y } else { -player_local_pos.y };
-
-            let player_half_width = 2.0 * 0.28 * 0.5;
-            let player_half_depth = 1.0 * 0.28 * 0.5;
-
-            if dx <= (half_x + player_half_width) && dz <= (half_z + player_half_depth) {
-                let expected_y_dist = half_y + 2.5 * 0.28;
-                if dy >= 0.0 && dy <= (expected_y_dist + 0.15) {
-                    is_grounded = true;
-                    break;
-                }
-            }
-        }
-
-        if !is_grounded {
-            for &(other_entity, other_transform) in &all_players {
+fn supported_by_player(entity: Entity, transform: &Transform, grid: &PlayerGrid) -> bool {
+    let (cell_x, cell_z) = grid_cell(transform.translation);
+    for x in (cell_x - 1)..=(cell_x + 1) {
+        for z in (cell_z - 1)..=(cell_z + 1) {
+            let Some(players) = grid.get(&(x, z)) else { continue };
+            for &(other_entity, other_transform) in players {
                 if other_entity == entity {
                     continue;
                 }
 
-                let other_half_x = 1.0 * 0.28;
-                let other_half_y = 2.5 * 0.28;
-                let other_half_z = 0.5 * 0.28;
-
-                let player_local_pos = other_transform.rotation.inverse().mul_vec3(player_pos - other_transform.translation);
-                let dx = player_local_pos.x.abs();
-                let dz = player_local_pos.z.abs();
-                let dy = player_local_pos.y;
-
-                let player_half_width = 2.0 * 0.28 * 0.5;
-                let player_half_depth = 1.0 * 0.28 * 0.5;
-
-                if dx <= (other_half_x + player_half_width) && dz <= (other_half_z + player_half_depth) {
-                    let expected_y_dist = other_half_y + 2.5 * 0.28;
-                    if dy >= 0.0 && dy <= (expected_y_dist + 0.15) {
-                        is_grounded = true;
-                        break;
-                    }
+                let local = other_transform.rotation.inverse().mul_vec3(transform.translation - other_transform.translation);
+                let within_x = local.x.abs() <= 1.0 * 0.28 + 2.0 * 0.28 * 0.5;
+                let within_z = local.z.abs() <= 0.5 * 0.28 + 1.0 * 0.28 * 0.5;
+                let max_height = 2.5 * 0.28 + 2.5 * 0.28 + 0.15;
+                if within_x && within_z && local.y >= 0.0 && local.y <= max_height {
+                    return true;
                 }
             }
         }
+    }
+    false
+}
+
+fn supported_by_world(entity: Entity, transform: &Transform, spatial_query: &SpatialQuery) -> bool {
+    let filter = SpatialQueryFilter::default()
+        .with_excluded_entities([entity])
+        .with_mask(0b0001);
+    spatial_query
+        .cast_ray(
+            transform.translation,
+            Dir3::NEG_Y,
+            2.5 * 0.28 + 0.15,
+            true,
+            &filter,
+        )
+        .is_some()
+}
+
+fn tracking_delta(delta_secs: f32) -> Option<f32> {
+    (delta_secs > 0.0).then_some(delta_secs)
+}
+
+fn grounded_for_animation(tracker: &PlayerVelocityTracker) -> bool {
+    tracker.is_grounded || tracker.velocity.y.abs() < 0.2
+}
+
+pub fn track_player_velocities(
+    mut commands: Commands,
+    mut query: Query<(Entity, &Transform, Option<&mut PlayerVelocityTracker>), With<crate::common::net::components::Player>>,
+    spatial_query: SpatialQuery,
+    time: Res<Time>,
+    mut cached_players: Local<Vec<(Entity, Transform)>>,
+    mut player_grid: Local<PlayerGrid>,
+) {
+    let Some(dt) = tracking_delta(time.delta_secs()) else { return };
+
+    cached_players.clear();
+    cached_players.extend(query.iter().map(|(e, t, _)| (e, *t)));
+    rebuild_player_grid(&mut player_grid, cached_players.iter().copied());
+
+    for (entity, transform, tracker_opt) in &mut query {
+        let is_grounded = supported_by_world(entity, transform, &spatial_query)
+            || supported_by_player(entity, transform, &player_grid);
 
         if let Some(mut tracker) = tracker_opt {
             let raw_velocity = (transform.translation - tracker.last_position) / dt;
@@ -480,7 +480,7 @@ pub fn animate_player(
 
         let is_jump_finished = player.animation(jump_index).map_or(false, |anim| anim.is_finished());
 
-        let mut active_index = if !tracker.is_grounded {
+        let mut active_index = if !grounded_for_animation(tracker) {
             if velocity.y > 0.0 {
                 jump_index
             } else {
@@ -505,5 +505,134 @@ pub fn animate_player(
             marker.current_index = Some(active_index);
             info!("PLAYER_LOG: Animation state changed to NodeIndex {:?}", active_index);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avian3d::prelude::*;
+
+    #[derive(Component)]
+    struct ProbePlayer;
+
+    #[derive(Resource, Default)]
+    struct ProbeResult(bool);
+
+    fn run_probe(
+        spatial_query: SpatialQuery,
+        player: Single<(Entity, &Transform), With<ProbePlayer>>,
+        mut result: ResMut<ProbeResult>,
+    ) {
+        result.0 = supported_by_world(player.0, player.1, &spatial_query);
+    }
+
+    fn world_support(collider: Collider, transform: Transform, player_position: Vec3) -> bool {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), PhysicsPlugins::default()))
+            .init_asset::<Mesh>()
+            .init_resource::<ProbeResult>()
+            .add_systems(Update, run_probe);
+        app.world_mut().spawn((
+            RigidBody::Static,
+            collider,
+            transform,
+            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+        ));
+        app.world_mut().spawn((ProbePlayer, Transform::from_translation(player_position)));
+        app.update();
+        app.update();
+        app.world().resource::<ProbeResult>().0
+    }
+
+    #[test]
+    fn detects_stacked_players_in_neighboring_cells() {
+        let mut world = World::new();
+        let lower = world.spawn_empty().id();
+        let upper = world.spawn_empty().id();
+        let lower_transform = Transform::from_xyz(0.9, 0.0, 0.0);
+        let upper_transform = Transform::from_xyz(0.9, 1.4, 0.0);
+        let mut grid = PlayerGrid::default();
+        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
+
+        assert!(supported_by_player(upper, &upper_transform, &grid));
+    }
+
+    #[test]
+    fn ignores_players_outside_the_support_area() {
+        let mut world = World::new();
+        let lower = world.spawn_empty().id();
+        let upper = world.spawn_empty().id();
+        let lower_transform = Transform::from_xyz(0.0, 0.0, 0.0);
+        let upper_transform = Transform::from_xyz(0.8, 1.4, 0.0);
+        let mut grid = PlayerGrid::default();
+        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
+
+        assert!(!supported_by_player(upper, &upper_transform, &grid));
+    }
+
+    #[test]
+    fn respects_rotated_player_support() {
+        let mut world = World::new();
+        let lower = world.spawn_empty().id();
+        let upper = world.spawn_empty().id();
+        let lower_transform = Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
+        let upper_transform = Transform::from_xyz(0.0, 1.4, 0.4);
+        let mut grid = PlayerGrid::default();
+        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
+
+        assert!(supported_by_player(upper, &upper_transform, &grid));
+    }
+
+    #[test]
+    fn detects_flat_and_rotated_world_support() {
+        assert!(world_support(
+            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
+            Transform::default(),
+            Vec3::new(0.0, 2.5 * 0.28 + 0.5 * 0.28, 0.0),
+        ));
+        assert!(world_support(
+            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
+            Transform::from_rotation(Quat::from_rotation_z(0.2)),
+            Vec3::new(0.0, 2.5 * 0.28 + 0.5 * 0.28, 0.0),
+        ));
+    }
+
+    #[test]
+    fn detects_sphere_support_and_airborne_players() {
+        assert!(world_support(
+            Collider::sphere(0.28),
+            Transform::default(),
+            Vec3::new(0.0, 2.5 * 0.28 + 0.28, 0.0),
+        ));
+        assert!(!world_support(
+            Collider::sphere(0.28),
+            Transform::default(),
+            Vec3::new(0.0, 3.0, 0.0),
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_delta_time() {
+        assert_eq!(tracking_delta(0.0), None);
+        assert_eq!(tracking_delta(-0.1), None);
+        assert_eq!(tracking_delta(0.1), Some(0.1));
+    }
+
+    #[test]
+    fn settles_animation_when_vertical_motion_stops() {
+        let mut tracker = PlayerVelocityTracker {
+            last_position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            is_grounded: false,
+        };
+
+        assert!(grounded_for_animation(&tracker));
+        tracker.velocity.y = -0.3;
+        assert!(!grounded_for_animation(&tracker));
+        tracker.velocity.y = 0.3;
+        assert!(!grounded_for_animation(&tracker));
+        tracker.is_grounded = true;
+        assert!(grounded_for_animation(&tracker));
     }
 }

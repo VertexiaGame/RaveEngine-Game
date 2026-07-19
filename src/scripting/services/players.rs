@@ -16,7 +16,7 @@ impl LuaUserData for PlayersService {
                 "PlayerAdded" => {
                     let entity = crate::scripting::userdata::instance::find_service_entity(world, "Players").unwrap_or(Entity::PLACEHOLDER);
                     lua.create_userdata(crate::scripting::userdata::instance::RBXScriptSignal {
-                        name: "PlayerAdded".to_string(),
+                        name: "PlayerAdded",
                         entity,
                     }).map(LuaValue::UserData)
                 }

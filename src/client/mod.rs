@@ -49,6 +49,11 @@ pub struct PlaytestState {
     pub active: bool,
 }
 
+#[derive(Resource, Default)]
+struct StudioPlaytestPhysicsState {
+    previous: Option<(PhysicsSimulationState, bool)>,
+}
+
 #[derive(Component)]
 pub struct HelloSent;
 
@@ -69,13 +74,17 @@ impl Plugin for ClientPlugin {
 
         app.init_resource::<ui::ChatboxState>()
             .init_resource::<PlaytestState>()
+            .init_resource::<StudioPlaytestPhysicsState>()
             .add_plugins(player::PlayerPlugin)
             .add_plugins(crate::common::net::ProtocolPlugin)
             .add_systems(Startup, (
                 setup_physics_initializer,
                 setup_player_assets,
             ))
-            .add_systems(PreUpdate, initialize_client_physics)
+            .add_systems(PreUpdate, (
+                initialize_client_physics,
+                sync_studio_playtest_physics,
+            ))
             .add_systems(Update, (
                 sync_network_transforms_to_client,
                 sync_predicted_interpolated_transforms,
@@ -84,17 +93,19 @@ impl Plugin for ClientPlugin {
                 sync_local_player,
                 attach_character_visuals.after(sync_local_player),
                 update_local_player_transparency,
-                cleanup_duplicate_gltf_nodes,
                 hide_confirmed_player_visuals.after(update_local_player_transparency),
                 send_hello_message,
                 handle_kick_message,
                 handle_auth_success,
+            ).run_if(is_playtesting))
+            .add_systems(Update, cleanup_orphaned_visuals);
+            #[cfg(debug_assertions)]
+            app.add_systems(Update, (
                 debug_cameras,
                 debug_players,
                 debug_deep_hierarchy,
-            ).run_if(is_playtesting))
-            .add_systems(Update, cleanup_orphaned_visuals)
-            .add_systems(bevy_egui::EguiPrimaryContextPass, (
+            ).run_if(is_playtesting));
+            app.add_systems(bevy_egui::EguiPrimaryContextPass, (
                 ui::configure_client_visuals,
                 ui::draw_scoreboard,
                 ui::draw_chatbox,
@@ -516,25 +527,64 @@ fn on_network_transform_added(
     ));
 }
 
-fn cleanup_duplicate_gltf_nodes(
-    _commands: Commands,
-    _player_visuals: Query<(Entity, &Children), With<PlayerVisualChild>>,
-    _name_query: Query<&Name>,
+fn index_confirmed_transforms<'a>(
+    index: &mut std::collections::HashMap<u64, Transform>,
+    transforms: impl Iterator<Item = (&'a crate::common::net::components::Player, &'a Transform)>,
 ) {
+    index.clear();
+    for (player, transform) in transforms {
+        index.entry(player.client_id).or_insert(*transform);
+    }
+}
+
+fn update_studio_playtest_physics(
+    active: bool,
+    time_physics: &mut Time<Physics>,
+    state: &mut PhysicsSimulationState,
+    playtest_physics: &mut StudioPlaytestPhysicsState,
+) {
+    if active {
+        if playtest_physics.previous.is_none() {
+            playtest_physics.previous = Some((*state, time_physics.is_paused()));
+        }
+        *state = PhysicsSimulationState::Running;
+        time_physics.unpause();
+    } else if let Some((previous_state, was_paused)) = playtest_physics.previous.take() {
+        *state = previous_state;
+        if was_paused {
+            time_physics.pause();
+        } else {
+            time_physics.unpause();
+        }
+    }
+}
+
+fn sync_studio_playtest_physics(
+    playtest: Res<PlaytestState>,
+    mut time_physics: ResMut<Time<Physics>>,
+    mut state: ResMut<PhysicsSimulationState>,
+    mut playtest_physics: ResMut<StudioPlaytestPhysicsState>,
+) {
+    if std::env::var("VERTIGO_APP").unwrap_or_default() != "studio" {
+        return;
+    }
+    update_studio_playtest_physics(
+        playtest.active,
+        &mut time_physics,
+        &mut state,
+        &mut playtest_physics,
+    );
 }
 
 fn sync_predicted_interpolated_transforms(
     mut predicted_interpolated_query: Query<(&crate::common::net::components::Player, &mut Transform), Or<(With<Predicted>, With<Interpolated>)>>,
     confirmed_query: Query<(&crate::common::net::components::Player, &Transform), (Without<Predicted>, Without<Interpolated>, Without<Replicate>)>,
+    mut confirmed_transforms: Local<std::collections::HashMap<u64, Transform>>,
 ) {
+    index_confirmed_transforms(&mut confirmed_transforms, confirmed_query.iter());
     for (player, mut transform) in &mut predicted_interpolated_query {
-        for (conf_player, conf_transform) in &confirmed_query {
-            if player.client_id == conf_player.client_id {
-                transform.translation = conf_transform.translation;
-                transform.rotation = conf_transform.rotation;
-                transform.scale = conf_transform.scale;
-                break;
-            }
+        if let Some(confirmed) = confirmed_transforms.get(&player.client_id) {
+            *transform = *confirmed;
         }
     }
 }
@@ -581,14 +631,15 @@ fn sync_brick_color_to_material(
 fn hide_confirmed_player_visuals(
     predicted_interpolated_query: Query<&crate::common::net::components::Player, Or<(With<Predicted>, With<Interpolated>)>>,
     mut confirmed_query: Query<(&crate::common::net::components::Player, &mut Visibility), (Without<Predicted>, Without<Interpolated>, Without<Replicate>)>,
+    mut cached_ids: Local<std::collections::HashSet<u64>>,
 ) {
-    let active_client_ids: std::collections::HashSet<u64> = predicted_interpolated_query
-        .iter()
-        .map(|p| p.client_id)
-        .collect();
+    cached_ids.clear();
+    for player in predicted_interpolated_query.iter() {
+        cached_ids.insert(player.client_id);
+    }
 
     for (conf_player, mut visibility) in &mut confirmed_query {
-        if active_client_ids.contains(&conf_player.client_id) {
+        if cached_ids.contains(&conf_player.client_id) {
             if *visibility != Visibility::Hidden {
                 *visibility = Visibility::Hidden;
             }
@@ -640,23 +691,108 @@ fn handle_auth_success(
 
 fn links_optimizer_system() {}
 
-pub fn optimize_brick_visibility(
-    _commands: Commands,
-    _meshes: ResMut<Assets<Mesh>>,
-    _materials: ResMut<Assets<StandardMaterial>>,
-    _studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
-    _studs_assets: Res<crate::common::game::bricks::studs::StudsAssets>,
-    _camera_query: Query<&Transform, With<Camera3d>>,
-    _bricks_query: Query<(
-        Entity,
-        &GlobalTransform,
-        &components::BrickShapeComponent,
-        &components::BrickColor,
-        &mut MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
-    )>,
-) {
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn player(client_id: u64) -> crate::common::net::components::Player {
+        crate::common::net::components::Player {
+            client_id,
+            ..default()
+        }
+    }
+
+    #[test]
+    fn indexes_confirmed_transforms_by_client() {
+        let players = [player(1), player(2)];
+        let transforms = [Transform::from_xyz(1.0, 2.0, 3.0), Transform::from_xyz(4.0, 5.0, 6.0)];
+        let mut index = std::collections::HashMap::new();
+
+        index_confirmed_transforms(&mut index, players.iter().zip(transforms.iter()));
+
+        assert_eq!(index.get(&1), Some(&transforms[0]));
+        assert_eq!(index.get(&2), Some(&transforms[1]));
+        assert_eq!(index.get(&3), None);
+    }
+
+    #[test]
+    fn preserves_the_first_duplicate_transform() {
+        let players = [player(1), player(1)];
+        let transforms = [Transform::from_xyz(1.0, 0.0, 0.0), Transform::from_xyz(2.0, 0.0, 0.0)];
+        let mut index = std::collections::HashMap::new();
+
+        index_confirmed_transforms(&mut index, players.iter().zip(transforms.iter()));
+
+        assert_eq!(index.get(&1), Some(&transforms[0]));
+    }
+
+    #[test]
+    fn restores_studio_physics_after_playtest() {
+        let mut time_physics = Time::<Physics>::default();
+        time_physics.pause();
+        let mut state = PhysicsSimulationState::Stopped;
+        let mut playtest_physics = StudioPlaytestPhysicsState::default();
+
+        update_studio_playtest_physics(
+            true,
+            &mut time_physics,
+            &mut state,
+            &mut playtest_physics,
+        );
+
+        assert_eq!(state, PhysicsSimulationState::Running);
+        assert!(!time_physics.is_paused());
+
+        update_studio_playtest_physics(
+            false,
+            &mut time_physics,
+            &mut state,
+            &mut playtest_physics,
+        );
+
+        assert_eq!(state, PhysicsSimulationState::Stopped);
+        assert!(time_physics.is_paused());
+    }
+
+    #[test]
+    fn preserves_running_studio_physics_after_playtest() {
+        let mut time_physics = Time::<Physics>::default();
+        let mut state = PhysicsSimulationState::Running;
+        let mut playtest_physics = StudioPlaytestPhysicsState::default();
+
+        update_studio_playtest_physics(
+            true,
+            &mut time_physics,
+            &mut state,
+            &mut playtest_physics,
+        );
+        update_studio_playtest_physics(
+            false,
+            &mut time_physics,
+            &mut state,
+            &mut playtest_physics,
+        );
+
+        assert_eq!(state, PhysicsSimulationState::Running);
+        assert!(!time_physics.is_paused());
+    }
+
+    #[cfg(feature = "bench")]
+    #[test]
+    fn client_benchmark_spawns_deterministic_players() {
+        let mut app = App::new();
+        app.add_systems(Startup, spawn_client_benchmark);
+        app.update();
+
+        let player_count = app.world_mut()
+            .query::<&crate::common::net::components::Player>()
+            .iter(app.world())
+            .count();
+        assert_eq!(player_count, 300);
+    }
 }
 
+#[cfg(debug_assertions)]
 fn debug_cameras(
     query: Query<(Entity, &Camera, Option<&bevy::camera::RenderTarget>, Option<&Name>, Option<&bevy::camera_controller::free_camera::FreeCamera>, Option<&crate::client::player::PlayerCamera>)>,
     mut last_log: Local<f32>,
@@ -686,6 +822,7 @@ fn debug_cameras(
     }
 }
 
+#[cfg(debug_assertions)]
 fn debug_players(
     query: Query<(
         Entity,
@@ -715,6 +852,7 @@ fn debug_players(
     }
 }
 
+#[cfg(debug_assertions)]
 fn debug_deep_hierarchy(
     world: &World,
     mut last_log: Local<f32>,
@@ -742,6 +880,7 @@ fn debug_deep_hierarchy(
     }
 }
 
+#[cfg(debug_assertions)]
 fn print_hierarchy_from_root(world: &World, entity: Entity, depth: usize) {
     let indent = "  ".repeat(depth);
     let name = world.get::<Name>(entity).map(|n| n.as_str().to_string()).unwrap_or_else(|| "Instance".to_string());
@@ -766,4 +905,39 @@ fn print_hierarchy_from_root(world: &World, entity: Entity, depth: usize) {
             print_hierarchy_from_root(world, child, depth + 1);
         }
     }
+}
+
+#[cfg(feature = "bench")]
+fn spawn_client_benchmark(mut commands: Commands) {
+    use avian3d::prelude::*;
+
+    commands.spawn((
+        Transform::from_xyz(0.0, -0.14, 0.0),
+        RigidBody::Static,
+        Collider::cuboid(120.0, 0.28, 120.0),
+        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+    ));
+    for index in 0..100u64 {
+        let x = (index % 10) as f32 * 2.0;
+        let z = (index / 10) as f32 * 2.0;
+        let player = crate::common::net::components::Player {
+            client_id: index,
+            username: format!("BenchPlayer{index}"),
+            ..default()
+        };
+        let transform = Transform::from_xyz(x, 0.84, z);
+        commands.spawn((player.clone(), transform, Visibility::Inherited));
+        commands.spawn((player.clone(), transform, Predicted));
+        commands.spawn((player, transform, Interpolated));
+    }
+}
+
+#[cfg(feature = "bench")]
+pub fn add_client_benchmark(app: &mut App) {
+    app.add_systems(Startup, spawn_client_benchmark)
+        .add_systems(Update, (
+            sync_predicted_interpolated_transforms,
+            hide_confirmed_player_visuals,
+            player::animation::track_player_velocities,
+        ).chain());
 }
