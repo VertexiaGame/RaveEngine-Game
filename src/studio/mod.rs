@@ -102,3 +102,54 @@ impl Plugin for StudioPlugin {
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);
     }
 }
+
+#[cfg(feature = "bench")]
+fn spawn_studio_benchmark(mut commands: Commands) {
+    let target = commands.spawn((
+        Name::new("BenchBrick"),
+        Transform::default(),
+        GlobalTransform::default(),
+        crate::common::game::bricks::components::Brick,
+    )).id();
+    commands.insert_resource(tools::Selection {
+        entity: Some(target),
+        entities: vec![target],
+        ..default()
+    });
+}
+
+#[cfg(feature = "bench")]
+fn update_studio_benchmark(
+    state: Res<State<tools::ToolState>>,
+    mut next_state: ResMut<NextState<tools::ToolState>>,
+    mut frame: Local<usize>,
+    mut line_cache: Local<Option<(usize, String)>>,
+) {
+    *frame += 1;
+    let next = match state.get() {
+        tools::ToolState::Move => tools::ToolState::Size,
+        tools::ToolState::Size => tools::ToolState::Rotate,
+        _ => tools::ToolState::Move,
+    };
+    next_state.set(next);
+    ui::line_numbers(&mut line_cache, 100 + (*frame % 2));
+}
+
+#[cfg(feature = "bench")]
+fn record_studio_assets(
+    meshes: Res<Assets<Mesh>>,
+    materials: Res<Assets<StandardMaterial>>,
+    mut stats: ResMut<crate::common::core::bench::BenchStats>,
+) {
+    stats.set_asset_counts(meshes.len(), materials.len());
+}
+
+#[cfg(feature = "bench")]
+pub fn add_studio_benchmark(app: &mut App) {
+    app.init_state::<tools::ToolState>()
+        .init_resource::<tools::Selection>()
+        .init_asset::<StandardMaterial>()
+        .add_systems(Startup, spawn_studio_benchmark)
+        .add_systems(Update, (update_studio_benchmark, gizmos::update_gizmos).chain())
+        .add_systems(Last, record_studio_assets.before(crate::common::core::bench::bench_finish_frame));
+}

@@ -18,7 +18,7 @@ pub use visuals::configure_visuals;
 pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow, ActiveScriptEditor, FileDialogState};
 pub use crate::common::core::performance::GraphicsSettings;
 
-fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usize) -> &str {
+pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usize) -> &str {
     if cache.as_ref().map_or(true, |cached| cached.0 != total_lines) {
         let max_digit_width = total_lines.to_string().len();
         let mut text = String::with_capacity(total_lines * (max_digit_width + 1));

@@ -10,6 +10,8 @@ pub struct BenchStats {
     frame_start: Option<Instant>,
     frame_ns: Vec<u128>,
     finished: bool,
+    mesh_assets: usize,
+    material_assets: usize,
 }
 
 impl BenchStats {
@@ -22,6 +24,13 @@ impl BenchStats {
         self.frame_start = None;
         self.frame_ns.clear();
         self.finished = false;
+        self.mesh_assets = 0;
+        self.material_assets = 0;
+    }
+
+    pub fn set_asset_counts(&mut self, mesh_assets: usize, material_assets: usize) {
+        self.mesh_assets = mesh_assets;
+        self.material_assets = material_assets;
     }
 
     fn begin_frame(&mut self, now: Instant) {
@@ -50,7 +59,7 @@ impl BenchStats {
         let elapsed_ns: u128 = self.frame_ns.iter().sum();
         let avg_frame_ns = elapsed_ns / self.frame_ns.len() as u128;
         println!(
-            r#"{{"scenario":"{}","warmup_frames":{},"total_frames":{},"elapsed_ns":{},"avg_frame_ns":{},"median_frame_ns":{},"p95_frame_ns":{}}}"#,
+            r#"{{"scenario":"{}","warmup_frames":{},"total_frames":{},"elapsed_ns":{},"avg_frame_ns":{},"median_frame_ns":{},"p95_frame_ns":{},"mesh_assets":{},"material_assets":{}}}"#,
             self.scenario,
             self.warmup_frames,
             self.frame_ns.len(),
@@ -58,6 +67,8 @@ impl BenchStats {
             avg_frame_ns,
             self.percentile(0.5),
             self.percentile(0.95),
+            self.mesh_assets,
+            self.material_assets,
         );
     }
 }
