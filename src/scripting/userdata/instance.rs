@@ -454,8 +454,10 @@ pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> 
             "Lighting" => cache.lighting,
             _ => None,
         };
-        if cached.is_some() {
-            return cached;
+        if let Some(entity) = cached {
+            if world.get::<Name>(entity).is_some_and(|name| name.as_str() == service_name) {
+                return Some(entity);
+            }
         }
     }
     for archetype in world.archetypes().iter() {
