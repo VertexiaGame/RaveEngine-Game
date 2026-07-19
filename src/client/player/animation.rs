@@ -368,13 +368,15 @@ pub fn track_player_velocities(
     mut query: Query<(Entity, &Transform, Option<&mut PlayerVelocityTracker>), With<crate::common::net::components::Player>>,
     bricks: Query<(&Transform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<crate::common::game::bricks::components::Brick>>,
     time: Res<Time>,
+    mut cached_players: Local<Vec<(Entity, Transform)>>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
 
-    let all_players: Vec<(Entity, Transform)> = query.iter().map(|(e, t, _)| (e, *t)).collect();
+    cached_players.clear();
+    cached_players.extend(query.iter().map(|(e, t, _)| (e, *t)));
 
     for (entity, transform, tracker_opt) in &mut query {
         let player_pos = transform.translation;
@@ -414,7 +416,7 @@ pub fn track_player_velocities(
         }
 
         if !is_grounded {
-            for &(other_entity, other_transform) in &all_players {
+            for &(other_entity, other_transform) in cached_players.iter() {
                 if other_entity == entity {
                     continue;
                 }
