@@ -960,11 +960,11 @@ pub fn studio_ui(
                                                             }
                                                             state.4 = Some((total_lines, line_numbers_text));
                                                         }
-                                                        let line_numbers_text = &state.4.as_ref().unwrap().1;
+                                                        let line_numbers_text = state.4.as_ref().unwrap().1.as_str();
 
                                                         ui.add(
                                                             egui::Label::new(
-                                                                egui::RichText::new(&line_numbers_text)
+                                                                egui::RichText::new(line_numbers_text)
                                                                     .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
                                                                     .color(egui::Color32::from_rgb(140, 140, 140))
                                                             )

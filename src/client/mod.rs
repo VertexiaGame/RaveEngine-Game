@@ -89,14 +89,14 @@ impl Plugin for ClientPlugin {
                 handle_kick_message,
                 handle_auth_success,
             ).run_if(is_playtesting))
-            .add_systems(Update, cleanup_orphaned_visuals)
+            .add_systems(Update, cleanup_orphaned_visuals);
             #[cfg(debug_assertions)]
-            .add_systems(Update, (
+            app.add_systems(Update, (
                 debug_cameras,
                 debug_players,
                 debug_deep_hierarchy,
-            ).run_if(is_playtesting))
-            .add_systems(bevy_egui::EguiPrimaryContextPass, (
+            ).run_if(is_playtesting));
+            app.add_systems(bevy_egui::EguiPrimaryContextPass, (
                 ui::configure_client_visuals,
                 ui::draw_scoreboard,
                 ui::draw_chatbox,
