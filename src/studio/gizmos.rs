@@ -19,6 +19,7 @@ pub fn update_gizmos(
     gizmos: Query<Entity, With<ToolGizmo>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut gizmo_mats: Local<Option<[Handle<StandardMaterial>; 3]>>,
 ) {
     let playtesting_active = playtest.map_or(false, |p| p.active);
     if playtesting_active {
@@ -45,9 +46,14 @@ pub fn update_gizmos(
 
     if tool == ToolState::None { return; }
 
-    let mat_x = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.0, 0.0), unlit: true, ..default() });
-    let mat_y = materials.add(StandardMaterial { base_color: Color::srgb(0.0, 1.0, 0.0), unlit: true, ..default() });
-    let mat_z = materials.add(StandardMaterial { base_color: Color::srgb(0.0, 0.0, 1.0), unlit: true, ..default() });
+    if gizmo_mats.is_none() {
+        *gizmo_mats = Some([
+            materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.0, 0.0), unlit: true, ..default() }),
+            materials.add(StandardMaterial { base_color: Color::srgb(0.0, 1.0, 0.0), unlit: true, ..default() }),
+            materials.add(StandardMaterial { base_color: Color::srgb(0.0, 0.0, 1.0), unlit: true, ..default() }),
+        ]);
+    }
+    let [mat_x, mat_y, mat_z] = gizmo_mats.as_ref().unwrap();
 
     let axes = [
         (Vec3::X, mat_x.clone()), (-Vec3::X, mat_x.clone()),
@@ -85,7 +91,7 @@ pub fn update_gizmos(
         ToolState::Rotate => {
             let mesh = meshes.add(Torus { minor_radius: 0.1, major_radius: 3.5 });
             let picking_mesh = meshes.add(Torus { minor_radius: 0.4, major_radius: 3.5 });
-            let rot_axes = [(Vec3::X, mat_x), (Vec3::Y, mat_y), (Vec3::Z, mat_z)];
+            let rot_axes = [(Vec3::X, mat_x.clone()), (Vec3::Y, mat_y.clone()), (Vec3::Z, mat_z.clone())];
             for (axis, mat) in rot_axes {
                 commands.spawn((
                     Mesh3d(mesh.clone()),
