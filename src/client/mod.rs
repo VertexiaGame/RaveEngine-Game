@@ -518,18 +518,25 @@ fn on_network_transform_added(
     ));
 }
 
+fn index_confirmed_transforms<'a>(
+    index: &mut std::collections::HashMap<u64, Transform>,
+    transforms: impl Iterator<Item = (&'a crate::common::net::components::Player, &'a Transform)>,
+) {
+    index.clear();
+    for (player, transform) in transforms {
+        index.entry(player.client_id).or_insert(*transform);
+    }
+}
+
 fn sync_predicted_interpolated_transforms(
     mut predicted_interpolated_query: Query<(&crate::common::net::components::Player, &mut Transform), Or<(With<Predicted>, With<Interpolated>)>>,
     confirmed_query: Query<(&crate::common::net::components::Player, &Transform), (Without<Predicted>, Without<Interpolated>, Without<Replicate>)>,
+    mut confirmed_transforms: Local<std::collections::HashMap<u64, Transform>>,
 ) {
+    index_confirmed_transforms(&mut confirmed_transforms, confirmed_query.iter());
     for (player, mut transform) in &mut predicted_interpolated_query {
-        for (conf_player, conf_transform) in &confirmed_query {
-            if player.client_id == conf_player.client_id {
-                transform.translation = conf_transform.translation;
-                transform.rotation = conf_transform.rotation;
-                transform.scale = conf_transform.scale;
-                break;
-            }
+        if let Some(confirmed) = confirmed_transforms.get(&player.client_id) {
+            *transform = *confirmed;
         }
     }
 }
@@ -635,6 +642,42 @@ fn handle_auth_success(
 }
 
 fn links_optimizer_system() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn player(client_id: u64) -> crate::common::net::components::Player {
+        crate::common::net::components::Player {
+            client_id,
+            ..default()
+        }
+    }
+
+    #[test]
+    fn indexes_confirmed_transforms_by_client() {
+        let players = [player(1), player(2)];
+        let transforms = [Transform::from_xyz(1.0, 2.0, 3.0), Transform::from_xyz(4.0, 5.0, 6.0)];
+        let mut index = std::collections::HashMap::new();
+
+        index_confirmed_transforms(&mut index, players.iter().zip(transforms.iter()));
+
+        assert_eq!(index.get(&1), Some(&transforms[0]));
+        assert_eq!(index.get(&2), Some(&transforms[1]));
+        assert_eq!(index.get(&3), None);
+    }
+
+    #[test]
+    fn preserves_the_first_duplicate_transform() {
+        let players = [player(1), player(1)];
+        let transforms = [Transform::from_xyz(1.0, 0.0, 0.0), Transform::from_xyz(2.0, 0.0, 0.0)];
+        let mut index = std::collections::HashMap::new();
+
+        index_confirmed_transforms(&mut index, players.iter().zip(transforms.iter()));
+
+        assert_eq!(index.get(&1), Some(&transforms[0]));
+    }
+}
 
 #[cfg(debug_assertions)]
 fn debug_cameras(
