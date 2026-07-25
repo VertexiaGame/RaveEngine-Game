@@ -18,7 +18,7 @@ Clone our repo, run `cargo build` (`cargo build` builds as debug, which is faste
 
 You can now launch the executable!
 
-As of right now, only the studio can be built, as work on client & server has not yet begun. I wanna first stabilize the studio and get it to a "proper" point before starting out with the client. 
+As of right now, the studio, client and server can be built, but client is not as mature yet. I wanna first stabilize the studio and get it to a "proper" point before finishing out the client. 
 
 ## Designer Program
 
