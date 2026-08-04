@@ -763,6 +763,7 @@ pub fn draw_properties(
 pub fn draw_workspace_properties(
     ui: &mut egui::Ui,
     gravity: &mut Option<ResMut<'_, avian3d::prelude::Gravity>>,
+    lighting_config: &mut ResMut<'_, crate::client::sky::LightingConfig>,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -771,6 +772,63 @@ pub fn draw_workspace_properties(
     ui.add_space(8.0);
     let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
     ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+    ui.add_space(8.0);
+
+    egui::CollapsingHeader::new(egui::RichText::new("Lighting").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("properties_workspace_lighting_grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Time of Day").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(
+                        egui::Slider::new(&mut lighting_config.time_of_day, 0.0..=24.0)
+                            .step_by(0.05)
+                            .custom_formatter(|val, _| {
+                                let h = (val.floor() as u32) % 24;
+                                let m = ((val - val.floor()) * 60.0).round() as u32;
+                                format!("{:02}:{:02} ({:.2}h)", h, m, val)
+                            })
+                    );
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Latitude").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.latitude, -90.0..=90.0).step_by(0.5));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Sun Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.sun_angular_radius, 0.005..=0.1).step_by(0.001));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Moon Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.moon_angular_radius, 0.005..=0.1).step_by(0.001));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Star Density").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.star_density, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Night Ambient").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    let night_ambient_srgba = lighting_config.night_ambient.to_srgba();
+                    let mut ambient_rgba = [
+                        night_ambient_srgba.red,
+                        night_ambient_srgba.green,
+                        night_ambient_srgba.blue,
+                        night_ambient_srgba.alpha,
+                    ];
+                    if ui.color_edit_button_rgba_unmultiplied(&mut ambient_rgba).changed() {
+                        lighting_config.night_ambient = Color::Srgba(Srgba::new(
+                            ambient_rgba[0],
+                            ambient_rgba[1],
+                            ambient_rgba[2],
+                            ambient_rgba[3],
+                        ));
+                    }
+                    ui.end_row();
+                });
+        });
+
     ui.add_space(8.0);
 
     egui::CollapsingHeader::new(egui::RichText::new("Physics").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
@@ -788,6 +846,75 @@ pub fn draw_workspace_properties(
                         }
                     } else {
                         ui.label(egui::RichText::new("Gravity resource not found").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
+                    }
+                    ui.end_row();
+                });
+        });
+}
+
+pub fn draw_lighting_properties(
+    ui: &mut egui::Ui,
+    lighting_config: &mut ResMut<'_, crate::client::sky::LightingConfig>,
+) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+    });
+
+    ui.add_space(8.0);
+    let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+    ui.add_space(8.0);
+
+    egui::CollapsingHeader::new(egui::RichText::new("Lighting").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("properties_lighting_grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Time of Day").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(
+                        egui::Slider::new(&mut lighting_config.time_of_day, 0.0..=24.0)
+                            .step_by(0.05)
+                            .custom_formatter(|val, _| {
+                                let h = (val.floor() as u32) % 24;
+                                let m = ((val - val.floor()) * 60.0).round() as u32;
+                                format!("{:02}:{:02} ({:.2}h)", h, m, val)
+                            })
+                    );
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Latitude").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.latitude, -90.0..=90.0).step_by(0.5));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Sun Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.sun_angular_radius, 0.005..=0.1).step_by(0.001));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Moon Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.moon_angular_radius, 0.005..=0.1).step_by(0.001));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Star Density").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.star_density, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Night Ambient").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    let night_ambient_srgba = lighting_config.night_ambient.to_srgba();
+                    let mut ambient_rgba = [
+                        night_ambient_srgba.red,
+                        night_ambient_srgba.green,
+                        night_ambient_srgba.blue,
+                        night_ambient_srgba.alpha,
+                    ];
+                    if ui.color_edit_button_rgba_unmultiplied(&mut ambient_rgba).changed() {
+                        lighting_config.night_ambient = Color::Srgba(Srgba::new(
+                            ambient_rgba[0],
+                            ambient_rgba[1],
+                            ambient_rgba[2],
+                            ambient_rgba[3],
+                        ));
                     }
                     ui.end_row();
                 });
@@ -879,41 +1006,4 @@ pub fn draw_players_properties(
                     ui.end_row();
                 });
         });
-}
-
-pub fn draw_lighting_properties(
-    ui: &mut egui::Ui,
-    lighting_service: &mut Option<ResMut<'_, crate::common::game::environment::lighting::LightingService>>,
-) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
-    });
-
-    ui.add_space(8.0);
-    let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
-    ui.add_space(8.0);
-
-    let Some(service) = lighting_service else {
-        ui.label(egui::RichText::new("Lighting service not available").color(egui::Color32::from_rgb(180, 60, 60)).size(13.0));
-        return;
-    };
-
-    let selection_salt = 99999;
-    ui.push_id(selection_salt, |ui| {
-        egui::Grid::new("properties_lighting_grid")
-            .num_columns(2)
-            .spacing([12.0, 8.0])
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new("Time of Day").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                let mut tod = service.time_of_day;
-                if ui.add(egui::Slider::new(&mut tod, 0.0..=24.0).suffix("h")).changed() {
-                    service.time_of_day = tod;
-                    if let Ok(mut shared) = crate::studio::tools::SHARED_LIGHTING_SERVICE.write() {
-                        *shared = tod;
-                    }
-                }
-                ui.end_row();
-            });
-    });
 }

@@ -1,19 +1,17 @@
 pub mod player;
+pub mod sky;
 pub mod ui;
 
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
-use bevy::light::ShadowFilteringMethod;
 use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
 use crate::common::game::bricks::components::{Brick, BrickShapeComponent};
-use crate::common::game::bricks::components;
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
 use bevy_egui::EguiContexts;
-use bevy::camera::Hdr;
 
 #[derive(Resource)]
 pub struct ClientUkey(pub String);
@@ -76,6 +74,7 @@ impl Plugin for ClientPlugin {
             .init_resource::<PlaytestState>()
             .init_resource::<StudioPlaytestPhysicsState>()
             .add_plugins(player::PlayerPlugin)
+            .add_plugins(sky::SkyPlugin)
             .add_plugins(crate::common::net::ProtocolPlugin)
             .add_systems(Startup, (
                 setup_physics_initializer,
@@ -139,9 +138,6 @@ fn setup_physics_initializer(
         StartupCamera,
         Transform::from_xyz(0.0, 15.0, 30.0).looking_at(Vec3::ZERO, Vec3::Y),
         Msaa::Sample4,
-        Hdr,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
-        ShadowFilteringMethod::Gaussian,
         bevy_egui::PrimaryEguiContext,
     ));
     commands.spawn((
@@ -151,7 +147,7 @@ fn setup_physics_initializer(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Hdr,
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
         bevy::ui::prelude::IsDefaultUiCamera,
     ));
 }
@@ -395,9 +391,6 @@ fn sync_local_player(
                 },
                 Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
                 Msaa::Sample4,
-                Hdr,
-                bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
-                ShadowFilteringMethod::Gaussian,
             ));
 
             if std::env::var("VERTIGO_APP").unwrap_or_default() == "client" {
@@ -470,7 +463,7 @@ fn on_brick_added(
     } else {
         let name_opt = name_query.get(entity).ok().map(|n| n.as_str());
         if name_opt == Some("Baseplate") {
-            Color::srgb(0.28, 0.62, 0.32)
+            Color::srgb(0.18, 0.38, 0.18)
         } else {
             Color::srgb(0.84, 0.24, 0.16)
         }
@@ -490,7 +483,7 @@ fn on_brick_added(
         let new_mat = studs_materials.add(ExtendedMaterial {
             base: StandardMaterial {
                 base_color,
-                perceptual_roughness: 0.9,
+                perceptual_roughness: 0.85,
                 alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                 ..default()
             },
@@ -612,7 +605,7 @@ fn sync_brick_color_to_material(
             let new_mat = studs_materials.add(ExtendedMaterial {
                 base: StandardMaterial {
                     base_color,
-                    perceptual_roughness: 0.9,
+                    perceptual_roughness: 0.85,
                     alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                     ..default()
                 },

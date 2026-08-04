@@ -2,8 +2,6 @@ use bevy::prelude::*;
 use bevy::winit::{WinitSettings, UpdateMode};
 use bevy::window::{PrimaryWindow, WindowMode};
 use bevy::camera_controller::free_camera::FreeCamera;
-use bevy::post_process::bloom::Bloom;
-use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
 use std::time::Duration;
 
 #[derive(Component)]
@@ -33,39 +31,7 @@ impl Plugin for PerformancePlugin {
         if app.is_plugin_added::<bevy::render::RenderPlugin>() {
             app.insert_resource(WinitSettings::desktop_app())
                 .init_resource::<GraphicsSettings>()
-                .add_systems(Update, (
-                    apply_graphics_settings,
-                    manage_winit_performance,
-                ));
-        }
-    }
-}
-
-pub fn apply_graphics_settings(
-    settings: Res<GraphicsSettings>,
-    mut commands: Commands,
-    camera_query: Query<Entity, With<Camera3d>>,
-) {
-    if !settings.is_changed() {
-        return;
-    }
-    for entity in &camera_query {
-        if settings.ssao {
-            commands.entity(entity).insert(ScreenSpaceAmbientOcclusion::default());
-        } else {
-            commands.entity(entity).remove::<ScreenSpaceAmbientOcclusion>();
-        }
-
-        if settings.contact_shadows {
-            commands.entity(entity).insert(ContactShadows::default());
-        } else {
-            commands.entity(entity).remove::<ContactShadows>();
-        }
-
-        if settings.bloom {
-            commands.entity(entity).insert(Bloom { intensity: 0.05, ..default() });
-        } else {
-            commands.entity(entity).remove::<Bloom>();
+                .add_systems(Update, manage_winit_performance);
         }
     }
 }

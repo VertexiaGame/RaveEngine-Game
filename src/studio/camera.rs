@@ -2,10 +2,8 @@ use bevy::prelude::*;
 use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrepass};
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera_controller::free_camera::FreeCamera;
-use bevy::camera::Hdr;
-use bevy::post_process::bloom::Bloom;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
-use bevy::light::ShadowFilteringMethod;
 
 #[derive(Component)]
 pub struct GizmoCamera;
@@ -14,15 +12,9 @@ pub fn setup_studio(
     mut commands: Commands,
     mut egui_global_settings: ResMut<bevy_egui::EguiGlobalSettings>,
     graphics_settings: Res<crate::studio::ui::GraphicsSettings>,
-    ambient: Option<ResMut<GlobalAmbientLight>>,
 ) {
     egui_global_settings.auto_create_primary_context = false;
 
-    if let Some(mut amb) = ambient {
-        amb.color = Color::srgb(0.55, 0.75, 0.95);
-        amb.brightness = 600.0;
-    }
-    
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera::default(),
@@ -31,16 +23,13 @@ pub fn setup_studio(
             fov: 80.0f32.to_radians(),
             ..default()
         }),
-        Hdr,
         Msaa::Sample4,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
         MeshPickingCamera,
         FreeCamera::default(),
         DepthPrepass,
         NormalPrepass,
         bevy::render::occlusion_culling::OcclusionCulling,
-        ShadowFilteringMethod::Gaussian,
     ));
 
     camera.insert((
@@ -48,18 +37,11 @@ pub fn setup_studio(
         Fxaa::default(),
     ));
 
-    let ssao_val = if graphics_settings.ssao { Some(ScreenSpaceAmbientOcclusion::default()) } else { None };
-    let contact_shadows_val = if graphics_settings.contact_shadows { Some(ContactShadows::default()) } else { None };
-    let bloom_val = if graphics_settings.bloom { Some(Bloom::default()) } else { None };
-
-    if let Some(ssao) = ssao_val.clone() {
-        camera.insert(ssao);
+    if graphics_settings.ssao {
+        camera.insert(ScreenSpaceAmbientOcclusion::default());
     }
-    if let Some(contact) = contact_shadows_val.clone() {
-        camera.insert(contact);
-    }
-    if let Some(bloom) = bloom_val.clone() {
-        camera.insert(bloom);
+    if graphics_settings.contact_shadows {
+        camera.insert(ContactShadows::default());
     }
 
     commands.spawn((
@@ -69,9 +51,8 @@ pub fn setup_studio(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Hdr,
+        Tonemapping::None,
         Msaa::Sample4,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         bevy::camera::visibility::RenderLayers::layer(1),
         bevy_egui::PrimaryEguiContext,
         GizmoCamera,

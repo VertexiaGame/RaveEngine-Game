@@ -56,24 +56,24 @@ fn fragment(
     let local_normal = rot_t * in.world_normal;
 
     let dist = distance(in.world_position.xyz, view.world_position);
-    let fade = clamp((45.0 - dist) / 20.0, 0.0, 1.0);
+    let fade = clamp((80.0 - dist) / 40.0, 0.0, 1.0);
 
-    if (local_normal.y > 0.9) {
-        let stud_color = textureSample(stud_texture, stud_texture_sampler, uv);
-        let shading = stud_color.rgb - vec3<f32>(0.5);
-        let blended_rgb = pbr_input.material.base_color.rgb + shading * 0.5;
-        let stud_alpha = stud_color.a * fade;
+    if (local_normal.y > 0.85) {
+        let stud_sample = textureSample(stud_texture, stud_texture_sampler, uv);
+        let stud_shade = (stud_sample.rgb - vec3<f32>(0.5)) * 0.35;
+        let blended_rgb = clamp(pbr_input.material.base_color.rgb + stud_shade, vec3<f32>(0.0), vec3<f32>(1.0));
+        let stud_alpha = stud_sample.a * fade;
         pbr_input.material.base_color = vec4<f32>(
-            mix(pbr_input.material.base_color.rgb, clamp(blended_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), stud_alpha),
+            mix(pbr_input.material.base_color.rgb, blended_rgb, stud_alpha),
             pbr_input.material.base_color.a
         );
-    } else if (local_normal.y < -0.9) {
-        let inlet_color = textureSample(inlet_texture, inlet_texture_sampler, uv);
-        let shading = inlet_color.rgb - vec3<f32>(0.5);
-        let blended_rgb = pbr_input.material.base_color.rgb + shading * 0.5;
-        let inlet_alpha = inlet_color.a * fade;
+    } else if (local_normal.y < -0.85) {
+        let inlet_sample = textureSample(inlet_texture, inlet_texture_sampler, uv);
+        let inlet_shade = (inlet_sample.rgb - vec3<f32>(0.5)) * 0.35;
+        let blended_rgb = clamp(pbr_input.material.base_color.rgb + inlet_shade, vec3<f32>(0.0), vec3<f32>(1.0));
+        let inlet_alpha = inlet_sample.a * fade;
         pbr_input.material.base_color = vec4<f32>(
-            mix(pbr_input.material.base_color.rgb, clamp(blended_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), inlet_alpha),
+            mix(pbr_input.material.base_color.rgb, blended_rgb, inlet_alpha),
             pbr_input.material.base_color.a
         );
     }

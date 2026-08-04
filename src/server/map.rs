@@ -22,7 +22,7 @@ pub fn load_fallback_map(
             gravity_scale: 1.0,
             mass: 1.0,
         },
-        BrickColor { color: Color::srgb(0.28, 0.62, 0.32) },
+        BrickColor { color: Color::srgb(0.18, 0.38, 0.18) },
         NetworkTransform {
             translation: Vec3::new(0.0, -0.14, 0.0),
             rotation: Quat::IDENTITY,

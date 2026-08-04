@@ -35,14 +35,12 @@ impl ClientScriptVM {
         lua.globals().set("workspace", crate::scripting::services::workspace::WorkspaceService).unwrap();
         lua.globals().set("Workspace", crate::scripting::services::workspace::WorkspaceService).unwrap();
         lua.globals().set("Players", crate::scripting::services::players::PlayersService).unwrap();
-        lua.globals().set("Lighting", crate::scripting::services::lighting::LightingService).unwrap();
         lua.globals().set("RunService", crate::scripting::services::run_service::RunService).unwrap();
 
         let game_table = lua.create_table().unwrap();
         game_table.set("Workspace", crate::scripting::services::workspace::WorkspaceService).unwrap();
         game_table.set("workspace", crate::scripting::services::workspace::WorkspaceService).unwrap();
         game_table.set("Players", crate::scripting::services::players::PlayersService).unwrap();
-        game_table.set("Lighting", crate::scripting::services::lighting::LightingService).unwrap();
         game_table.set("RunService", crate::scripting::services::run_service::RunService).unwrap();
         lua.globals().set("game", game_table).unwrap();
 

@@ -41,7 +41,6 @@ impl Plugin for StudioPlugin {
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
             .init_resource::<tools::PlayersService>()
-            .init_resource::<crate::common::game::environment::lighting::LightingService>()
             .init_resource::<ui::panels::onboarding::OnboardingData>()
             .add_message::<tools::UndoRedoAction>()
             .insert_resource(bevy::picking::mesh_picking::MeshPickingSettings {
@@ -104,8 +103,7 @@ impl Plugin for StudioPlugin {
 }
 
 #[cfg(feature = "bench")]
-fn spawn_studio_benchmark(mut commands: Commands) {
-    let target = commands.spawn((
+fn spawn_studio_benchmark(mut commands: Commands) {    let target = commands.spawn((
         Name::new("BenchBrick"),
         Transform::default(),
         GlobalTransform::default(),

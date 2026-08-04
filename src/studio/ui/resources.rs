@@ -33,7 +33,6 @@ pub struct PlaytestBackup {
     pub scripts: Vec<crate::common::core::vrtx::VrtxScript>,
     pub gravity: Option<Vec3>,
     pub players_service: Option<crate::studio::tools::PlayersService>,
-    pub lighting_service: Option<crate::common::game::environment::lighting::LightingService>,
 }
 
 #[derive(Component)]
@@ -92,8 +91,8 @@ pub fn handle_file_dialog_results(
     mut graphics_settings: ResMut<crate::common::core::performance::GraphicsSettings>,
     mut gravity: Option<ResMut<avian3d::prelude::Gravity>>,
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+    materials: ResMut<Assets<StandardMaterial>>,
+    studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     entities_query: Query<(Entity, Option<&crate::common::game::bricks::components::Brick>), Without<Camera3d>>,
     explorer_query: Query<(Entity, Option<&crate::scripting::ecs::ServerScript>, Option<&crate::scripting::ecs::LocalScript>, Option<&crate::scripting::ecs::ModuleScript>), Without<Camera3d>>,
     save_query: Query<(

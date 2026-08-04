@@ -46,7 +46,7 @@ pub struct UiResources<'w, 's> {
     pub gravity: Option<ResMut<'w, avian3d::prelude::Gravity>>,
     pub brick_colors: Query<'w, 's, &'static mut crate::common::game::bricks::components::BrickColor>,
     pub players_service: Option<ResMut<'w, crate::studio::tools::PlayersService>>,
-    pub lighting_service: Option<ResMut<'w, crate::common::game::environment::lighting::LightingService>>,
+    pub lighting_config: ResMut<'w, crate::client::sky::LightingConfig>,
 }
 
 #[derive(SystemParam)]
@@ -325,14 +325,6 @@ pub fn studio_ui(
                                         *shared = ps_val;
                                     }
                                 }
-                                if let Some(ls_val) = ui_state.playtest_backup.lighting_service.take() {
-                                    if let Some(ref mut ls) = ui_res.lighting_service {
-                                        **ls = ls_val.clone();
-                                    }
-                                    if let Ok(mut shared) = crate::studio::tools::SHARED_LIGHTING_SERVICE.write() {
-                                        *shared = ls_val.time_of_day;
-                                    }
-                                }
                             }
                         });
                     });
@@ -387,7 +379,6 @@ pub fn studio_ui(
                 &queries.explorer_query,
                 onboarding_active,
                 &mut ui_res.players_service,
-                &mut ui_res.lighting_service,
                 &ui_state.file_dialog_state,
             );
         });
@@ -531,6 +522,7 @@ pub fn studio_ui(
                             panels::draw_workspace_properties(
                                 ui,
                                 &mut ui_res.gravity,
+                                &mut ui_res.lighting_config,
                             );
                         });
                 } else if ui_state.selection.players_selected {
@@ -600,7 +592,7 @@ pub fn studio_ui(
                         .show(ui, |ui| {
                             panels::draw_lighting_properties(
                                 ui,
-                                &mut ui_res.lighting_service,
+                                &mut ui_res.lighting_config,
                             );
                         });
                 }

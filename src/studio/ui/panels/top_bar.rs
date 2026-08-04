@@ -67,7 +67,6 @@ pub fn draw_top_bar(
     ), Without<Camera3d>>,
     onboarding_active: bool,
     players_service: &mut Option<ResMut<crate::studio::tools::PlayersService>>,
-    lighting_service: &mut Option<ResMut<crate::common::game::environment::lighting::LightingService>>,
     file_dialog_state: &crate::studio::ui::resources::FileDialogState,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
@@ -605,14 +604,6 @@ pub fn draw_top_bar(
                                     *shared = ps_val;
                                 }
                             }
-                            if let Some(ls_val) = playtest_backup.lighting_service.take() {
-                                if let Some(ls) = lighting_service {
-                                    **ls = ls_val.clone();
-                                }
-                                if let Ok(mut shared) = crate::studio::tools::SHARED_LIGHTING_SERVICE.write() {
-                                    *shared = ls_val.time_of_day;
-                                }
-                            }
                         } else {
                             playtest_state.active = true;
 
@@ -625,11 +616,6 @@ pub fn draw_top_bar(
                                 playtest_backup.players_service = Some((**ps).clone());
                             } else {
                                 playtest_backup.players_service = None;
-                            }
-                            if let Some(ls) = lighting_service.as_ref() {
-                                playtest_backup.lighting_service = Some((**ls).clone());
-                            } else {
-                                playtest_backup.lighting_service = None;
                             }
 
                             let mut backup_bricks = Vec::new();

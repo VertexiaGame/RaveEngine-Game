@@ -206,8 +206,6 @@ pub static SHARED_PLAYERS_SERVICE: RwLock<PlayersService> = RwLock::new(PlayersS
     bounciness: 0.0,
 });
 
-pub static SHARED_LIGHTING_SERVICE: RwLock<f32> = RwLock::new(12.0);
-
 pub fn handle_keyboard_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     mut action_writer: MessageWriter<UndoRedoAction>,
