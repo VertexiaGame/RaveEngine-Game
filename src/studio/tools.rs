@@ -41,8 +41,8 @@ pub struct DragState {
     pub start_scale: Option<Vec3>,
     pub start_transform: Option<Transform>,
     pub start_cursor: Option<Vec2>,
-    pub start_screen_t: Option<f32>,
     pub start_rotation_angle: Option<f32>,
+    pub accumulated_displacement: f32,
 }
 
 #[derive(Resource, Default)]
@@ -541,8 +541,8 @@ pub fn handle_drag_start(
             drag_state.start_translation = None;
             drag_state.start_scale = None;
             drag_state.start_cursor = None;
-            drag_state.start_screen_t = None;
             drag_state.start_rotation_angle = None;
+            drag_state.accumulated_displacement = 0.0;
         }
     }
 }
@@ -573,6 +573,7 @@ pub fn handle_drag(
         drag_state.start_translation = None;
         drag_state.start_scale = None;
         drag_state.start_transform = None;
+        drag_state.accumulated_displacement = 0.0;
         return;
     };
     let Ok((mut brick_transform, brick_global, child_of_opt)) = bricks.get_mut(gizmo.target) else {
@@ -581,6 +582,7 @@ pub fn handle_drag(
         drag_state.start_translation = None;
         drag_state.start_scale = None;
         drag_state.start_transform = None;
+        drag_state.accumulated_displacement = 0.0;
         return;
     };
     let Some((camera, camera_transform)) = camera_query.iter().next() else { return };
@@ -591,7 +593,6 @@ pub fn handle_drag(
 
     let start_translation = *drag_state.start_translation.get_or_insert(brick_global.translation());
     let start_scale = *drag_state.start_scale.get_or_insert(brick_global.scale());
-    let start_cursor = *drag_state.start_cursor.get_or_insert(cursor_pos);
 
     let center_world = brick_global.translation();
     let axis_world = brick_global.rotation().mul_vec3(gizmo.axis);
@@ -611,10 +612,17 @@ pub fn handle_drag(
                 let axis_dir = axis_screen / axis_len;
                 let to_cursor = cursor_pos - center_screen.unwrap();
                 let angle = (axis_dir.x * to_cursor.y - axis_dir.y * to_cursor.x).atan2(axis_dir.dot(to_cursor));
-                let start_angle = *drag_state.start_rotation_angle.get_or_insert(angle);
+                let last_angle = *drag_state.start_rotation_angle.get_or_insert(angle);
+                let mut angle_delta = angle - last_angle;
+                if angle_delta > std::f32::consts::PI {
+                    angle_delta -= std::f32::consts::TAU;
+                } else if angle_delta < -std::f32::consts::PI {
+                    angle_delta += std::f32::consts::TAU;
+                }
+                drag_state.start_rotation_angle = Some(angle);
                 let alignment = axis_world.dot(view_dir);
                 let sign = if alignment >= 0.0 { 1.0 } else { -1.0 };
-                brick_transform.rotate_local(Quat::from_axis_angle(gizmo.axis, -(angle - start_angle) * sign));
+                brick_transform.rotate_local(Quat::from_axis_angle(gizmo.axis, -angle_delta * sign));
                 return;
             }
         }
@@ -639,12 +647,11 @@ pub fn handle_drag(
 
     let displacement = if let Some(axis_screen) = axis_screen {
         let axis_len = axis_screen.length();
+        let last_cursor = *drag_state.start_cursor.get_or_insert(cursor_pos);
+        drag_state.start_cursor = Some(cursor_pos);
         if axis_len > 2.0 {
             let axis_dir = axis_screen / axis_len;
-            let to_cursor = cursor_pos - center_screen.unwrap();
-            let position = to_cursor.dot(axis_dir) / axis_len;
-            let start_position = *drag_state.start_screen_t.get_or_insert(position);
-            position - start_position
+            (cursor_pos - last_cursor).dot(axis_dir) / axis_len
         } else {
             let units_per_pixel = {
                 let right = camera_transform.right().as_vec3();
@@ -660,13 +667,14 @@ pub fn handle_drag(
             };
             let alignment = axis_world.dot(view_dir);
             let sign = if alignment >= 0.0 { 1.0 } else { -1.0 };
-            (cursor_pos.y - start_cursor.y) * units_per_pixel * sign
+            (cursor_pos.y - last_cursor.y) * units_per_pixel * sign
         }
     } else {
         return;
     };
 
-    let snapped_displacement = apply_snap(displacement, &snap_config);
+    drag_state.accumulated_displacement += displacement;
+    let snapped_displacement = apply_snap(drag_state.accumulated_displacement, &snap_config);
 
     match gizmo.tool {
         ToolState::Move => {
@@ -736,8 +744,8 @@ pub fn handle_drag_end(
     drag_state.start_scale = None;
     drag_state.start_transform = None;
     drag_state.start_cursor = None;
-    drag_state.start_screen_t = None;
     drag_state.start_rotation_angle = None;
+    drag_state.accumulated_displacement = 0.0;
 }
 
 pub fn handle_part_drag_start(
