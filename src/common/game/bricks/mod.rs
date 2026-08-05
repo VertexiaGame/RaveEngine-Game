@@ -45,6 +45,7 @@ impl Plugin for BricksPlugin {
                     update_brick_meshes_on_shape_change,
                     apply_workspace_show_studs,
                     links_optimizer_system,
+                    optimize_brick_visibility,
                 ));
         } else {
             app.add_systems(Update, apply_workspace_show_studs);
@@ -63,6 +64,71 @@ pub fn apply_workspace_show_studs(
     for (entity, studs) in &query {
         let enabled = studs.map(|s| s.enabled).unwrap_or(true);
         commands.entity(entity).insert(components::BrickStuds { enabled });
+    }
+}
+
+pub fn studs_material_for_color(
+    cache: &mut BrickMaterialCache,
+    studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>,
+    studs_assets: &studs::StudsAssets,
+    base_color: Color,
+) -> Handle<ExtendedMaterial<StandardMaterial, studs::StudsExtension>> {
+    let srgba = base_color.to_srgba();
+    let cache_key = [
+        srgba.red.to_bits(),
+        srgba.green.to_bits(),
+        srgba.blue.to_bits(),
+        srgba.alpha.to_bits(),
+    ];
+
+    if let Some(existing) = cache.studs_materials.get(&cache_key) {
+        existing.clone()
+    } else {
+        let new_mat = studs_materials.add(ExtendedMaterial {
+            base: StandardMaterial {
+                base_color,
+                perceptual_roughness: 0.85,
+                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+                ..default()
+            },
+            extension: studs::StudsExtension {
+                stud_texture: studs_assets.stud.clone(),
+                inlet_texture: studs_assets.inlet.clone(),
+                stud_ambient_texture: studs_assets.stud_ambient.clone(),
+                stud_height_texture: studs_assets.stud_height.clone(),
+                inlet_ambient_texture: studs_assets.inlet_ambient.clone(),
+                inlet_height_texture: studs_assets.inlet_height.clone(),
+            },
+        });
+        cache.studs_materials.insert(cache_key, new_mat.clone());
+        new_mat
+    }
+}
+
+pub fn plain_material_for_color(
+    cache: &mut BrickMaterialCache,
+    plain_materials: &mut Assets<StandardMaterial>,
+    base_color: Color,
+) -> Handle<StandardMaterial> {
+    let srgba = base_color.to_srgba();
+    let cache_key = [
+        srgba.red.to_bits(),
+        srgba.green.to_bits(),
+        srgba.blue.to_bits(),
+        srgba.alpha.to_bits(),
+    ];
+
+    if let Some(existing) = cache.plain_materials.get(&cache_key) {
+        existing.clone()
+    } else {
+        let new_mat = plain_materials.add(StandardMaterial {
+            base_color,
+            perceptual_roughness: 0.85,
+            alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+            ..default()
+        });
+        cache.plain_materials.insert(cache_key, new_mat.clone());
+        new_mat
     }
 }
 
@@ -112,20 +178,20 @@ fn spawn_bricks_benchmark(mut commands: Commands) {
                     (z as f32 - 5.5) * 0.65,
                 );
                 let shape = if index % 9 == 0 {
-                    BrickShape::Sphere
+                    components::BrickShape::Sphere
                 } else {
-                    BrickShape::Block
+                    components::BrickShape::Block
                 };
                 let collider = match shape {
-                    BrickShape::Block => Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
-                    BrickShape::Sphere => Collider::sphere(1.0 * 0.28),
+                    components::BrickShape::Block => Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
+                    components::BrickShape::Sphere => Collider::sphere(1.0 * 0.28),
                 };
                 commands.spawn((
                     Name::new(format!("BenchBrick{}", index)),
-                    Brick,
-                    BrickShapeComponent { shape },
-                    BrickPhysics::default(),
-                    BrickColor::default(),
+                    components::Brick,
+                    components::BrickShapeComponent { shape },
+                    components::BrickPhysics::default(),
+                    components::BrickColor::default(),
                     Transform::from_translation(pos),
                     RigidBody::Dynamic,
                     collider,
@@ -142,7 +208,7 @@ fn spawn_bricks_benchmark(mut commands: Commands) {
 #[cfg(feature = "bench")]
 fn toggle_brick_shapes(
     mut frame: Local<u64>,
-    mut query: Query<&mut BrickShapeComponent, With<Brick>>,
+    mut query: Query<&mut components::BrickShapeComponent, With<components::Brick>>,
 ) {
     *frame += 1;
     if *frame % 15 != 0 {
@@ -150,10 +216,10 @@ fn toggle_brick_shapes(
     }
     for (i, mut shape) in query.iter_mut().enumerate() {
         if i % 4 == 0 {
-            shape.shape = if shape.shape == BrickShape::Block {
-                BrickShape::Sphere
+            shape.shape = if shape.shape == components::BrickShape::Block {
+                components::BrickShape::Sphere
             } else {
-                BrickShape::Block
+                components::BrickShape::Block
             };
         }
     }
@@ -182,20 +248,74 @@ pub fn add_bricks_benchmark(app: &mut App) {
 
 fn links_optimizer_system() {} // dummy hook for common optimization module
 
+const STUD_LOD_DISTANCE_SQ: f32 = 80.0 * 80.0;
+
 pub fn optimize_brick_visibility(
-    _commands: Commands,
-    _meshes: ResMut<Assets<Mesh>>,
-    _materials: ResMut<Assets<StandardMaterial>>,
-    _studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
-    _studs_assets: Res<crate::common::game::bricks::studs::StudsAssets>,
-    _camera_query: Query<&Transform, With<Camera3d>>,
-    _bricks_query: Query<(
+    mut commands: Commands,
+    mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
+    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    studs_assets: Res<studs::StudsAssets>,
+    camera_query: Query<(&GlobalTransform, &Camera), With<Camera3d>>,
+    bricks_query: Query<(
         Entity,
         &GlobalTransform,
-        &components::BrickShapeComponent,
         &components::BrickColor,
-        &mut MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
-    )>,
+        Option<&components::BrickStuds>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+    ), With<components::Brick>>,
+    workspace_studs: Option<Res<WorkspaceShowStuds>>,
+    mut cache: ResMut<BrickMaterialCache>,
+    mut last_camera_position: Local<Option<Vec3>>,
 ) {
-    // keeping system optimized
+    let Some((camera_transform, camera)) = camera_query.iter().next() else {
+        return;
+    };
+    if !camera.is_active {
+        return;
+    }
+
+    let cam_pos = camera_transform.translation();
+    let moved = last_camera_position
+        .map(|previous| previous.distance_squared(cam_pos) > 4.0)
+        .unwrap_or(true);
+    *last_camera_position = Some(cam_pos);
+    if !moved {
+        return;
+    }
+
+    let show_studs_globally = workspace_studs.map(|w| w.enabled).unwrap_or(true);
+    for (entity, transform, color, studs, studs_material, plain_material) in &bricks_query {
+        let want_studs = show_studs_globally
+            && studs.map(|s| s.enabled).unwrap_or(true)
+            && transform.translation().distance_squared(cam_pos) <= STUD_LOD_DISTANCE_SQ;
+
+        if want_studs == studs_material.is_some() {
+            continue;
+        }
+
+        let base_color = if let Some(studs_mat_handle) = studs_material {
+            studs_materials
+                .get(&studs_mat_handle.0)
+                .map(|mat| mat.base.base_color)
+                .unwrap_or(color.color)
+        } else if let Some(plain_mat_handle) = plain_material {
+            plain_materials
+                .get(&plain_mat_handle.0)
+                .map(|mat| mat.base_color)
+                .unwrap_or(color.color)
+        } else {
+            color.color
+        };
+
+        if want_studs {
+            commands.entity(entity).insert(MeshMaterial3d(
+                studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color),
+            ));
+        } else {
+            commands.entity(entity).insert(MeshMaterial3d(
+                plain_material_for_color(&mut cache, &mut plain_materials, base_color),
+            ));
+        }
+    }
 }

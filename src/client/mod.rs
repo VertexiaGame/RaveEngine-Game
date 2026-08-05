@@ -9,6 +9,7 @@ use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
 use crate::common::game::bricks::components::{Brick, BrickShapeComponent, BrickStuds};
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
+use crate::common::game::bricks::{plain_material_for_color, studs_material_for_color};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
 use bevy_egui::EguiContexts;
@@ -485,74 +486,15 @@ fn on_brick_added(
     }
 }
 
-fn studs_material_for_color(
-    cache: &mut crate::common::game::bricks::BrickMaterialCache,
-    studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>,
-    studs_assets: &StudsAssets,
-    base_color: Color,
-) -> Handle<ExtendedMaterial<StandardMaterial, StudsExtension>> {
-    let srgba = base_color.to_srgba();
-    let cache_key = [
-        srgba.red.to_bits(),
-        srgba.green.to_bits(),
-        srgba.blue.to_bits(),
-        srgba.alpha.to_bits(),
-    ];
-
-    if let Some(existing) = cache.studs_materials.get(&cache_key) {
-        existing.clone()
-    } else {
-        let new_mat = studs_materials.add(ExtendedMaterial {
-            base: StandardMaterial {
-                base_color,
-                perceptual_roughness: 0.85,
-                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-                ..default()
-            },
-            extension: StudsExtension {
-                stud_texture: studs_assets.stud.clone(),
-                inlet_texture: studs_assets.inlet.clone(),
-                stud_ambient_texture: studs_assets.stud_ambient.clone(),
-                stud_height_texture: studs_assets.stud_height.clone(),
-                inlet_ambient_texture: studs_assets.inlet_ambient.clone(),
-                inlet_height_texture: studs_assets.inlet_height.clone(),
-            },
-        });
-        cache.studs_materials.insert(cache_key, new_mat.clone());
-        new_mat
-    }
-}
-
-fn plain_material_for_color(
-    cache: &mut crate::common::game::bricks::BrickMaterialCache,
-    plain_materials: &mut Assets<StandardMaterial>,
-    base_color: Color,
-) -> Handle<StandardMaterial> {
-    let srgba = base_color.to_srgba();
-    let cache_key = [
-        srgba.red.to_bits(),
-        srgba.green.to_bits(),
-        srgba.blue.to_bits(),
-        srgba.alpha.to_bits(),
-    ];
-
-    if let Some(existing) = cache.plain_materials.get(&cache_key) {
-        existing.clone()
-    } else {
-        let new_mat = plain_materials.add(StandardMaterial {
-            base_color,
-            perceptual_roughness: 0.85,
-            alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-            ..default()
-        });
-        cache.plain_materials.insert(cache_key, new_mat.clone());
-        new_mat
-    }
-}
-
 fn sync_brick_studs_to_material(
     mut commands: Commands,
-    query: Query<(Entity, &BrickStuds, &crate::common::game::bricks::components::BrickColor), (Changed<BrickStuds>, With<Brick>)>,
+    query: Query<(
+        Entity,
+        &BrickStuds,
+        &crate::common::game::bricks::components::BrickColor,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+    ), (Changed<BrickStuds>, With<Brick>)>,
     workspace_studs: Option<Res<crate::common::game::bricks::WorkspaceShowStuds>>,
     mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
@@ -561,11 +503,25 @@ fn sync_brick_studs_to_material(
 ) {
     let Some(studs_assets) = studs_assets else { return };
     let show_studs_globally = workspace_studs.map(|w| w.enabled).unwrap_or(true);
-    for (entity, studs, brick_color) in &query {
-        if show_studs_globally && studs.enabled {
-            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, brick_color.color)));
+    for (entity, studs, brick_color, studs_material, plain_material) in &query {
+        let base_color = if let Some(studs_mat_handle) = studs_material {
+            studs_materials
+                .get(&studs_mat_handle.0)
+                .map(|mat| mat.base.base_color)
+                .unwrap_or(brick_color.color)
+        } else if let Some(plain_mat_handle) = plain_material {
+            plain_materials
+                .get(&plain_mat_handle.0)
+                .map(|mat| mat.base_color)
+                .unwrap_or(brick_color.color)
         } else {
-            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, brick_color.color)));
+            brick_color.color
+        };
+
+        if show_studs_globally && studs.enabled {
+            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
+        } else {
+            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
         }
     }
 }

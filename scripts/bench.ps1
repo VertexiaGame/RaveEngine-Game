@@ -83,7 +83,13 @@ function Run-Bench {
     Push-Location $Worktree
     try {
         Invoke-Native { cargo build --release --features bench --bin RaveEngineServer } "Build failed for $Commit"
-        $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        try {
+            $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+        } finally {
+            $ErrorActionPreference = $eap
+        }
         if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $Commit" }
         $jsonLine = $result | Select-String '^\{"scenario"' | Select-Object -Last 1
         if (-not $jsonLine) { throw "No JSON output from benchmark for $Commit" }

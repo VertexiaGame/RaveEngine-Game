@@ -430,8 +430,20 @@ pub fn track_player_velocities(
     time: Res<Time>,
     mut cached_players: Local<Vec<(Entity, Transform)>>,
     mut player_grid: Local<PlayerGrid>,
+    mut last_tick: Local<f32>,
 ) {
-    let Some(dt) = tracking_delta(time.delta_secs()) else { return };
+    if !tracking_delta(time.delta_secs()).is_some() {
+        return;
+    }
+
+    let now = time.elapsed_secs();
+    let interval = now - *last_tick;
+    if interval < 0.1 {
+        return;
+    }
+    *last_tick = now;
+
+    let smoothing = 1.0 - 0.9f32.powf(interval * 60.0);
 
     cached_players.clear();
     cached_players.extend(query.iter().map(|(e, t, _)| (e, *t)));
@@ -442,8 +454,8 @@ pub fn track_player_velocities(
             || supported_by_player(entity, transform, &player_grid);
 
         if let Some(mut tracker) = tracker_opt {
-            let raw_velocity = (transform.translation - tracker.last_position) / dt;
-            tracker.velocity = tracker.velocity.lerp(raw_velocity, 0.1);
+            let raw_velocity = (transform.translation - tracker.last_position) / interval;
+            tracker.velocity = tracker.velocity.lerp(raw_velocity, smoothing);
             tracker.last_position = transform.translation;
             tracker.is_grounded = is_grounded;
         } else {

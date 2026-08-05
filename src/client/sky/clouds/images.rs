@@ -10,12 +10,20 @@ pub const RENDER_WIDTH: u32 = 1440;
 pub const RENDER_HEIGHT: u32 = 810;
 
 pub fn build_images(
+    images: ResMut<Assets<Image>>,
+) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
+    build_images_with_size(images, RENDER_WIDTH, RENDER_HEIGHT)
+}
+
+pub fn build_images_with_size(
     mut images: ResMut<Assets<Image>>,
+    width: u32,
+    height: u32,
 ) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
     let mut cloud_render_image = Image::new_fill(
         Extent3d {
-            width: RENDER_WIDTH,
-            height: RENDER_HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -56,8 +64,8 @@ pub fn build_images(
 
     let mut sky_image = Image::new_fill(
         Extent3d {
-            width: RENDER_WIDTH,
-            height: RENDER_HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,

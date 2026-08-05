@@ -77,6 +77,14 @@ pub fn clouds_ui(config: &mut CloudsConfig, ui: &mut Ui) {
             .text("reprojection_strength"),
     );
     ui.end_row();
+    ui.add(egui::Slider::new(&mut config.render_scale, 0.25..=1.0).text("Render scale"));
+    ui.end_row();
+    ui.label(format!(
+        "Cloud resolution: {}x{}",
+        config.render_resolution.x as u32,
+        config.render_resolution.y as u32
+    ));
+    ui.end_row();
     ui.add(egui::Label::new("wind_velocity"));
     ui.end_row();
     ui.add(egui::Slider::new(&mut config.wind_velocity.x, -100.0..=100.0).text("x"));

@@ -27,6 +27,7 @@ pub struct CloudsConfig {
     pub reprojection_strength: f32,
     pub ui_visible: bool,
     pub render_resolution: Vec2,
+    pub render_scale: f32,
     pub wind_velocity: Vec3,
 }
 
@@ -59,6 +60,7 @@ impl Default for CloudsConfig {
             reprojection_strength: 0.95,
             ui_visible: false,
             render_resolution: Vec2::new(1440.0, 810.0),
+            render_scale: 1.0,
             wind_velocity: Vec3::new(-1.1, 0.0, 2.3),
         }
     }

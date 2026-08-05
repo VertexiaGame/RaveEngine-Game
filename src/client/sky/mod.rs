@@ -12,10 +12,11 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 use std::f32::consts::PI;
 
-const CAMERA_FAR_PLANE: f32 = 20_000.0;
+const CAMERA_FAR_PLANE: f32 = 3_000.0;
 const DAY_OF_YEAR: u32 = 172;
 const SUN_ILLUMINANCE: f32 = 12_000.0;
 const MOON_ILLUMINANCE: f32 = 100.0;
+const FOG_EXTINCTION: f32 = 3.0e-5;
 
 #[derive(Resource, Reflect, Clone)]
 #[reflect(Resource)]
@@ -162,8 +163,8 @@ fn configure_sky_cameras(
                 directional_light_color: Color::srgb(1.0, 0.96, 0.88),
                 directional_light_exponent: 15.0,
                 falloff: FogFalloff::Atmospheric {
-                    extinction: Vec3::splat(1.0e-5),
-                    inscattering: Vec3::new(0.55, 0.72, 0.90) * 1.0e-5,
+                    extinction: Vec3::splat(FOG_EXTINCTION),
+                    inscattering: Vec3::new(0.55, 0.72, 0.90) * FOG_EXTINCTION,
                 },
             },
         ));
@@ -200,6 +201,10 @@ fn sync_lighting_system(
         }
         sun_light.illuminance = (day_weight + sunset_weight * 0.35) * config.sun_illuminance;
         sun_light.color = sun_light_color(solar_elevation);
+        let sun_shadows_enabled = day_weight + sunset_weight > 0.02;
+        if sun_light.shadow_maps_enabled != sun_shadows_enabled {
+            sun_light.shadow_maps_enabled = sun_shadows_enabled;
+        }
     }
 
     if let Ok((mut moon_light, mut moon_transform)) = moon_query.single_mut() {
@@ -210,6 +215,10 @@ fn sync_lighting_system(
         }
         moon_light.illuminance = night_weight * config.moon_illuminance;
         moon_light.color = Color::srgb(0.55, 0.72, 1.0);
+        let moon_shadows_enabled = night_weight > 0.02;
+        if moon_light.shadow_maps_enabled != moon_shadows_enabled {
+            moon_light.shadow_maps_enabled = moon_shadows_enabled;
+        }
     }
 
     let day_ambient_vec = Vec3::new(0.55, 0.72, 0.92);
@@ -236,8 +245,8 @@ fn sync_lighting_system(
         fog.color = fog_color;
         fog.directional_light_color = sun_inscatter_color;
         fog.falloff = FogFalloff::Atmospheric {
-            extinction: Vec3::splat(1.0e-5) * config.fog_density,
-            inscattering: fog_color_vec * 1.0e-5 * config.fog_density,
+            extinction: Vec3::splat(FOG_EXTINCTION) * config.fog_density,
+            inscattering: fog_color_vec * FOG_EXTINCTION * config.fog_density,
         };
     }
 

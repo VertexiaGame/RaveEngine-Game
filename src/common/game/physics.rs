@@ -78,9 +78,15 @@ fn attach_brick_physics(
         CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
     };
 
+    let client_body_type = if std::env::var("VERTIGO_APP").unwrap_or_default() == "client" {
+        RigidBody::Static
+    } else {
+        RigidBody::Dynamic
+    };
+
     if enabled {
         commands.entity(entity).insert((
-            RigidBody::Dynamic,
+            client_body_type,
             collider,
             Friction::new(friction),
             Restitution::new(bounciness),

@@ -73,7 +73,7 @@ fn fragment(
     let num_layers = 32u;
     let layer_height = 1.0 / f32(num_layers);
 
-    if (local_normal.y > 0.85) {
+    if (local_normal.y > 0.85 && fade > 0.0005) {
         let parallax_dir = local_view.xz / max(local_view.y, 0.1);
         let parallax_vec = normalize(parallax_dir) * min(length(parallax_dir) * 0.2, 0.25);
 
@@ -104,7 +104,7 @@ fn fragment(
             pbr_input.material.base_color.a
         );
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, stud_mask * 0.15);
-    } else if (local_normal.y < -0.85) {
+    } else if (local_normal.y < -0.85 && fade > 0.0005) {
         let inlet_dir = local_view.xz / max(abs(local_view.y), 0.1);
         let inlet_vec = normalize(inlet_dir) * min(length(inlet_dir) * 0.2, 0.25);
 

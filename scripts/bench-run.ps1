@@ -26,8 +26,14 @@ if (-not (Test-Path -LiteralPath $exe)) {
 function Run-Scenario {
     param([string]$BenchScenario)
     Write-Host "=== BENCHMARK: $BenchScenario ($commit) ===" -ForegroundColor Cyan
-    $result = & $exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $BenchScenario!!" }
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        $result = & $exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+    } finally {
+        $ErrorActionPreference = $eap
+    }
+    if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $BenchScenario" }
     $jsonLine = $result | Select-String '^\{"scenario"' | Select-Object -Last 1
     if (-not $jsonLine) { throw "No JSON output from benchmark for $BenchScenario" }
     $outFile = Join-Path $repo "bench_$BenchScenario.json"
@@ -48,10 +54,11 @@ foreach ($s in $scenarios) {
     $results[$s] = Run-Scenario $s
 }
 
-Write-Host "`nSumary($commit)" -ForegroundColor Yellow
+Write-Host "`n===== SPEED & OPTIMIZATION SUMMARY ($commit) =====" -ForegroundColor Yellow
 Write-Host ("{0,-10} {1,16} {2,10} {3,14} {4,14} {5,12} {6,12}" -f "Scenario", "avg_frame_ns", "FPS", "median_ns", "p95_ns", "meshes", "materials")
 Write-Host ("{0,-10} {1,16} {2,10} {3,14} {4,14} {5,12} {6,12}" -f "--------", "-----------", "---", "---------", "-------", "------", "---------")
+$culture = [System.Globalization.CultureInfo]::InvariantCulture
 foreach ($s in $scenarios) {
     $r = $results[$s]
-    Write-Host ("{0,-10} {1,16:N0} {2,10:N1} {3,14:N0} {4,14:N0} {5,12:N0} {6,12:N0}" -f $s, $r.avg_frame_ns, (Fps $r.avg_frame_ns), $r.median_frame_ns, $r.p95_frame_ns, $r.mesh_assets, $r.material_assets)
+    Write-Host ("{0,-10} {1,16} {2,10} {3,14} {4,14} {5,12} {6,12}" -f $s, $r.avg_frame_ns.ToString("N0", $culture), (Fps $r.avg_frame_ns).ToString("N1", $culture), $r.median_frame_ns.ToString("N0", $culture), $r.p95_frame_ns.ToString("N0", $culture), $r.mesh_assets.ToString("N0", $culture), $r.material_assets.ToString("N0", $culture))
 }

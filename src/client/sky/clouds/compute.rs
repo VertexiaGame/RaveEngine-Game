@@ -102,11 +102,26 @@ fn prepare_textures_bind_group(
     gpu_images: Res<RenderAssets<GpuImage>>,
     clouds_image: Res<CloudsImage>,
     render_device: Res<RenderDevice>,
+    mut clouds_state: ResMut<CloudsState>,
+    mut last_render_image: Local<Option<Handle<Image>>>,
 ) {
-    let cloud_render_view = gpu_images.get(&clouds_image.cloud_render_image).unwrap();
-    let cloud_atlas_view = gpu_images.get(&clouds_image.cloud_atlas_image).unwrap();
-    let cloud_worley_view = gpu_images.get(&clouds_image.cloud_worley_image).unwrap();
-    let sky_view = gpu_images.get(&clouds_image.sky_image).unwrap();
+    if last_render_image.as_ref() != Some(&clouds_image.cloud_render_image) {
+        *clouds_state = CloudsState::Loading;
+        *last_render_image = Some(clouds_image.cloud_render_image.clone());
+    }
+
+    let Some(cloud_render_view) = gpu_images.get(&clouds_image.cloud_render_image) else {
+        return;
+    };
+    let Some(cloud_atlas_view) = gpu_images.get(&clouds_image.cloud_atlas_image) else {
+        return;
+    };
+    let Some(cloud_worley_view) = gpu_images.get(&clouds_image.cloud_worley_image) else {
+        return;
+    };
+    let Some(sky_view) = gpu_images.get(&clouds_image.sky_image) else {
+        return;
+    };
 
     let bind_group = render_device.create_bind_group(
         None,
@@ -178,7 +193,7 @@ impl FromWorld for CloudsPipelineResource {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, PartialEq)]
 enum CloudsState {
     #[default]
     Loading,
@@ -192,6 +207,7 @@ fn run_clouds_compute_pass(
     pipeline: Res<CloudsPipelineResource>,
     texture_bind_group: Option<Res<CloudsImageBindGroup>>,
     uniform_bind_group: Option<Res<CloudsUniformBindGroup>>,
+    clouds_config: Option<Res<CloudsConfig>>,
     mut render_context: RenderContext,
 ) {
     let Some(texture_bind_group) = texture_bind_group else {
@@ -227,13 +243,22 @@ fn run_clouds_compute_pass(
         return;
     };
 
+    let dispatch_groups = if pipeline_to_run == pipeline.init_pipeline {
+        (IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE)
+    } else {
+        let resolution = clouds_config.map_or(Vec2::new(1440.0, 810.0), |config| config.render_resolution);
+        let groups_x = (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1);
+        let groups_y = (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1);
+        (groups_x, groups_y)
+    };
+
     let mut pass = render_context
         .command_encoder()
         .begin_compute_pass(&ComputePassDescriptor::default());
     pass.set_bind_group(0, &uniform_bind_group.0, &[]);
     pass.set_bind_group(1, &texture_bind_group.0, &[]);
     pass.set_pipeline(compute_pipeline);
-    pass.dispatch_workgroups(IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE, 1);
+    pass.dispatch_workgroups(dispatch_groups.0, dispatch_groups.1, 1);
 }
 
 pub(crate) struct CloudsComputePlugin;
