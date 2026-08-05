@@ -140,7 +140,7 @@ fn main() {
 
     #[cfg(feature = "bench")]
     if bench_mode {
-        if bench_scenario != "server" && bench_scenario != "client" && bench_scenario != "studio" {
+        if bench_scenario != "server" && bench_scenario != "client" && bench_scenario != "studio" && bench_scenario != "bricks" {
             panic!("unsupported benchmark scenario: {bench_scenario}");
         }
         app.world_mut()
@@ -151,8 +151,10 @@ fn main() {
             app.add_systems(Update, bench_move_players);
         } else if bench_scenario == "client" {
             RaveEngineLib::client::add_client_benchmark(&mut app);
-        } else {
+        } else if bench_scenario == "studio" {
             RaveEngineLib::studio::add_studio_benchmark(&mut app);
+        } else {
+            RaveEngineLib::common::game::bricks::add_bricks_benchmark(&mut app);
         }
         info!("BENCH: Running {} with {} warmup and {} measured frames", bench_scenario, bench_warmup, bench_frames);
     }
