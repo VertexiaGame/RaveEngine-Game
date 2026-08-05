@@ -47,6 +47,7 @@ pub struct UiResources<'w, 's> {
     pub brick_colors: Query<'w, 's, &'static mut crate::common::game::bricks::components::BrickColor>,
     pub players_service: Option<ResMut<'w, crate::studio::tools::PlayersService>>,
     pub lighting_config: ResMut<'w, crate::client::sky::LightingConfig>,
+    pub workspace_studs: ResMut<'w, crate::common::game::bricks::WorkspaceShowStuds>,
 }
 
 #[derive(SystemParam)]
@@ -74,6 +75,7 @@ pub struct UiStateResources<'w> {
     pub playtest_backup: ResMut<'w, crate::studio::ui::resources::PlaytestBackup>,
     pub active_editor: ResMut<'w, ActiveScriptEditor>,
     pub file_dialog_state: ResMut<'w, FileDialogState>,
+    pub output_panel: ResMut<'w, panels::output::OutputPanelState>,
 }
 
 #[derive(SystemParam)]
@@ -122,6 +124,7 @@ pub struct UiQueries<'w, 's> {
         ),
         Without<Camera3d>,
     >,
+    pub studs_query: Query<'w, 's, &'static crate::common::game::bricks::components::BrickStuds>,
     pub playtest_client_query: Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
     pub playtest_cameras: Query<'w, 's, Entity, With<crate::client::player::PlayerCamera>>,
@@ -283,6 +286,7 @@ pub fn studio_ui(
                                                 code: script_data.code,
                                                 enabled: script_data.enabled,
                                                 started: false,
+                                                running_code: String::new(),
                                             });
                                         }
                                         1 => {
@@ -291,6 +295,7 @@ pub fn studio_ui(
                                                     code: script_data.code,
                                                     enabled: script_data.enabled,
                                                     started: false,
+                                                    running_code: String::new(),
                                                 },
                                                 lightyear::prelude::Replicate::default(),
                                             ));
@@ -380,6 +385,8 @@ pub fn studio_ui(
                 onboarding_active,
                 &mut ui_res.players_service,
                 &ui_state.file_dialog_state,
+                &queries.studs_query,
+                &ui_res.workspace_studs,
             );
         });
 
@@ -442,6 +449,7 @@ pub fn studio_ui(
                                     script_tex,
                                     localscript_tex,
                                     modulescript_tex,
+                                    &queries.studs_query,
                                 );
                             });
                     }
@@ -487,6 +495,8 @@ pub fn studio_ui(
                                 &mut ui_res.studs_materials,
                                 &queries.explorer_query,
                                 &mut ui_state.active_editor,
+                                &queries.studs_query,
+                                &ui_res.workspace_studs,
                             );
                         });
                 } else if ui_state.selection.workspace_selected {
@@ -522,7 +532,7 @@ pub fn studio_ui(
                             panels::draw_workspace_properties(
                                 ui,
                                 &mut ui_res.gravity,
-                                &mut ui_res.lighting_config,
+                                &mut ui_res.workspace_studs,
                             );
                         });
                 } else if ui_state.selection.players_selected {
@@ -628,6 +638,24 @@ pub fn studio_ui(
         }
     }
 
+    let output_panel_res = if !onboarding_active {
+        Some(
+            egui::Panel::bottom("output_panel")
+                .frame(egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(250, 250, 250))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                )
+                .resizable(true)
+                .default_height(220.0)
+                .min_height(100.0)
+                .show(ctx, |ui| {
+                    panels::draw_output(ui, &mut ui_state.output_panel, &queries.explorer_query);
+                }),
+        )
+    } else {
+        None
+    };
+
     if ui_state.settings_window.open {
         panels::draw_settings_window(ctx, &mut ui_state.settings_window.open, &mut ui_state.graphics_settings);
     }
@@ -652,6 +680,7 @@ pub fn studio_ui(
                         &mut ui_state.copiedbuffer,
                         &queries.entities_query,
                         &mut ui_res.history,
+                        &queries.studs_query,
                     )
                 })
             });
@@ -1019,12 +1048,14 @@ pub fn studio_ui(
                                     code: current_source.clone(),
                                     enabled: server_script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             } else if let Some(local_script) = local_opt {
                                 e_cmd.insert(crate::scripting::ecs::LocalScript {
                                     code: current_source.clone(),
                                     enabled: local_script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             } else if module_opt.is_some() {
                                 e_cmd.insert(crate::scripting::ecs::ModuleScript {
@@ -1048,6 +1079,11 @@ pub fn studio_ui(
         }
         if panel_res.response.rect.contains(pos) {
             is_hovering_ui = true;
+        }
+        if let Some(output_res) = &output_panel_res {
+            if output_res.response.rect.contains(pos) {
+                is_hovering_ui = true;
+            }
         }
         if let Some(rect) = script_editor_rect {
             if rect.contains(pos) {

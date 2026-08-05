@@ -66,6 +66,8 @@ pub fn draw_properties(
         Option<&crate::scripting::ecs::ModuleScript>,
     ), Without<Camera3d>>,
     active_editor: &mut ResMut<crate::studio::ui::resources::ActiveScriptEditor>,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    workspace_studs: &crate::common::game::bricks::WorkspaceShowStuds,
 ) {
     if selected_entities.is_empty() {
         return;
@@ -146,12 +148,14 @@ pub fn draw_properties(
                                                 code: code.clone(),
                                                 enabled,
                                                 started: false,
+                                                running_code: String::new(),
                                             });
                                         } else if l.is_some() {
                                             commands.entity(entity).insert(crate::scripting::ecs::LocalScript {
                                                 code: code.clone(),
                                                 enabled,
                                                 started: false,
+                                                running_code: String::new(),
                                             });
                                         }
                                     }
@@ -251,6 +255,7 @@ pub fn draw_properties(
     let first_rot = first_transform_val.rotation;
     let first_shape = first_shape_opt_val.unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
     let first_alpha = first_color.to_srgba().alpha;
+    let first_show_studs = studs_query.get(first_entity).map(|s| s.enabled).unwrap_or(true);
 
     let mut all_names_same = true;
     let mut all_pos_x_same = true;
@@ -263,6 +268,7 @@ pub fn draw_properties(
     let mut all_color_same = true;
     let mut all_transparency_same = true;
     let mut all_shape_same = true;
+    let mut all_show_studs_same = true;
     let mut all_phys_enabled_same = true;
     let mut all_bounciness_same = true;
     let mut all_player_can_collide_same = true;
@@ -288,6 +294,8 @@ pub fn draw_properties(
             
             let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
             if shape != first_shape { all_shape_same = false; }
+
+            if studs_query.get(entity).map(|s| s.enabled).unwrap_or(true) != first_show_studs { all_show_studs_same = false; }
             
             let mut color = Color::srgb(0.84, 0.24, 0.16);
             if let Some(studs_mat_handle) = studs_mat_opt {
@@ -575,6 +583,31 @@ pub fn draw_properties(
                             });
                             ui.end_row();
 
+                            ui.label(egui::RichText::new("Show Studs").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.add_enabled_ui(workspace_studs.enabled, |ui| {
+                                if all_show_studs_same {
+                                    let mut show_studs = first_show_studs;
+                                    if ui.checkbox(&mut show_studs, "").changed() {
+                                        for &entity in selected_entities {
+                                            commands.entity(entity).insert(crate::common::game::bricks::components::BrickStuds { enabled: show_studs });
+                                        }
+                                    }
+                                } else {
+                                    let mut clicked = false;
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Mixed (Click to set)").clicked() {
+                                            clicked = true;
+                                        }
+                                    });
+                                    if clicked {
+                                        for &entity in selected_entities {
+                                            commands.entity(entity).insert(crate::common::game::bricks::components::BrickStuds { enabled: true });
+                                        }
+                                    }
+                                }
+                            });
+                            ui.end_row();
+
                             if first_shape_opt_val.is_some() {
                                 ui.label(egui::RichText::new("Shape").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                                 let mut current_shape = first_shape;
@@ -763,7 +796,7 @@ pub fn draw_properties(
 pub fn draw_workspace_properties(
     ui: &mut egui::Ui,
     gravity: &mut Option<ResMut<'_, avian3d::prelude::Gravity>>,
-    lighting_config: &mut ResMut<'_, crate::client::sky::LightingConfig>,
+    workspace_studs: &mut ResMut<'_, crate::common::game::bricks::WorkspaceShowStuds>,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -774,57 +807,15 @@ pub fn draw_workspace_properties(
     ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
     ui.add_space(8.0);
 
-    egui::CollapsingHeader::new(egui::RichText::new("Lighting").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+    egui::CollapsingHeader::new(egui::RichText::new("Display").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
         .default_open(true)
         .show(ui, |ui| {
-            egui::Grid::new("properties_workspace_lighting_grid")
+            egui::Grid::new("properties_workspace_display_grid")
                 .num_columns(2)
                 .spacing([12.0, 8.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Time of Day").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(
-                        egui::Slider::new(&mut lighting_config.time_of_day, 0.0..=24.0)
-                            .step_by(0.05)
-                            .custom_formatter(|val, _| {
-                                let h = (val.floor() as u32) % 24;
-                                let m = ((val - val.floor()) * 60.0).round() as u32;
-                                format!("{:02}:{:02} ({:.2}h)", h, m, val)
-                            })
-                    );
-                    ui.end_row();
-
-                    ui.label(egui::RichText::new("Latitude").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(egui::Slider::new(&mut lighting_config.latitude, -90.0..=90.0).step_by(0.5));
-                    ui.end_row();
-
-                    ui.label(egui::RichText::new("Sun Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(egui::Slider::new(&mut lighting_config.sun_angular_radius, 0.005..=0.1).step_by(0.001));
-                    ui.end_row();
-
-                    ui.label(egui::RichText::new("Moon Angular Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(egui::Slider::new(&mut lighting_config.moon_angular_radius, 0.005..=0.1).step_by(0.001));
-                    ui.end_row();
-
-                    ui.label(egui::RichText::new("Star Density").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(egui::Slider::new(&mut lighting_config.star_density, 0.0..=1.0).step_by(0.01));
-                    ui.end_row();
-
-                    ui.label(egui::RichText::new("Night Ambient").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    let night_ambient_srgba = lighting_config.night_ambient.to_srgba();
-                    let mut ambient_rgba = [
-                        night_ambient_srgba.red,
-                        night_ambient_srgba.green,
-                        night_ambient_srgba.blue,
-                        night_ambient_srgba.alpha,
-                    ];
-                    if ui.color_edit_button_rgba_unmultiplied(&mut ambient_rgba).changed() {
-                        lighting_config.night_ambient = Color::Srgba(Srgba::new(
-                            ambient_rgba[0],
-                            ambient_rgba[1],
-                            ambient_rgba[2],
-                            ambient_rgba[3],
-                        ));
-                    }
+                    ui.label(egui::RichText::new("Show Studs").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.checkbox(&mut workspace_studs.enabled, "");
                     ui.end_row();
                 });
         });
@@ -916,6 +907,22 @@ pub fn draw_lighting_properties(
                             ambient_rgba[3],
                         ));
                     }
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Sun Brightness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.sun_illuminance, 0.0..=50000.0).step_by(500.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Moon Brightness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.moon_illuminance, 0.0..=1000.0).step_by(10.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Ambient Brightness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.ambient_brightness, 0.0..=5.0).step_by(0.05));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Fog Density").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.fog_density, 0.0..=5.0).step_by(0.05));
                     ui.end_row();
                 });
         });

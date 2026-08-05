@@ -13,6 +13,17 @@ pub struct BrickMaterialCache {
     pub sphere_mesh: Option<Handle<Mesh>>,
 }
 
+#[derive(Resource)]
+pub struct WorkspaceShowStuds {
+    pub enabled: bool,
+}
+
+impl Default for WorkspaceShowStuds {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 pub struct BricksPlugin;
 
 impl Plugin for BricksPlugin {
@@ -21,8 +32,10 @@ impl Plugin for BricksPlugin {
             .register_type::<components::Brick>()
             .register_type::<components::BrickShapeComponent>()
             .register_type::<components::BrickColor>()
+            .register_type::<components::BrickStuds>()
             .init_resource::<data::BrickSpawnerCount>()
-            .init_resource::<BrickMaterialCache>();
+            .init_resource::<BrickMaterialCache>()
+            .init_resource::<WorkspaceShowStuds>();
 
         if app.is_plugin_added::<bevy::render::RenderPlugin>() {
             app.add_plugins(MaterialPlugin::<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>::default())
@@ -30,9 +43,26 @@ impl Plugin for BricksPlugin {
                 .add_systems(Update, (
                     studs::configure_studs_samplers,
                     update_brick_meshes_on_shape_change,
+                    apply_workspace_show_studs,
                     links_optimizer_system,
                 ));
+        } else {
+            app.add_systems(Update, apply_workspace_show_studs);
         }
+    }
+}
+
+pub fn apply_workspace_show_studs(
+    workspace: Res<WorkspaceShowStuds>,
+    mut commands: Commands,
+    query: Query<(Entity, Option<&components::BrickStuds>), With<components::Brick>>,
+) {
+    if !workspace.is_changed() {
+        return;
+    }
+    for (entity, studs) in &query {
+        let enabled = studs.map(|s| s.enabled).unwrap_or(true);
+        commands.entity(entity).insert(components::BrickStuds { enabled });
     }
 }
 

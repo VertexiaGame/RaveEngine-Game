@@ -10,6 +10,7 @@ pub struct CopiedEntityBuffer {
     pub is_brick: bool,
     pub shape: crate::common::game::bricks::components::BrickShape,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
+    pub show_studs: bool,
 }
 
 #[derive(Resource, Default)]
@@ -119,6 +120,7 @@ pub fn handle_file_dialog_results(
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
     ), Without<Camera3d>>,
+    studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
 ) {
     let rx = file_dialog_state.rx.lock().unwrap();
     while let Ok(result) = rx.try_recv() {
@@ -184,6 +186,7 @@ pub fn handle_file_dialog_results(
                                     code: script.code,
                                     enabled: script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             }
                             1 => {
@@ -192,6 +195,7 @@ pub fn handle_file_dialog_results(
                                         code: script.code,
                                         enabled: script.enabled,
                                         started: false,
+                                        running_code: String::new(),
                                     },
                                     lightyear::prelude::Replicate::default(),
                                 ));
@@ -220,7 +224,7 @@ pub fn handle_file_dialog_results(
                 onboarding_data.save_path = save_path_str.clone();
 
                 let mut bricks_data = Vec::new();
-                for (_, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in &save_query {
+                for (entity, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in &save_query {
                     if brick_opt.is_some() {
                         let shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
                         let mut current_color = Color::Srgba(Srgba::new(0.84, 0.24, 0.16, 1.0));
@@ -249,6 +253,7 @@ pub fn handle_file_dialog_results(
                             friction,
                             gravity_scale,
                             mass,
+                            show_studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
                         });
                     }
                 }
@@ -298,7 +303,7 @@ pub fn handle_file_dialog_results(
                     Transform::IDENTITY
                 };
                 let state = crate::common::core::vrtx::VrtxFileState {
-                    version: 5,
+                    version: 6,
                     gravity: gravity_val,
                     settings: crate::common::core::vrtx::VrtxSettings {
                         ssao: graphics_settings.ssao,

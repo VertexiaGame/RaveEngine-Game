@@ -38,6 +38,7 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::resources::PlayInClientProcesses>()
             .init_resource::<ui::resources::PlaytestBackup>()
             .init_resource::<ui::resources::FileDialogState>()
+            .init_resource::<ui::panels::output::OutputPanelState>()
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
             .init_resource::<tools::PlayersService>()

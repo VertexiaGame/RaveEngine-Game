@@ -60,7 +60,8 @@ pub fn load_fallback_map(
         CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
         Friction::new(0.3),
         Restitution::new(0.3),
-        SleepingDisabled,
+        LinearDamping(0.1),
+        AngularDamping(0.1),
         Replicate::default(),
     ));
 }
@@ -89,6 +90,7 @@ pub fn load_map(
                         code: script.code,
                         enabled: script.enabled,
                         started: false,
+                        running_code: String::new(),
                     });
                 }
                 1 => {
@@ -97,6 +99,7 @@ pub fn load_map(
                             code: script.code,
                             enabled: script.enabled,
                             started: false,
+                            running_code: String::new(),
                         },
                         lightyear::prelude::Replicate::default(),
                     ));
@@ -176,7 +179,8 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
         Restitution::new(brick.bounciness),
         GravityScale(brick.gravity_scale),
         Mass(brick.mass),
-        SleepingDisabled,
+        LinearDamping(0.1),
+        AngularDamping(0.1),
         Replicate::default(),
     )).id()
 }

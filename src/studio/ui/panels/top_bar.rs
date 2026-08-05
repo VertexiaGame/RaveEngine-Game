@@ -68,6 +68,8 @@ pub fn draw_top_bar(
     onboarding_active: bool,
     players_service: &mut Option<ResMut<crate::studio::tools::PlayersService>>,
     file_dialog_state: &crate::studio::ui::resources::FileDialogState,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    workspace_studs: &crate::common::game::bricks::WorkspaceShowStuds,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
 
@@ -103,7 +105,7 @@ pub fn draw_top_bar(
                         let save_enabled = !onboarding_data.save_path.is_empty();
                         if ui.add_enabled(save_enabled, egui::Button::new("Save")).clicked() {
                             let mut bricks_data = Vec::new();
-                            for (_, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in entities_query.iter() {
+                            for (entity, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in entities_query.iter() {
                                 if brick_opt.is_some() {
                                     let shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
                                     let mut current_color = Color::Srgba(Srgba::new(0.84, 0.24, 0.16, 1.0));
@@ -132,6 +134,7 @@ pub fn draw_top_bar(
                                         friction,
                                         gravity_scale,
                                         mass,
+                                        show_studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
                                     });
                                 }
                             }
@@ -181,7 +184,7 @@ pub fn draw_top_bar(
                                 Transform::IDENTITY
                             };
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 5,
+                                version: 6,
                                 gravity: gravity_val,
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: graphics_settings.ssao,
@@ -415,6 +418,8 @@ pub fn draw_top_bar(
 
                                         let new_entity = spawn_brick(commands, meshes, studs_materials, studs_assets, count, spawn_pos, shape);
 
+                                        commands.entity(new_entity).insert(crate::common::game::bricks::components::BrickStuds { enabled: workspace_studs.enabled });
+
                                         let default_name = match shape {
                                             crate::common::game::bricks::components::BrickShape::Block => format!("Part{}", count.count - 1),
                                             crate::common::game::bricks::components::BrickShape::Sphere => format!("Sphere{}", count.count - 1),
@@ -442,10 +447,15 @@ pub fn draw_top_bar(
                                                 extension: crate::common::game::bricks::studs::StudsExtension {
                                                     stud_texture: studs_assets.stud.clone(),
                                                     inlet_texture: studs_assets.inlet.clone(),
+                                                    stud_ambient_texture: studs_assets.stud_ambient.clone(),
+                                                    stud_height_texture: studs_assets.stud_height.clone(),
+                                                    inlet_ambient_texture: studs_assets.inlet_ambient.clone(),
+                                                    inlet_height_texture: studs_assets.inlet_height.clone(),
                                                 },
                                             }))),
                                             parent: None,
                                             physics: Some(crate::common::game::bricks::components::BrickPhysics::default()),
+                                            studs: workspace_studs.enabled,
                                         };
 
                                         history.push_command(crate::studio::tools::UndoCommand::Spawn {
@@ -473,6 +483,7 @@ pub fn draw_top_bar(
                                                     code: "print(\"Hello World from Server!\")\n".to_string(),
                                                     enabled: true,
                                                     started: false,
+                                                    running_code: String::new(),
                                                 },
                                             )).id(),
                                             1 => commands.spawn((
@@ -481,6 +492,7 @@ pub fn draw_top_bar(
                                                     code: "print(\"Hello World from Local!\")\n".to_string(),
                                                     enabled: true,
                                                     started: false,
+                                                    running_code: String::new(),
                                                 },
                                                 lightyear::prelude::Replicate::default(),
                                             )).id(),
@@ -533,6 +545,7 @@ pub fn draw_top_bar(
                         if playtesting_active {
                             playtest_state.active = false;
 
+                            crate::scripting::output::end_run();
                             crate::app::server::bootstrap::SHUTDOWN_SERVER.store(true, std::sync::atomic::Ordering::Relaxed);
 
                             if let Some(client_entity) = playtest_client_query.iter().next() {
@@ -562,6 +575,7 @@ pub fn draw_top_bar(
                                             code: script_data.code,
                                             enabled: script_data.enabled,
                                             started: false,
+                                            running_code: String::new(),
                                         });
                                     }
                                     1 => {
@@ -570,6 +584,7 @@ pub fn draw_top_bar(
                                                 code: script_data.code,
                                                 enabled: script_data.enabled,
                                                 started: false,
+                                                running_code: String::new(),
                                             },
                                             lightyear::prelude::Replicate::default(),
                                         ));
@@ -607,6 +622,8 @@ pub fn draw_top_bar(
                         } else {
                             playtest_state.active = true;
 
+                            crate::scripting::output::start_run("Playtest");
+
                             if let Some(g) = gravity.as_ref() {
                                 playtest_backup.gravity = Some(g.0);
                             } else {
@@ -621,7 +638,7 @@ pub fn draw_top_bar(
                             let mut backup_bricks = Vec::new();
                             for (entity, _, _name, _, _, brick_opt, _, _, _, _, _, _) in entities_query.iter() {
                                 if brick_opt.is_some() {
-                                    if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query) {
+                                    if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query) {
                                         backup_bricks.push(data);
                                     }
                                     commands.entity(entity).despawn();
@@ -667,7 +684,7 @@ pub fn draw_top_bar(
 
                             let temp_map_path = "temp_play.vrtx".to_string();
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 5,
+                                version: 6,
                                 gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: graphics_settings.ssao,
@@ -702,6 +719,7 @@ pub fn draw_top_bar(
                                         friction,
                                         gravity_scale,
                                         mass,
+                                        show_studs: b.studs,
                                     }
                                 }).collect(),
                                 scripts: playtest_backup.scripts.clone(),

@@ -14,6 +14,7 @@ pub struct VrtxBrick {
     pub friction: f32,
     pub gravity_scale: f32,
     pub mass: f32,
+    pub show_studs: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -487,6 +488,7 @@ fn collect_bricks_recursive(
                     friction: 0.3,
                     gravity_scale: 1.0,
                     mass: 1.0,
+                    show_studs: true,
                 });
             }
 
@@ -644,6 +646,10 @@ impl VrtxFileState {
             writer.write_all(&brick.friction.to_le_bytes())?;
             writer.write_all(&brick.gravity_scale.to_le_bytes())?;
             writer.write_all(&brick.mass.to_le_bytes())?;
+
+            if self.version >= 6 {
+                writer.write_all(&[if brick.show_studs { 1 } else { 0 }])?;
+            }
         }
 
         if self.version >= 4 {
@@ -875,6 +881,14 @@ impl VrtxFileState {
                     (0.3, 1.0, 1.0)
                 };
 
+                let show_studs = if version >= 6 {
+                    let mut show_studs_bytes = [0u8; 1];
+                    reader.read_exact(&mut show_studs_bytes)?;
+                    show_studs_bytes[0] != 0
+                } else {
+                    true
+                };
+
                 bricks.push(VrtxBrick {
                     name,
                     transform,
@@ -886,6 +900,7 @@ impl VrtxFileState {
                     friction,
                     gravity_scale,
                     mass,
+                    show_studs,
                 });
             }
 

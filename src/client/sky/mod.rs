@@ -26,6 +26,10 @@ pub struct LightingConfig {
     pub moon_angular_radius: f32,
     pub night_ambient: Color,
     pub star_density: f32,
+    pub sun_illuminance: f32,
+    pub moon_illuminance: f32,
+    pub ambient_brightness: f32,
+    pub fog_density: f32,
 }
 
 impl Default for LightingConfig {
@@ -37,6 +41,10 @@ impl Default for LightingConfig {
             moon_angular_radius: 0.040,
             night_ambient: Color::srgb(0.12, 0.22, 0.48),
             star_density: 0.85,
+            sun_illuminance: SUN_ILLUMINANCE,
+            moon_illuminance: MOON_ILLUMINANCE,
+            ambient_brightness: 1.0,
+            fog_density: 1.0,
         }
     }
 }
@@ -190,7 +198,7 @@ fn sync_lighting_system(
         if let Ok(dir_3d) = Dir3::new(dir) {
             *sun_transform = Transform::from_translation(Vec3::ZERO).looking_to(dir_3d, up);
         }
-        sun_light.illuminance = (day_weight + sunset_weight * 0.35) * SUN_ILLUMINANCE;
+        sun_light.illuminance = (day_weight + sunset_weight * 0.35) * config.sun_illuminance;
         sun_light.color = sun_light_color(solar_elevation);
     }
 
@@ -200,7 +208,7 @@ fn sync_lighting_system(
         if let Ok(dir_3d) = Dir3::new(dir) {
             *moon_transform = Transform::from_translation(Vec3::ZERO).looking_to(dir_3d, up);
         }
-        moon_light.illuminance = night_weight * MOON_ILLUMINANCE;
+        moon_light.illuminance = night_weight * config.moon_illuminance;
         moon_light.color = Color::srgb(0.55, 0.72, 1.0);
     }
 
@@ -215,7 +223,7 @@ fn sync_lighting_system(
         current_ambient.z,
         1.0,
     ));
-    ambient_light.brightness = day_weight * 1400.0 + sunset_weight * 800.0 + night_weight * 350.0;
+    ambient_light.brightness = (day_weight * 1400.0 + sunset_weight * 800.0 + night_weight * 350.0) * config.ambient_brightness;
 
     let day_fog_vec = Vec3::new(0.55, 0.72, 0.90);
     let sunset_fog_vec = Vec3::new(0.82, 0.50, 0.40);
@@ -228,8 +236,8 @@ fn sync_lighting_system(
         fog.color = fog_color;
         fog.directional_light_color = sun_inscatter_color;
         fog.falloff = FogFalloff::Atmospheric {
-            extinction: Vec3::splat(1.0e-5),
-            inscattering: fog_color_vec * 1.0e-5,
+            extinction: Vec3::splat(1.0e-5) * config.fog_density,
+            inscattering: fog_color_vec * 1.0e-5 * config.fog_density,
         };
     }
 

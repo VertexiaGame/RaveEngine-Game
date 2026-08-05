@@ -78,6 +78,7 @@ fn prepare_uniforms_bind_group(
     buffer.camera_translation = camera.translation;
     buffer.time = time.elapsed_secs_wrapped();
     buffer.reprojection_strength = clouds_config.reprojection_strength;
+    buffer.render_resolution = clouds_config.render_resolution;
     buffer.inverse_camera_view = camera.inverse_camera_view;
     buffer.inverse_camera_projection = camera.inverse_camera_projection;
     buffer.wind_displacement += time.delta_secs() * clouds_config.wind_velocity;

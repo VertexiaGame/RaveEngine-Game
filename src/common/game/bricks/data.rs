@@ -49,6 +49,7 @@ pub struct BrickData {
     pub studs_material: Option<MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
     pub parent: Option<Entity>,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
+    pub studs: bool,
 }
 
 impl BrickData {
@@ -75,6 +76,7 @@ pub fn spawn_from_data(
             Brick,
             BrickShapeComponent { shape: data.shape },
             crate::common::game::bricks::components::BrickColor::default(),
+            crate::common::game::bricks::components::BrickStuds { enabled: data.studs },
         ));
     }
     if let Some(ref m) = data.mesh {
@@ -123,6 +125,7 @@ pub fn capture_brick_data(
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
 ) -> Option<BrickData> {
     if let Ok((_, transform, name, child_of_opt, _, brick_opt, shape_opt, _, mesh_opt, mat_opt, studs_mat_opt, phys_opt)) = query.get(entity) {
         let is_brick = brick_opt.is_some();
@@ -137,6 +140,7 @@ pub fn capture_brick_data(
             studs_material: studs_mat_opt.cloned(),
             parent: child_of_opt.map(|co| co.parent()),
             physics: phys_opt.cloned(),
+            studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
         })
     } else {
         None

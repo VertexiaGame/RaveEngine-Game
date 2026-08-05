@@ -68,7 +68,7 @@ impl Default for CloudsUniform {
             camera_translation: Vec3::ZERO,
             time: 0.0,
             reprojection_strength: 0.95,
-            render_resolution: Vec2::new(1920.0, 1080.0),
+            render_resolution: Vec2::new(1440.0, 810.0),
             inverse_camera_view: Mat4::IDENTITY,
             inverse_camera_projection: Mat4::IDENTITY,
             wind_displacement: Vec3::new(-11.0, 0.0, 23.0),

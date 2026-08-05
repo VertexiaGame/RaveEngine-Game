@@ -223,6 +223,7 @@ pub fn draw_onboarding(
                                     friction: 0.3,
                                     gravity_scale: 1.0,
                                     mass: 1.0,
+                                    show_studs: true,
                                 });
                                 bricks.push(crate::common::core::vrtx::VrtxBrick {
                                     name: "Part0".to_string(),
@@ -235,11 +236,12 @@ pub fn draw_onboarding(
                                     friction: 0.3,
                                     gravity_scale: 1.0,
                                     mass: 1.0,
+                                    show_studs: true,
                                 });
                             }
 
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 5,
+                                version: 6,
                                 gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: false,

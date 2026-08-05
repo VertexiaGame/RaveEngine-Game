@@ -902,10 +902,17 @@ pub fn handle_marquee_selection(
     mut selection: ResMut<Selection>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     bricks_query: Query<(Entity, &GlobalTransform), With<Brick>>,
+    mut contexts: bevy_egui::EguiContexts,
 ) {
     let Ok(window) = windows.single() else { return };
 
-    if mouse_buttons.just_pressed(MouseButton::Left) && !hover_state.is_hovering_ui && !drag_state.active && !part_drag_state.active {
+    let pointer_over_egui = contexts.ctx_mut().is_ok_and(|ctx| ctx.is_pointer_over_egui());
+
+    if mouse_buttons.just_pressed(MouseButton::Left)
+        && !hover_state.is_hovering_ui
+        && !pointer_over_egui
+        && !drag_state.active
+        && !part_drag_state.active {
         if let Some(cursor_pos) = window.cursor_position() {
             marquee_state.start_pos = Some(cursor_pos);
             marquee_state.current_pos = Some(cursor_pos);

@@ -58,7 +58,7 @@ impl Default for CloudsConfig {
             sun_color: Vec4::new(1.0, 0.9, 0.85, 1.0) * 0.8,
             reprojection_strength: 0.95,
             ui_visible: false,
-            render_resolution: Vec2::new(1920.0, 1080.0),
+            render_resolution: Vec2::new(1440.0, 810.0),
             wind_velocity: Vec3::new(-1.1, 0.0, 2.3),
         }
     }

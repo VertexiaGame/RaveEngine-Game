@@ -55,3 +55,15 @@ impl Default for BrickColor {
         }
     }
 }
+
+#[derive(Component, Clone, Copy, Debug, Reflect, Serialize, Deserialize)]
+#[reflect(Component)]
+pub struct BrickStuds {
+    pub enabled: bool,
+}
+
+impl Default for BrickStuds {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
