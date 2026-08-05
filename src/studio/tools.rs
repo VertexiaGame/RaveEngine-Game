@@ -228,6 +228,52 @@ pub fn handle_keyboard_shortcuts(
     }
 }
 
+pub fn handle_delete_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut selection: ResMut<Selection>,
+    mut commands: Commands,
+    mut history: ResMut<UndoRedoHistory>,
+    mut contexts: bevy_egui::EguiContexts,
+    entities_query: Query<(
+        Entity,
+        &mut Transform,
+        &Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+        Option<&mut crate::common::game::bricks::components::BrickPhysics>,
+    ), Without<Camera3d>>,
+    studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
+) {
+    if !keys.just_pressed(KeyCode::Delete) && !keys.just_pressed(KeyCode::Backspace) {
+        return;
+    }
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+    }
+    if selection.entities.is_empty() {
+        return;
+    }
+
+    for entity in selection.entities.drain(..) {
+        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, &entities_query, &studs_query) {
+            history.push_command(UndoCommand::Delete { entity, data });
+        }
+        commands.entity(entity).try_despawn();
+    }
+    selection.entity = None;
+    selection.workspace_selected = false;
+    selection.players_selected = false;
+    selection.lighting_selected = false;
+}
+
 pub fn handle_undo_redo_action(
     mut actions: MessageReader<UndoRedoAction>,
     mut history: ResMut<UndoRedoHistory>,
@@ -974,6 +1020,7 @@ fn propagate_unscaled(
 }
 
 pub fn handle_marquee_selection(
+    mut presses: MessageReader<Pointer<Press>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     hover_state: Res<HoverState>,
@@ -983,6 +1030,7 @@ pub fn handle_marquee_selection(
     mut selection: ResMut<Selection>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     bricks_query: Query<(Entity, &GlobalTransform), With<Brick>>,
+    gizmos_query: Query<Entity, With<ToolGizmo>>,
     mut contexts: bevy_egui::EguiContexts,
 ) {
     let Ok(window) = windows.single() else { return };
@@ -995,9 +1043,15 @@ pub fn handle_marquee_selection(
         && !drag_state.active
         && !part_drag_state.active {
         if let Some(cursor_pos) = window.cursor_position() {
-            marquee_state.start_pos = Some(cursor_pos);
-            marquee_state.current_pos = Some(cursor_pos);
-            marquee_state.active = false;
+            let pressed_on_object = presses.read().any(|press| {
+                press.button == PointerButton::Primary
+                    && (bricks_query.contains(press.event_target()) || gizmos_query.contains(press.event_target()))
+            });
+            if !pressed_on_object {
+                marquee_state.start_pos = Some(cursor_pos);
+                marquee_state.current_pos = Some(cursor_pos);
+                marquee_state.active = false;
+            }
         }
     }
 

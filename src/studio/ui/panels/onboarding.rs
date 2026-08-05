@@ -22,8 +22,8 @@ pub struct OnboardingData {
 impl Default for OnboardingData {
     fn default() -> Self {
         let save_path = std::env::current_dir()
-            .map(|p| p.join("NewProject.rave").to_string_lossy().to_string())
-            .unwrap_or_else(|_| "NewProject.rave".to_string());
+            .map(|p| p.join("NewProject.vrtx").to_string_lossy().to_string())
+            .unwrap_or_else(|_| "NewProject.vrtx".to_string());
         Self {
             selected_template: SelectedTemplate::Empty,
             name: "New Project".to_string(),
@@ -178,7 +178,7 @@ pub fn draw_onboarding(
                                     let tx = file_dialog_state.tx.clone();
                                     std::thread::spawn(move || {
                                         if let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("Rave Project", &["vrtx"])
+                                            .add_filter("VRTX Project", &["vrtx"])
                                             .set_directory(std::env::current_dir().unwrap_or_default())
                                             .save_file() {
                                             let _ = tx.send(crate::studio::ui::resources::FileDialogResult::BrowseSavePath(path));

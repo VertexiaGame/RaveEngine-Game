@@ -71,6 +71,7 @@ impl Plugin for StudioPlugin {
                     tools::handle_hover,
                     tools::update_cursor,
                     tools::handle_keyboard_shortcuts,
+                    tools::handle_delete_keys,
                     tools::handle_undo_redo_action,
                     tools::handle_marquee_selection,
                 ).run_if(in_state(tools::OnboardingState::Inactive)),
