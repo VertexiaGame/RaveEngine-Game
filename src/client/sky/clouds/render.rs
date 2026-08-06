@@ -2,7 +2,7 @@ use bevy::{
     asset::{embedded_asset, embedded_path, AssetPath},
     prelude::*,
     reflect::TypePath,
-    render::render_resource::AsBindGroup,
+    render::render_resource::{AsBindGroup, Face},
     shader::{load_shader_library, ShaderRef},
 };
 
@@ -38,7 +38,7 @@ impl Material for CloudsMaterial {
         _layout: &bevy::render::mesh::MeshVertexBufferLayoutRef,
         _key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
-        descriptor.primitive.cull_mode = None;
+        descriptor.primitive.cull_mode = Some(Face::Front);
         if let Some(depth_stencil) = &mut descriptor.depth_stencil {
             depth_stencil.depth_write_enabled = Some(false);
         }

@@ -73,7 +73,7 @@ fn fragment(
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);
     let local_view = rot_t * view_dir;
 
-    let num_layers = max(2u, u32(32.0 * detail + 0.5));
+    let num_layers = max(2u, u32(24.0 * detail + 0.5));
     let layer_height = 1.0 / f32(num_layers);
 
     if (local_normal.y > 0.85 && fade > 0.0005) {

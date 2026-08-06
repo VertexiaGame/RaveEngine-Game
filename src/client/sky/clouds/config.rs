@@ -29,6 +29,7 @@ pub struct CloudsConfig {
     pub render_resolution: Vec2,
     pub render_scale: f32,
     pub wind_velocity: Vec3,
+    pub enabled: bool,
 }
 
 impl Default for CloudsConfig {
@@ -62,6 +63,7 @@ impl Default for CloudsConfig {
             render_resolution: Vec2::new(1440.0, 810.0),
             render_scale: 1.0,
             wind_velocity: Vec3::new(-1.1, 0.0, 2.3),
+            enabled: true,
         }
     }
 }

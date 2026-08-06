@@ -17,6 +17,7 @@ pub struct OnboardingData {
     pub name: String,
     pub description: String,
     pub save_path: String,
+    pub quick_open: bool,
 }
 
 impl Default for OnboardingData {
@@ -29,6 +30,7 @@ impl Default for OnboardingData {
             name: "New Project".to_string(),
             description: "".to_string(),
             save_path,
+            quick_open: false,
         }
     }
 }
@@ -43,6 +45,7 @@ pub fn draw_onboarding(
     studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
     studs_assets: &crate::common::game::bricks::studs::StudsAssets,
     count: &mut crate::common::game::bricks::data::BrickSpawnerCount,
+    lighting_config: &mut ResMut<crate::client::sky::LightingConfig>,
     thumb_empty_tex: egui::TextureId,
     thumb_baseplate_tex: egui::TextureId,
     file_dialog_state: &crate::studio::ui::resources::FileDialogState,
@@ -77,7 +80,9 @@ pub fn draw_onboarding(
                     ui.columns(2, |columns| {
                         columns[0].vertical_centered(|ui| {
                             let card_id = ui.make_persistent_id("empty_card");
-                            let is_hovered = ui.rect_contains_pointer(ui.max_rect());
+                            let card_size = egui::vec2(252.0, 282.0);
+                            let (card_rect, _) = ui.allocate_exact_size(card_size, egui::Sense::hover());
+                            let is_hovered = ui.rect_contains_pointer(card_rect);
 
                             let frame = egui::Frame::NONE
                                 .fill(if is_hovered { egui::Color32::from_rgb(235, 242, 252) } else { egui::Color32::from_rgb(245, 246, 247) })
@@ -85,18 +90,21 @@ pub fn draw_onboarding(
                                 .stroke(egui::Stroke::new(1.0, if is_hovered { egui::Color32::from_rgb(80, 160, 240) } else { egui::Color32::from_rgb(220, 220, 220) }))
                                 .inner_margin(egui::Margin::same(16));
 
-                            let inner_res = frame.show(ui, |ui| {
-                                ui.set_min_height(250.0);
-                                ui.add_space(8.0);
-                                ui.add(egui::Image::new((thumb_empty_tex, egui::vec2(220.0, 137.5))).corner_radius(12.0));
-                                ui.add_space(12.0);
-                                ui.label(egui::RichText::new("Empty").size(18.0).strong());
-                                ui.add_space(4.0);
-                                ui.label(egui::RichText::new("An empty world. The sky's the limit.")
-                                    .size(12.0));
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(card_rect), |ui| {
+                                ui.vertical_centered(|ui| {
+                                    frame.show(ui, |ui| {
+                                        ui.add_space(8.0);
+                                        ui.add(egui::Image::new((thumb_empty_tex, egui::vec2(220.0, 137.5))).corner_radius(12.0));
+                                        ui.add_space(12.0);
+                                        ui.label(egui::RichText::new("Empty").size(18.0).strong());
+                                        ui.add_space(4.0);
+                                        ui.label(egui::RichText::new("An empty world. The sky's the limit.")
+                                            .size(12.0));
+                                    });
+                                });
                             });
 
-                            let response = ui.interact(inner_res.response.rect, card_id, egui::Sense::click());
+                            let response = ui.interact(card_rect, card_id, egui::Sense::click());
                             if response.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
@@ -108,7 +116,9 @@ pub fn draw_onboarding(
 
                         columns[1].vertical_centered(|ui| {
                             let card_id = ui.make_persistent_id("baseplate_card");
-                            let is_hovered = ui.rect_contains_pointer(ui.max_rect());
+                            let card_size = egui::vec2(252.0, 282.0);
+                            let (card_rect, _) = ui.allocate_exact_size(card_size, egui::Sense::hover());
+                            let is_hovered = ui.rect_contains_pointer(card_rect);
 
                             let frame = egui::Frame::NONE
                                 .fill(if is_hovered { egui::Color32::from_rgb(235, 242, 252) } else { egui::Color32::from_rgb(245, 246, 247) })
@@ -116,18 +126,21 @@ pub fn draw_onboarding(
                                 .stroke(egui::Stroke::new(1.0, if is_hovered { egui::Color32::from_rgb(80, 160, 240) } else { egui::Color32::from_rgb(220, 220, 220) }))
                                 .inner_margin(egui::Margin::same(16));
 
-                            let inner_res = frame.show(ui, |ui| {
-                                ui.set_min_height(250.0);
-                                ui.add_space(8.0);
-                                ui.add(egui::Image::new((thumb_baseplate_tex, egui::vec2(220.0, 137.5))).corner_radius(12.0));
-                                ui.add_space(12.0);
-                                ui.label(egui::RichText::new("Baseplate").size(18.0).strong());
-                                ui.add_space(4.0);
-                                ui.label(egui::RichText::new("A baseplate to get ya started!")
-                                    .size(12.0));
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(card_rect), |ui| {
+                                ui.vertical_centered(|ui| {
+                                    frame.show(ui, |ui| {
+                                        ui.add_space(8.0);
+                                        ui.add(egui::Image::new((thumb_baseplate_tex, egui::vec2(220.0, 137.5))).corner_radius(12.0));
+                                        ui.add_space(12.0);
+                                        ui.label(egui::RichText::new("Baseplate").size(18.0).strong());
+                                        ui.add_space(4.0);
+                                        ui.label(egui::RichText::new("A baseplate to get ya started!")
+                                            .size(12.0));
+                                    });
+                                });
                             });
 
-                            let response = ui.interact(inner_res.response.rect, card_id, egui::Sense::click());
+                            let response = ui.interact(card_rect, card_id, egui::Sense::click());
                             if response.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
@@ -136,6 +149,43 @@ pub fn draw_onboarding(
                                 next_onboarding_state.set(crate::studio::tools::OnboardingState::BasicInfo);
                             }
                         });
+                    });
+
+                    ui.add_space(16.0);
+                    ui.vertical_centered(|ui| {
+                        ui.visuals_mut().widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                        ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                        ui.visuals_mut().widgets.hovered.bg_fill = egui::Color32::from_rgb(235, 242, 252);
+                        ui.visuals_mut().widgets.hovered.weak_bg_fill = egui::Color32::from_rgb(235, 242, 252);
+                        ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                        ui.visuals_mut().widgets.active.bg_fill = egui::Color32::from_rgb(224, 235, 246);
+                        ui.visuals_mut().widgets.active.weak_bg_fill = egui::Color32::from_rgb(224, 235, 246);
+                        ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+
+                        let is_open = file_dialog_state.is_open.load(std::sync::atomic::Ordering::Relaxed);
+                        let quick_open_btn = ui.add_enabled(
+                            !is_open,
+                            egui::Button::new(egui::RichText::new("Quick open").size(12.0).underline()),
+                        );
+                        if quick_open_btn.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if quick_open_btn.clicked() {
+                            onboarding_data.quick_open = true;
+                            file_dialog_state.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
+                            let tx = file_dialog_state.tx.clone();
+                            std::thread::spawn(move || {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("VRTX Project", &["vrtx"])
+                                    .set_directory(std::env::current_dir().unwrap_or_default())
+                                    .pick_file() {
+                                    let _ = tx.send(crate::studio::ui::resources::FileDialogResult::OpenFile(path));
+                                } else {
+                                    let _ = tx.send(crate::studio::ui::resources::FileDialogResult::Cancel);
+                                }
+                            });
+                        }
                     });
                 }
                 crate::studio::tools::OnboardingState::BasicInfo => {
@@ -241,13 +291,14 @@ pub fn draw_onboarding(
                             }
 
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 6,
+                                version: crate::common::core::vrtx::FORMAT_VERSION,
                                 gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: false,
                                     contact_shadows: false,
                                     bloom: true,
                                 },
+                                lighting: crate::common::core::vrtx::VrtxLighting::from(&**lighting_config),
                                 camera_transform: Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
                                 bricks,
                                 scripts: Vec::new(),

@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrepass};
-use bevy::anti_alias::fxaa::Fxaa;
+use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::camera_controller::free_camera::FreeCamera;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
@@ -30,11 +29,6 @@ pub fn setup_studio(
         DepthPrepass,
         NormalPrepass,
         bevy::render::occlusion_culling::OcclusionCulling,
-    ));
-
-    camera.insert((
-        MotionVectorPrepass,
-        Fxaa::default(),
     ));
 
     if graphics_settings.ssao {

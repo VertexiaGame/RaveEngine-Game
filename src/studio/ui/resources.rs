@@ -89,7 +89,9 @@ pub fn handle_file_dialog_results(
     mut commands: Commands,
     file_dialog_state: Res<FileDialogState>,
     mut onboarding_data: ResMut<crate::studio::ui::panels::onboarding::OnboardingData>,
+    mut next_onboarding_state: ResMut<NextState<crate::studio::tools::OnboardingState>>,
     mut graphics_settings: ResMut<crate::common::core::performance::GraphicsSettings>,
+    mut lighting_config: Option<ResMut<crate::client::sky::LightingConfig>>,
     mut gravity: Option<ResMut<avian3d::prelude::Gravity>>,
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
     materials: ResMut<Assets<StandardMaterial>>,
@@ -133,6 +135,10 @@ pub fn handle_file_dialog_results(
                 let open_path_str = path.display().to_string();
                 if let Ok(state) = crate::common::core::vrtx::VrtxFileState::load_from_file(&open_path_str) {
                     onboarding_data.save_path = open_path_str;
+                    if onboarding_data.quick_open {
+                        onboarding_data.quick_open = false;
+                        next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
+                    }
                     for (entity, brick_opt) in &entities_query {
                         if brick_opt.is_some() {
                             commands.entity(entity).try_despawn();
@@ -146,6 +152,9 @@ pub fn handle_file_dialog_results(
                     graphics_settings.ssao = state.settings.ssao;
                     graphics_settings.contact_shadows = state.settings.contact_shadows;
                     graphics_settings.bloom = state.settings.bloom;
+                    if let Some(mut lighting) = lighting_config.as_mut() {
+                        **lighting = state.lighting.clone().into();
+                    }
                     if let Some(ref mut g) = gravity {
                         g.0 = state.gravity;
                     }
@@ -217,6 +226,7 @@ pub fn handle_file_dialog_results(
                         }
                     }
                 }
+                onboarding_data.quick_open = false;
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             FileDialogResult::SaveAs(path) => {
@@ -303,13 +313,17 @@ pub fn handle_file_dialog_results(
                     Transform::IDENTITY
                 };
                 let state = crate::common::core::vrtx::VrtxFileState {
-                    version: 6,
+                    version: crate::common::core::vrtx::FORMAT_VERSION,
                     gravity: gravity_val,
                     settings: crate::common::core::vrtx::VrtxSettings {
                         ssao: graphics_settings.ssao,
                         contact_shadows: graphics_settings.contact_shadows,
                         bloom: graphics_settings.bloom,
                     },
+                    lighting: lighting_config
+                        .as_ref()
+                        .map(|lighting| crate::common::core::vrtx::VrtxLighting::from(&**lighting))
+                        .unwrap_or_default(),
                     camera_transform: cam_transform,
                     bricks: bricks_data,
                     scripts: scripts_data,
@@ -318,6 +332,7 @@ pub fn handle_file_dialog_results(
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             FileDialogResult::Cancel => {
+                onboarding_data.quick_open = false;
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
         }

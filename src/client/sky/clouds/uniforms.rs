@@ -83,15 +83,15 @@ pub(crate) struct CloudsUniformBuffer {
 
 #[derive(Resource, Clone, ExtractResource, AsBindGroup)]
 pub(crate) struct CloudsImage {
-    #[storage_texture(0, image_format = Rgba32Float, access = ReadWrite)]
+    #[storage_texture(0, image_format = Rgba16Float, access = ReadWrite)]
     pub cloud_render_image: Handle<Image>,
 
-    #[storage_texture(1, image_format = Rgba32Float, access = ReadWrite)]
+    #[storage_texture(1, image_format = Rgba8Unorm, access = ReadWrite)]
     pub cloud_atlas_image: Handle<Image>,
 
-    #[storage_texture(2, image_format = Rgba32Float, access = ReadWrite, dimension = "3d")]
+    #[storage_texture(2, image_format = Rgba8Unorm, access = ReadWrite, dimension = "3d")]
     pub cloud_worley_image: Handle<Image>,
 
-    #[storage_texture(3, image_format = Rgba32Float, access = ReadWrite)]
+    #[storage_texture(3, image_format = Rgba16Float, access = ReadWrite)]
     pub sky_image: Handle<Image>,
 }

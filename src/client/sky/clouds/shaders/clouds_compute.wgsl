@@ -39,10 +39,10 @@ struct Config {
 
 @group(0) @binding(0) var<uniform> config: Config;
 
-@group(1) @binding(0) var clouds_render_texture: texture_storage_2d<rgba32float, read_write>;
-@group(1) @binding(1) var clouds_atlas_texture: texture_storage_2d<rgba32float, read_write>;
-@group(1) @binding(2) var clouds_worley_texture: texture_storage_3d<rgba32float, read_write>;
-@group(1) @binding(3) var sky_texture: texture_storage_2d<rgba32float, read_write>;
+@group(1) @binding(0) var clouds_render_texture: texture_storage_2d<rgba16float, read_write>;
+@group(1) @binding(1) var clouds_atlas_texture: texture_storage_2d<rgba8unorm, read_write>;
+@group(1) @binding(2) var clouds_worley_texture: texture_storage_3d<rgba8unorm, read_write>;
+@group(1) @binding(3) var sky_texture: texture_storage_2d<rgba16float, read_write>;
 
 struct Ray {
     step_distance: f32,

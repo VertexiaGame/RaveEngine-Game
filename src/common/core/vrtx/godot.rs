@@ -1,51 +1,12 @@
-use std::fs::File;
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 
-#[derive(Debug, Clone)]
-pub struct VrtxBrick {
-    pub name: String,
-    pub transform: Transform,
-    pub shape: crate::common::game::bricks::components::BrickShape,
-    pub color: Color,
-    pub physics_enabled: bool,
-    pub bounciness: f32,
-    pub player_can_collide: bool,
-    pub friction: f32,
-    pub gravity_scale: f32,
-    pub mass: f32,
-    pub show_studs: bool,
-}
+use super::types::*;
 
-#[derive(Debug, Clone)]
-pub struct VrtxScript {
-    pub name: String,
-    pub script_type: u8,
-    pub code: String,
-    pub parent_name: Option<String>,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct VrtxSettings {
-    pub ssao: bool,
-    pub contact_shadows: bool,
-    pub bloom: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct VrtxFileState {
-    pub version: u32,
-    pub gravity: Vec3,
-    pub settings: VrtxSettings,
-    pub camera_transform: Transform,
-    pub bricks: Vec<VrtxBrick>,
-    pub scripts: Vec<VrtxScript>,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
-enum GodotVariant {
+pub(crate) enum GodotVariant {
     Nil,
     Bool(bool),
     Int(i64),
@@ -54,17 +15,17 @@ enum GodotVariant {
     Vector2(Vec2),
     Vector3(Vec3),
     Color(Color),
-    Dictionary(std::collections::HashMap<String, GodotVariant>),
+    Dictionary(HashMap<String, GodotVariant>),
     Array(Vec<GodotVariant>),
 }
 
-struct GodotParser<'a> {
+pub(crate) struct GodotParser<'a> {
     data: &'a [u8],
     offset: usize,
 }
 
 impl<'a> GodotParser<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, offset: 0 }
     }
 
@@ -123,7 +84,7 @@ impl<'a> GodotParser<'a> {
         Ok(slice)
     }
 
-    fn parse_variant(&mut self) -> std::io::Result<GodotVariant> {
+    pub(crate) fn parse_variant(&mut self) -> std::io::Result<GodotVariant> {
         let start_offset = self.offset;
         let type_header = self.read_u32()?;
         let type_id = type_header & 0xFFFF;
@@ -266,7 +227,7 @@ impl<'a> GodotParser<'a> {
                 let count_header = self.read_u32()?;
                 let count = count_header & 0x7FFFFFFF;
                 trace!("parse_variant at offset {}: parsing dictionary with {} elements", start_offset, count);
-                let mut dict = std::collections::HashMap::new();
+                let mut dict = HashMap::new();
                 for i in 0..count {
                     let key_var = self.parse_variant()?;
                     let val_var = self.parse_variant()?;
@@ -304,7 +265,7 @@ impl<'a> GodotParser<'a> {
     }
 }
 
-fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
+pub(crate) fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
     if data.len() < 16 {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: File too short"));
     }
@@ -385,7 +346,9 @@ fn collect_bricks_recursive(
 ) {
     for node in nodes {
         if let GodotVariant::Array(data) = node {
-            if data.len() < 10 { continue; }
+            if data.len() < 10 {
+                continue;
+            }
 
             let name = match &data[0] {
                 GodotVariant::String(s) => s.clone(),
@@ -524,7 +487,7 @@ fn collect_bricks_recursive(
     }
 }
 
-fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
+pub(crate) fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
     debug!("Parsing Godot VRTX, decompressed length={}", decompressed.len());
     if decompressed.len() >= 4 {
         let first_u32 = u32::from_le_bytes([decompressed[0], decompressed[1], decompressed[2], decompressed[3]]);
@@ -568,6 +531,7 @@ fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
             version,
             gravity,
             settings,
+            lighting: VrtxLighting::default(),
             camera_transform,
             bricks,
             scripts: Vec::new(),
@@ -578,408 +542,5 @@ fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
             std::io::ErrorKind::InvalidData,
             "Root element is not a Godot dictionary",
         ))
-    }
-}
-
-impl VrtxFileState {
-    pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-
-        writer.write_all(b"VRTX")?;
-        writer.write_all(&self.version.to_le_bytes())?;
-
-        writer.write_all(&self.gravity.x.to_le_bytes())?;
-        writer.write_all(&self.gravity.y.to_le_bytes())?;
-        writer.write_all(&self.gravity.z.to_le_bytes())?;
-
-        writer.write_all(&[
-            if self.settings.ssao { 1 } else { 0 },
-            if self.settings.contact_shadows { 1 } else { 0 },
-            if self.settings.bloom { 1 } else { 0 },
-        ])?;
-
-        writer.write_all(&self.camera_transform.translation.x.to_le_bytes())?;
-        writer.write_all(&self.camera_transform.translation.y.to_le_bytes())?;
-        writer.write_all(&self.camera_transform.translation.z.to_le_bytes())?;
-
-        writer.write_all(&self.camera_transform.rotation.x.to_le_bytes())?;
-        writer.write_all(&self.camera_transform.rotation.y.to_le_bytes())?;
-        writer.write_all(&self.camera_transform.rotation.z.to_le_bytes())?;
-        writer.write_all(&self.camera_transform.rotation.w.to_le_bytes())?;
-
-        writer.write_all(&(self.bricks.len() as u32).to_le_bytes())?;
-
-        for brick in &self.bricks {
-            let name_bytes = brick.name.as_bytes();
-            writer.write_all(&(name_bytes.len() as u16).to_le_bytes())?;
-            writer.write_all(name_bytes)?;
-
-            writer.write_all(&brick.transform.translation.x.to_le_bytes())?;
-            writer.write_all(&brick.transform.translation.y.to_le_bytes())?;
-            writer.write_all(&brick.transform.translation.z.to_le_bytes())?;
-
-            writer.write_all(&brick.transform.rotation.x.to_le_bytes())?;
-            writer.write_all(&brick.transform.rotation.y.to_le_bytes())?;
-            writer.write_all(&brick.transform.rotation.z.to_le_bytes())?;
-            writer.write_all(&brick.transform.rotation.w.to_le_bytes())?;
-
-            writer.write_all(&brick.transform.scale.x.to_le_bytes())?;
-            writer.write_all(&brick.transform.scale.y.to_le_bytes())?;
-            writer.write_all(&brick.transform.scale.z.to_le_bytes())?;
-
-            let shape_val = match brick.shape {
-                crate::common::game::bricks::components::BrickShape::Block => 0u8,
-                crate::common::game::bricks::components::BrickShape::Sphere => 1u8,
-            };
-            writer.write_all(&[shape_val])?;
-
-            let srgba = brick.color.to_srgba();
-            writer.write_all(&srgba.red.to_le_bytes())?;
-            writer.write_all(&srgba.green.to_le_bytes())?;
-            writer.write_all(&srgba.blue.to_le_bytes())?;
-            writer.write_all(&srgba.alpha.to_le_bytes())?;
-
-            writer.write_all(&[if brick.physics_enabled { 1 } else { 0 }])?;
-            writer.write_all(&brick.bounciness.to_le_bytes())?;
-            writer.write_all(&[if brick.player_can_collide { 1 } else { 0 }])?;
-            writer.write_all(&brick.friction.to_le_bytes())?;
-            writer.write_all(&brick.gravity_scale.to_le_bytes())?;
-            writer.write_all(&brick.mass.to_le_bytes())?;
-
-            if self.version >= 6 {
-                writer.write_all(&[if brick.show_studs { 1 } else { 0 }])?;
-            }
-        }
-
-        if self.version >= 4 {
-            writer.write_all(&(self.scripts.len() as u32).to_le_bytes())?;
-            for script in &self.scripts {
-                let name_bytes = script.name.as_bytes();
-                writer.write_all(&(name_bytes.len() as u16).to_le_bytes())?;
-                writer.write_all(name_bytes)?;
-
-                writer.write_all(&[script.script_type])?;
-
-                let code_bytes = script.code.as_bytes();
-                writer.write_all(&(code_bytes.len() as u32).to_le_bytes())?;
-                writer.write_all(code_bytes)?;
-
-                if let Some(ref parent) = script.parent_name {
-                    let p_bytes = parent.as_bytes();
-                    writer.write_all(&(p_bytes.len() as u16).to_le_bytes())?;
-                    writer.write_all(p_bytes)?;
-                } else {
-                    writer.write_all(&0u16.to_le_bytes())?;
-                }
-
-                if self.version >= 5 {
-                    writer.write_all(&[if script.enabled { 1 } else { 0 }])?;
-                }
-            }
-        }
-
-        writer.flush()?;
-        Ok(())
-    }
-
-    pub fn load_from_file(path: &str) -> std::io::Result<Self> {
-        debug!("load_from_file: Attempting to open file: {}", path);
-        let mut file = File::open(path)?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
-        debug!("load_from_file: Read {} bytes from {}", data.len(), path);
-
-        if data.len() >= 4 && &data[0..4] == b"VRTX" {
-            let mut reader = BufReader::new(&data[4..]);
-            let mut version_bytes = [0u8; 4];
-            reader.read_exact(&mut version_bytes)?;
-            let version = u32::from_le_bytes(version_bytes);
-            debug!("load_from_file: VRTX format version is {}", version);
-
-            let (gravity, settings, camera_transform, count) = if version >= 1 {
-                debug!("load_from_file: Parsing version 1/2/3/4 header");
-                let mut gx = [0u8; 4]; reader.read_exact(&mut gx)?;
-                let mut gy = [0u8; 4]; reader.read_exact(&mut gy)?;
-                let mut gz = [0u8; 4]; reader.read_exact(&mut gz)?;
-                let gravity = Vec3::new(
-                    f32::from_le_bytes(gx),
-                    f32::from_le_bytes(gy),
-                    f32::from_le_bytes(gz),
-                );
-
-                let mut settings_bytes = [0u8; 3];
-                reader.read_exact(&mut settings_bytes)?;
-                let settings = VrtxSettings {
-                    ssao: settings_bytes[0] != 0,
-                    contact_shadows: settings_bytes[1] != 0,
-                    bloom: settings_bytes[2] != 0,
-                };
-
-                let mut cx = [0u8; 4]; reader.read_exact(&mut cx)?;
-                let mut cy = [0u8; 4]; reader.read_exact(&mut cy)?;
-                let mut cz = [0u8; 4]; reader.read_exact(&mut cz)?;
-                let camera_translation = Vec3::new(
-                    f32::from_le_bytes(cx),
-                    f32::from_le_bytes(cy),
-                    f32::from_le_bytes(cz),
-                );
-
-                let mut crx = [0u8; 4]; reader.read_exact(&mut crx)?;
-                let mut cry = [0u8; 4]; reader.read_exact(&mut cry)?;
-                let mut crz = [0u8; 4]; reader.read_exact(&mut crz)?;
-                let mut crw = [0u8; 4]; reader.read_exact(&mut crw)?;
-                let camera_rotation = Quat::from_xyzw(
-                    f32::from_le_bytes(crx),
-                    f32::from_le_bytes(cry),
-                    f32::from_le_bytes(crz),
-                    f32::from_le_bytes(crw),
-                );
-
-                let camera_transform = Transform {
-                    translation: camera_translation,
-                    rotation: camera_rotation,
-                    scale: Vec3::ONE,
-                };
-
-                let mut count_bytes = [0u8; 4];
-                reader.read_exact(&mut count_bytes)?;
-                let count = u32::from_le_bytes(count_bytes);
-
-                (gravity, settings, camera_transform, count)
-            } else if version == 0 {
-                debug!("load_from_file: Parsing version 0 header");
-                let mut gx = [0u8; 4]; reader.read_exact(&mut gx)?;
-                let mut gy = [0u8; 4]; reader.read_exact(&mut gy)?;
-                let mut gz = [0u8; 4]; reader.read_exact(&mut gz)?;
-                let gravity = Vec3::new(
-                    f32::from_le_bytes(gx),
-                    f32::from_le_bytes(gy),
-                    f32::from_le_bytes(gz),
-                );
-
-                let settings = VrtxSettings {
-                    ssao: false,
-                    contact_shadows: false,
-                    bloom: true,
-                };
-
-                let camera_transform = Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y);
-
-                let mut count_bytes = [0u8; 4];
-                reader.read_exact(&mut count_bytes)?;
-                let count = u32::from_le_bytes(count_bytes);
-
-                (gravity, settings, camera_transform, count)
-            } else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Unsupported .VRTX file version",
-                ));
-            };
-
-            debug!("load_from_file: Expecting {} bricks", count);
-            let mut bricks = Vec::with_capacity(count as usize);
-            for _ in 0..count {
-                let mut name_len_bytes = [0u8; 2];
-                reader.read_exact(&mut name_len_bytes)?;
-                let name_len = u16::from_le_bytes(name_len_bytes) as usize;
-                let mut name_bytes = vec![0u8; name_len];
-                reader.read_exact(&mut name_bytes)?;
-                let name = String::from_utf8(name_bytes)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-                let mut tx = [0u8; 4]; reader.read_exact(&mut tx)?;
-                let mut ty = [0u8; 4]; reader.read_exact(&mut ty)?;
-                let mut tz = [0u8; 4]; reader.read_exact(&mut tz)?;
-                let translation = Vec3::new(
-                    f32::from_le_bytes(tx),
-                    f32::from_le_bytes(ty),
-                    f32::from_le_bytes(tz),
-                );
-
-                let mut rx = [0u8; 4]; reader.read_exact(&mut rx)?;
-                let mut ry = [0u8; 4]; reader.read_exact(&mut ry)?;
-                let mut rz = [0u8; 4]; reader.read_exact(&mut rz)?;
-                let mut rw = [0u8; 4]; reader.read_exact(&mut rw)?;
-                let rotation = Quat::from_xyzw(
-                    f32::from_le_bytes(rx),
-                    f32::from_le_bytes(ry),
-                    f32::from_le_bytes(rz),
-                    f32::from_le_bytes(rw),
-                );
-
-                let mut sx = [0u8; 4]; reader.read_exact(&mut sx)?;
-                let mut sy = [0u8; 4]; reader.read_exact(&mut sy)?;
-                let mut sz = [0u8; 4]; reader.read_exact(&mut sz)?;
-                let scale = Vec3::new(
-                    f32::from_le_bytes(sx),
-                    f32::from_le_bytes(sy),
-                    f32::from_le_bytes(sz),
-                );
-
-                let transform = Transform {
-                    translation,
-                    rotation,
-                    scale,
-                };
-
-                let mut shape_bytes = [0u8; 1];
-                reader.read_exact(&mut shape_bytes)?;
-                let shape = match shape_bytes[0] {
-                    0 => crate::common::game::bricks::components::BrickShape::Block,
-                    1 => crate::common::game::bricks::components::BrickShape::Sphere,
-                    _ => {
-                        error!("load_from_file: Invalid brick shape enum value");
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Invalid brick shape enum value",
-                        ));
-                    }
-                };
-
-                let mut cr = [0u8; 4]; reader.read_exact(&mut cr)?;
-                let mut cg = [0u8; 4]; reader.read_exact(&mut cg)?;
-                let mut cb = [0u8; 4]; reader.read_exact(&mut cb)?;
-                let mut ca = [0u8; 4]; reader.read_exact(&mut ca)?;
-                let color = Color::Srgba(Srgba::new(
-                    f32::from_le_bytes(cr),
-                    f32::from_le_bytes(cg),
-                    f32::from_le_bytes(cb),
-                    f32::from_le_bytes(ca),
-                ));
-
-                let mut phys_enabled_bytes = [0u8; 1];
-                reader.read_exact(&mut phys_enabled_bytes)?;
-                let physics_enabled = phys_enabled_bytes[0] != 0;
-
-                let mut bounciness_bytes = [0u8; 4];
-                reader.read_exact(&mut bounciness_bytes)?;
-                let bounciness = f32::from_le_bytes(bounciness_bytes);
-
-                let player_can_collide = if version >= 2 {
-                    let mut player_can_collide_bytes = [0u8; 1];
-                    reader.read_exact(&mut player_can_collide_bytes)?;
-                    player_can_collide_bytes[0] != 0
-                } else {
-                    true
-                };
-
-                let (friction, gravity_scale, mass) = if version >= 3 {
-                    let mut friction_bytes = [0u8; 4];
-                    reader.read_exact(&mut friction_bytes)?;
-                    let mut gravity_scale_bytes = [0u8; 4];
-                    reader.read_exact(&mut gravity_scale_bytes)?;
-                    let mut mass_bytes = [0u8; 4];
-                    reader.read_exact(&mut mass_bytes)?;
-                    (
-                        f32::from_le_bytes(friction_bytes),
-                        f32::from_le_bytes(gravity_scale_bytes),
-                        f32::from_le_bytes(mass_bytes),
-                    )
-                } else {
-                    (0.3, 1.0, 1.0)
-                };
-
-                let show_studs = if version >= 6 {
-                    let mut show_studs_bytes = [0u8; 1];
-                    reader.read_exact(&mut show_studs_bytes)?;
-                    show_studs_bytes[0] != 0
-                } else {
-                    true
-                };
-
-                bricks.push(VrtxBrick {
-                    name,
-                    transform,
-                    shape,
-                    color,
-                    physics_enabled,
-                    bounciness,
-                    player_can_collide,
-                    friction,
-                    gravity_scale,
-                    mass,
-                    show_studs,
-                });
-            }
-
-            let mut scripts = Vec::new();
-            if version >= 4 {
-                let mut script_count_bytes = [0u8; 4];
-                if reader.read_exact(&mut script_count_bytes).is_ok() {
-                    let script_count = u32::from_le_bytes(script_count_bytes);
-                    for _ in 0..script_count {
-                        let mut name_len_bytes = [0u8; 2];
-                        reader.read_exact(&mut name_len_bytes)?;
-                        let name_len = u16::from_le_bytes(name_len_bytes) as usize;
-                        let mut name_bytes = vec![0u8; name_len];
-                        reader.read_exact(&mut name_bytes)?;
-                        let name = String::from_utf8(name_bytes).unwrap_or_default();
-
-                        let mut type_bytes = [0u8; 1];
-                        reader.read_exact(&mut type_bytes)?;
-                        let script_type = type_bytes[0];
-
-                        let mut code_len_bytes = [0u8; 4];
-                        reader.read_exact(&mut code_len_bytes)?;
-                        let code_len = u32::from_le_bytes(code_len_bytes) as usize;
-                        let mut code_bytes = vec![0u8; code_len];
-                        reader.read_exact(&mut code_bytes)?;
-                        let code = String::from_utf8(code_bytes).unwrap_or_default();
-
-                        let mut p_len_bytes = [0u8; 2];
-                        reader.read_exact(&mut p_len_bytes)?;
-                        let p_len = u16::from_le_bytes(p_len_bytes) as usize;
-                        let parent_name = if p_len > 0 {
-                            let mut p_bytes = vec![0u8; p_len];
-                            reader.read_exact(&mut p_bytes)?;
-                            Some(String::from_utf8(p_bytes).unwrap_or_default())
-                        } else {
-                            None
-                        };
-
-                        let enabled = if version >= 5 {
-                            let mut enabled_byte = [0u8; 1];
-                            reader.read_exact(&mut enabled_byte)?;
-                            enabled_byte[0] != 0
-                        } else {
-                            true
-                        };
-
-                        scripts.push(VrtxScript {
-                            name,
-                            script_type,
-                            code,
-                            parent_name,
-                            enabled,
-                        });
-                    }
-                }
-            }
-
-            debug!("load_from_file: Successfully parsed {} bricks and {} scripts from standard VRTX file", bricks.len(), scripts.len());
-            Ok(Self {
-                version,
-                gravity,
-                settings,
-                camera_transform,
-                bricks,
-                scripts,
-            })
-        } else if data.len() >= 4 && &data[0..4] == b"GCPF" {
-            debug!("load_from_file: Detected legacy GCPF (Godot) file format");
-            let decompressed = decompress_gcpf_file(&data)?;
-            debug!("load_from_file: Successfully decompressed GCPF file into {} bytes", decompressed.len());
-            let parsed_state = parse_godot_vrtx(&decompressed)?;
-            debug!("load_from_file: Successfully parsed Godot VRTX map with {} bricks", parsed_state.bricks.len());
-            Ok(parsed_state)
-        } else {
-            error!("load_from_file: Unknown or invalid file signature");
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Unknown or invalid file signature",
-            ))
-        }
     }
 }

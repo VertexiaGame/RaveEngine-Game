@@ -459,22 +459,30 @@ fn compute_resize(
     start_translation: Vec3,
     brick_rotation: Quat,
     parent_global: Option<&GlobalTransform>,
+    mirror: bool,
 ) -> (Vec3, Vec3) {
     let axis_abs = gizmo_axis.abs();
     let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
     let base_dimension = axis_abs * base_extents * 2.0;
     let base_dim_scalar = base_dimension.length();
 
-    let total_delta_scale = if base_dim_scalar > 0.0 {
+    let mut total_delta_scale = if base_dim_scalar > 0.0 {
         snapped_displacement / base_dim_scalar
     } else {
         0.0
     };
+    if mirror {
+        total_delta_scale *= 2.0;
+    }
 
     let new_global_scale = (start_scale + axis_abs * total_delta_scale).max(Vec3::splat(0.1));
     let actual_delta_scale = new_global_scale - start_scale;
 
-    let translation_delta = gizmo_axis * actual_delta_scale * base_extents;
+    let translation_delta = if mirror {
+        Vec3::ZERO
+    } else {
+        gizmo_axis * actual_delta_scale * base_extents
+    };
     let final_translation_delta = brick_rotation.mul_vec3(translation_delta);
     let new_global_translation = start_translation + final_translation_delta;
 
@@ -557,6 +565,7 @@ pub fn handle_drag(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     snap_config: Res<SnapConfig>,
     physics_state: Res<crate::common::game::physics::PhysicsSimulationState>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
         drag_state.active = false;
@@ -688,6 +697,7 @@ pub fn handle_drag(
             brick_transform.translation = local_translation;
         }
         ToolState::Size => {
+            let mirror = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
             let (local_translation, local_scale) = compute_resize(
                 gizmo.axis,
                 snapped_displacement,
@@ -695,6 +705,7 @@ pub fn handle_drag(
                 start_translation,
                 brick_global.rotation(),
                 parent_global,
+                mirror,
             );
             brick_transform.scale = local_scale;
             brick_transform.translation = local_translation;

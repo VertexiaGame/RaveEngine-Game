@@ -12,7 +12,7 @@ use bevy::prelude::*;
 
 use self::{
     compute::{CameraMatrices, CloudsComputePlugin},
-    images::{build_images, build_images_with_size, RENDER_HEIGHT, RENDER_WIDTH},
+    images::{build_images, build_render_images_with_size, RENDER_HEIGHT, RENDER_WIDTH},
     render::{CloudsMaterial, CloudsShaderPlugin},
     skybox::{init_skybox_mesh, update_skybox_transform, SkyboxMaterials},
     ui::ui_system,
@@ -83,6 +83,7 @@ fn update_clouds_resolution(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut config: ResMut<CloudsConfig>,
     material_handle: Option<Res<CloudsMaterialHandle>>,
+    clouds_image: Option<Res<CloudsImage>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -109,13 +110,17 @@ fn update_clouds_resolution(
         return;
     }
 
-    let (cloud_render_image, cloud_atlas_image, cloud_worley_image, sky_image) =
-        build_images_with_size(images, target_width, target_height);
+    let Some(clouds_image) = clouds_image else {
+        return;
+    };
+
+    let (cloud_render_image, sky_image) =
+        build_render_images_with_size(images, target_width, target_height);
 
     commands.insert_resource(CloudsImage {
         cloud_render_image: cloud_render_image.clone(),
-        cloud_atlas_image,
-        cloud_worley_image,
+        cloud_atlas_image: clouds_image.cloud_atlas_image.clone(),
+        cloud_worley_image: clouds_image.cloud_worley_image.clone(),
         sky_image: sky_image.clone(),
     });
     if let Some(handle) = material_handle {

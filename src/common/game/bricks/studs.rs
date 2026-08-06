@@ -88,7 +88,7 @@ fn configure_studs_image(handle: &Handle<Image>, images: &mut Assets<Image>) -> 
         mag_filter: bevy::image::ImageFilterMode::Linear,
         min_filter: bevy::image::ImageFilterMode::Linear,
         mipmap_filter: bevy::image::ImageFilterMode::Linear,
-        anisotropy_clamp: 16,
+        anisotropy_clamp: 8,
         ..default()
     });
     generate_mipmaps(&mut image);

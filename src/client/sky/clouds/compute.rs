@@ -103,11 +103,11 @@ fn prepare_textures_bind_group(
     clouds_image: Res<CloudsImage>,
     render_device: Res<RenderDevice>,
     mut clouds_state: ResMut<CloudsState>,
-    mut last_render_image: Local<Option<Handle<Image>>>,
+    mut last_atlas_image: Local<Option<Handle<Image>>>,
 ) {
-    if last_render_image.as_ref() != Some(&clouds_image.cloud_render_image) {
+    if last_atlas_image.as_ref() != Some(&clouds_image.cloud_atlas_image) {
         *clouds_state = CloudsState::Loading;
-        *last_render_image = Some(clouds_image.cloud_render_image.clone());
+        *last_atlas_image = Some(clouds_image.cloud_atlas_image.clone());
     }
 
     let Some(cloud_render_view) = gpu_images.get(&clouds_image.cloud_render_image) else {
@@ -216,6 +216,12 @@ fn run_clouds_compute_pass(
     let Some(uniform_bind_group) = uniform_bind_group else {
         return;
     };
+    let Some(clouds_config) = clouds_config else {
+        return;
+    };
+    if !clouds_config.enabled {
+        return;
+    }
 
     let pipeline_to_run = match *state {
         CloudsState::Loading => {
@@ -246,7 +252,7 @@ fn run_clouds_compute_pass(
     let dispatch_groups = if pipeline_to_run == pipeline.init_pipeline {
         (IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE)
     } else {
-        let resolution = clouds_config.map_or(Vec2::new(1440.0, 810.0), |config| config.render_resolution);
+        let resolution = clouds_config.render_resolution;
         let groups_x = (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1);
         let groups_y = (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1);
         (groups_x, groups_y)

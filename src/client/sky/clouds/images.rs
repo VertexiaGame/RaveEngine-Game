@@ -15,6 +15,42 @@ pub fn build_images(
     build_images_with_size(images, RENDER_WIDTH, RENDER_HEIGHT)
 }
 
+pub fn build_render_images_with_size(
+    mut images: ResMut<Assets<Image>>,
+    width: u32,
+    height: u32,
+) -> (Handle<Image>, Handle<Image>) {
+    let mut cloud_render_image = Image::new_fill(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0; 4 * 4 * 2],
+        TextureFormat::Rgba16Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    cloud_render_image.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+
+    let mut sky_image = Image::new_fill(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0; 4 * 4 * 2],
+        TextureFormat::Rgba16Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    sky_image.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+
+    (images.add(cloud_render_image), images.add(sky_image))
+}
+
 pub fn build_images_with_size(
     mut images: ResMut<Assets<Image>>,
     width: u32,
@@ -28,7 +64,7 @@ pub fn build_images_with_size(
         },
         TextureDimension::D2,
         &[0; 4 * 4 * 2],
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rgba16Float,
         RenderAssetUsages::RENDER_WORLD,
     );
     cloud_render_image.texture_descriptor.usage =
@@ -42,7 +78,7 @@ pub fn build_images_with_size(
         },
         TextureDimension::D2,
         &[0; 4 * 4 * 2],
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
     cloud_atlas_image.texture_descriptor.usage =
@@ -56,7 +92,7 @@ pub fn build_images_with_size(
         },
         TextureDimension::D3,
         &[0; 4 * 4 * 2],
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
     cloud_worley_image.texture_descriptor.usage =
@@ -70,7 +106,7 @@ pub fn build_images_with_size(
         },
         TextureDimension::D2,
         &[0; 4 * 4 * 2],
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rgba16Float,
         RenderAssetUsages::RENDER_WORLD,
     );
     sky_image.texture_descriptor.usage =

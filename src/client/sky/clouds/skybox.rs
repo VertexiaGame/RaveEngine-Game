@@ -1,6 +1,8 @@
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 
+use super::config::CloudsConfig;
+
 #[derive(Component)]
 pub(crate) struct SkyboxMesh;
 
@@ -45,8 +47,10 @@ pub(crate) fn init_skybox_mesh<M: Material>(
 
 pub(crate) fn update_skybox_transform(
     camera_query: Query<(&Transform, &Camera, &Projection), (With<Camera3d>, Without<SkyboxMesh>)>,
-    mut skybox: Query<&mut Transform, With<SkyboxMesh>>,
+    mut skybox: Query<(&mut Transform, &mut Visibility), With<SkyboxMesh>>,
+    clouds_config: Option<Res<CloudsConfig>>,
 ) {
+    let enabled = clouds_config.map_or(true, |c| c.enabled);
     for (camera_transform, camera, projection) in &camera_query {
         if !camera.is_active {
             continue;
@@ -57,9 +61,14 @@ pub(crate) fn update_skybox_transform(
         };
         let scale = (far * 0.4).min(5000.0);
 
-        for mut transform in skybox.iter_mut() {
+        for (mut transform, mut visibility) in skybox.iter_mut() {
             transform.translation = camera_transform.translation;
             transform.scale = Vec3::splat(scale);
+            *visibility = if enabled {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
         }
         break;
     }

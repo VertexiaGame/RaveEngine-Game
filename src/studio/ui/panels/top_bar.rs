@@ -33,6 +33,7 @@ pub fn draw_top_bar(
     physics_action_writer: &mut MessageWriter<crate::common::game::physics::PhysicsSimulationAction>,
     settings_window: &mut ResMut<crate::studio::ui::SettingsWindow>,
     graphics_settings: &mut crate::studio::ui::GraphicsSettings,
+    lighting_config: &mut ResMut<crate::client::sky::LightingConfig>,
     gravity: &mut Option<ResMut<avian3d::prelude::Gravity>>,
     camera_transform_query: &mut Query<&mut Transform, With<Camera3d>>,
     entities_query: &mut Query<(
@@ -184,13 +185,14 @@ pub fn draw_top_bar(
                                 Transform::IDENTITY
                             };
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 6,
+                                version: crate::common::core::vrtx::FORMAT_VERSION,
                                 gravity: gravity_val,
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: graphics_settings.ssao,
                                     contact_shadows: graphics_settings.contact_shadows,
                                     bloom: graphics_settings.bloom,
                                 },
+                                lighting: crate::common::core::vrtx::VrtxLighting::from(&**lighting_config),
                                 camera_transform: cam_transform,
                                 bricks: bricks_data,
                                 scripts: scripts_data,
@@ -684,13 +686,14 @@ pub fn draw_top_bar(
 
                             let temp_map_path = "temp_play.vrtx".to_string();
                             let state = crate::common::core::vrtx::VrtxFileState {
-                                version: 6,
+                                version: crate::common::core::vrtx::FORMAT_VERSION,
                                 gravity: Vec3::new(0.0, -186.9 * 0.28, 0.0),
                                 settings: crate::common::core::vrtx::VrtxSettings {
                                     ssao: graphics_settings.ssao,
                                     contact_shadows: graphics_settings.contact_shadows,
                                     bloom: graphics_settings.bloom,
                                 },
+                                lighting: crate::common::core::vrtx::VrtxLighting::from(&**lighting_config),
                                 camera_transform: Transform::IDENTITY,
                                 bricks: playtest_backup.bricks.iter().map(|b| {
                                     let mut current_color = Color::Srgba(Srgba::new(0.84, 0.24, 0.16, 1.0));

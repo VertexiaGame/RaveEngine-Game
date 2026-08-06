@@ -31,6 +31,28 @@ pub struct LightingConfig {
     pub moon_illuminance: f32,
     pub ambient_brightness: f32,
     pub fog_density: f32,
+    pub volumetric_clouds: bool,
+    pub cloud_render_scale: f32,
+    pub cloud_raymarch_steps: u32,
+    pub cloud_shadow_steps: u32,
+    pub planet_radius: f32,
+    pub cloud_bottom_height: f32,
+    pub cloud_top_height: f32,
+    pub cloud_coverage: f32,
+    pub cloud_density: f32,
+    pub cloud_detail_strength: f32,
+    pub cloud_base_edge_softness: f32,
+    pub cloud_bottom_softness: f32,
+    pub cloud_base_scale: f32,
+    pub cloud_detail_scale: f32,
+    pub cloud_shadow_step_size: f32,
+    pub cloud_shadow_step_multiply: f32,
+    pub cloud_forward_scattering_g: f32,
+    pub cloud_backward_scattering_g: f32,
+    pub cloud_scattering_lerp: f32,
+    pub cloud_min_transmittance: f32,
+    pub cloud_reprojection_strength: f32,
+    pub cloud_wind_velocity: Vec3,
 }
 
 impl Default for LightingConfig {
@@ -46,6 +68,106 @@ impl Default for LightingConfig {
             moon_illuminance: MOON_ILLUMINANCE,
             ambient_brightness: 1.0,
             fog_density: 1.0,
+            volumetric_clouds: true,
+            cloud_render_scale: 1.0,
+            cloud_raymarch_steps: 12,
+            cloud_shadow_steps: 6,
+            planet_radius: 6_371_000.0,
+            cloud_bottom_height: 1250.0,
+            cloud_top_height: 2400.0,
+            cloud_coverage: 0.48,
+            cloud_density: 0.03,
+            cloud_detail_strength: 0.27,
+            cloud_base_edge_softness: 0.1,
+            cloud_bottom_softness: 0.25,
+            cloud_base_scale: 1.5,
+            cloud_detail_scale: 42.0,
+            cloud_shadow_step_size: 10.0,
+            cloud_shadow_step_multiply: 1.3,
+            cloud_forward_scattering_g: 0.8,
+            cloud_backward_scattering_g: -0.2,
+            cloud_scattering_lerp: 0.5,
+            cloud_min_transmittance: 0.1,
+            cloud_reprojection_strength: 0.95,
+            cloud_wind_velocity: Vec3::new(-1.1, 0.0, 2.3),
+        }
+    }
+}
+
+impl From<&LightingConfig> for crate::common::core::vrtx::VrtxLighting {
+    fn from(config: &LightingConfig) -> Self {
+        Self {
+            time_of_day: config.time_of_day,
+            latitude: config.latitude,
+            sun_angular_radius: config.sun_angular_radius,
+            moon_angular_radius: config.moon_angular_radius,
+            night_ambient: config.night_ambient,
+            star_density: config.star_density,
+            sun_illuminance: config.sun_illuminance,
+            moon_illuminance: config.moon_illuminance,
+            ambient_brightness: config.ambient_brightness,
+            fog_density: config.fog_density,
+            volumetric_clouds: config.volumetric_clouds,
+            cloud_render_scale: config.cloud_render_scale,
+            cloud_raymarch_steps: config.cloud_raymarch_steps,
+            cloud_shadow_steps: config.cloud_shadow_steps,
+            planet_radius: config.planet_radius,
+            cloud_bottom_height: config.cloud_bottom_height,
+            cloud_top_height: config.cloud_top_height,
+            cloud_coverage: config.cloud_coverage,
+            cloud_density: config.cloud_density,
+            cloud_detail_strength: config.cloud_detail_strength,
+            cloud_base_edge_softness: config.cloud_base_edge_softness,
+            cloud_bottom_softness: config.cloud_bottom_softness,
+            cloud_base_scale: config.cloud_base_scale,
+            cloud_detail_scale: config.cloud_detail_scale,
+            cloud_shadow_step_size: config.cloud_shadow_step_size,
+            cloud_shadow_step_multiply: config.cloud_shadow_step_multiply,
+            cloud_forward_scattering_g: config.cloud_forward_scattering_g,
+            cloud_backward_scattering_g: config.cloud_backward_scattering_g,
+            cloud_scattering_lerp: config.cloud_scattering_lerp,
+            cloud_min_transmittance: config.cloud_min_transmittance,
+            cloud_reprojection_strength: config.cloud_reprojection_strength,
+            cloud_wind_velocity: config.cloud_wind_velocity,
+        }
+    }
+}
+
+impl From<crate::common::core::vrtx::VrtxLighting> for LightingConfig {
+    fn from(lighting: crate::common::core::vrtx::VrtxLighting) -> Self {
+        Self {
+            time_of_day: lighting.time_of_day,
+            latitude: lighting.latitude,
+            sun_angular_radius: lighting.sun_angular_radius,
+            moon_angular_radius: lighting.moon_angular_radius,
+            night_ambient: lighting.night_ambient,
+            star_density: lighting.star_density,
+            sun_illuminance: lighting.sun_illuminance,
+            moon_illuminance: lighting.moon_illuminance,
+            ambient_brightness: lighting.ambient_brightness,
+            fog_density: lighting.fog_density,
+            volumetric_clouds: lighting.volumetric_clouds,
+            cloud_render_scale: lighting.cloud_render_scale,
+            cloud_raymarch_steps: lighting.cloud_raymarch_steps,
+            cloud_shadow_steps: lighting.cloud_shadow_steps,
+            planet_radius: lighting.planet_radius,
+            cloud_bottom_height: lighting.cloud_bottom_height,
+            cloud_top_height: lighting.cloud_top_height,
+            cloud_coverage: lighting.cloud_coverage,
+            cloud_density: lighting.cloud_density,
+            cloud_detail_strength: lighting.cloud_detail_strength,
+            cloud_base_edge_softness: lighting.cloud_base_edge_softness,
+            cloud_bottom_softness: lighting.cloud_bottom_softness,
+            cloud_base_scale: lighting.cloud_base_scale,
+            cloud_detail_scale: lighting.cloud_detail_scale,
+            cloud_shadow_step_size: lighting.cloud_shadow_step_size,
+            cloud_shadow_step_multiply: lighting.cloud_shadow_step_multiply,
+            cloud_forward_scattering_g: lighting.cloud_forward_scattering_g,
+            cloud_backward_scattering_g: lighting.cloud_backward_scattering_g,
+            cloud_scattering_lerp: lighting.cloud_scattering_lerp,
+            cloud_min_transmittance: lighting.cloud_min_transmittance,
+            cloud_reprojection_strength: lighting.cloud_reprojection_strength,
+            cloud_wind_velocity: lighting.cloud_wind_velocity,
         }
     }
 }
@@ -192,6 +314,7 @@ fn sync_lighting_system(
     let day_weight = smoothstep(0.02, 0.30, solar_elevation);
     let night_weight = 1.0 - smoothstep(-0.15, 0.05, solar_elevation);
     let sunset_weight = (1.0 - day_weight - night_weight).max(0.0);
+    let sun_has_dominance = day_weight + sunset_weight >= night_weight;
 
     if let Ok((mut sun_light, mut sun_transform)) = sun_query.single_mut() {
         let dir = -sun_direction;
@@ -201,7 +324,7 @@ fn sync_lighting_system(
         }
         sun_light.illuminance = (day_weight + sunset_weight * 0.35) * config.sun_illuminance;
         sun_light.color = sun_light_color(solar_elevation);
-        let sun_shadows_enabled = day_weight + sunset_weight > 0.02;
+        let sun_shadows_enabled = day_weight + sunset_weight > 0.02 && sun_has_dominance;
         if sun_light.shadow_maps_enabled != sun_shadows_enabled {
             sun_light.shadow_maps_enabled = sun_shadows_enabled;
         }
@@ -215,7 +338,7 @@ fn sync_lighting_system(
         }
         moon_light.illuminance = night_weight * config.moon_illuminance;
         moon_light.color = Color::srgb(0.55, 0.72, 1.0);
-        let moon_shadows_enabled = night_weight > 0.02;
+        let moon_shadows_enabled = night_weight > 0.02 && !sun_has_dominance;
         if moon_light.shadow_maps_enabled != moon_shadows_enabled {
             moon_light.shadow_maps_enabled = moon_shadows_enabled;
         }
@@ -267,6 +390,29 @@ fn sync_lighting_system(
         let sunset_ambient_bottom = Vec4::new(60.0, 35.0, 45.0, 0.0) * (1.2 / 225.0);
         let night_ambient_bottom = Vec4::new(5.0, 10.0, 22.0, 0.0) * (0.8 / 225.0);
         clouds_config.clouds_ambient_color_bottom = day_weight * day_ambient_bottom + sunset_weight * sunset_ambient_bottom + night_weight * night_ambient_bottom;
+
+        clouds_config.enabled = config.volumetric_clouds;
+        clouds_config.render_scale = config.cloud_render_scale;
+        clouds_config.clouds_raymarch_steps_count = config.cloud_raymarch_steps;
+        clouds_config.clouds_shadow_raymarch_steps_count = config.cloud_shadow_steps;
+        clouds_config.planet_radius = config.planet_radius;
+        clouds_config.clouds_bottom_height = config.cloud_bottom_height;
+        clouds_config.clouds_top_height = config.cloud_top_height;
+        clouds_config.clouds_coverage = config.cloud_coverage;
+        clouds_config.clouds_density = config.cloud_density;
+        clouds_config.clouds_detail_strength = config.cloud_detail_strength;
+        clouds_config.clouds_base_edge_softness = config.cloud_base_edge_softness;
+        clouds_config.clouds_bottom_softness = config.cloud_bottom_softness;
+        clouds_config.clouds_base_scale = config.cloud_base_scale;
+        clouds_config.clouds_detail_scale = config.cloud_detail_scale;
+        clouds_config.clouds_shadow_raymarch_step_size = config.cloud_shadow_step_size;
+        clouds_config.clouds_shadow_raymarch_step_multiply = config.cloud_shadow_step_multiply;
+        clouds_config.forward_scattering_g = config.cloud_forward_scattering_g;
+        clouds_config.backward_scattering_g = config.cloud_backward_scattering_g;
+        clouds_config.scattering_lerp = config.cloud_scattering_lerp;
+        clouds_config.clouds_min_transmittance = config.cloud_min_transmittance;
+        clouds_config.reprojection_strength = config.cloud_reprojection_strength;
+        clouds_config.wind_velocity = config.cloud_wind_velocity;
     }
 }
 

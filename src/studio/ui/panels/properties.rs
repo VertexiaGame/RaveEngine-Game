@@ -926,6 +926,111 @@ pub fn draw_lighting_properties(
                     ui.end_row();
                 });
         });
+
+    egui::CollapsingHeader::new(egui::RichText::new("Procedural Clouds").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("properties_lighting_clouds_grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Volumetric Clouds").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.checkbox(&mut lighting_config.volumetric_clouds, "");
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Render Scale").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_render_scale, 0.25..=1.0).step_by(0.05));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Raymarch Steps").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_raymarch_steps, 1..=100));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Shadow Steps").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_shadow_steps, 1..=50));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Planet Radius").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.planet_radius, 5e4..=1e7));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Cloud Bottom Height").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_bottom_height, 1.0..=5e3).step_by(10.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Cloud Top Height").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_top_height, 1.0..=5e3).step_by(10.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Coverage").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_coverage, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Density").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_density, 0.001..=1.0).step_by(0.001));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Detail Strength").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_detail_strength, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Base Edge Softness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_base_edge_softness, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Bottom Softness").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_bottom_softness, 0.01..=10.0).step_by(0.05));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Base Scale").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_base_scale, 0.1..=100.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Detail Scale").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_detail_scale, 1.0..=100.0).step_by(1.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Shadow Step Size").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_shadow_step_size, 1.0..=100.0).step_by(1.0));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Shadow Step Multiply").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_shadow_step_multiply, 0.1..=10.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Forward Scattering G").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_forward_scattering_g, -10.0..=10.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Backward Scattering G").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_backward_scattering_g, -10.0..=10.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Scattering Lerp").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_scattering_lerp, 0.01..=100.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Min Transmittance").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_min_transmittance, 0.01..=100.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Reprojection Strength").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_reprojection_strength, 0.0..=1.0).step_by(0.01));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Wind Velocity X").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_wind_velocity.x, -100.0..=100.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Wind Velocity Y").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_wind_velocity.y, -100.0..=100.0).step_by(0.1));
+                    ui.end_row();
+
+                    ui.label(egui::RichText::new("Wind Velocity Z").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_wind_velocity.z, -100.0..=100.0).step_by(0.1));
+                    ui.end_row();
+                });
+        });
 }
 
 pub fn draw_players_properties(
