@@ -66,61 +66,79 @@ pub fn configure_studs_samplers(
         return;
     }
     let Some(assets) = stud_assets else { return };
-    if let Some(mut stud_image) = images.get_mut(&assets.stud) {
-        if !matches!(stud_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            stud_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
-        }
+    let mut ready = true;
+    ready &= configure_studs_image(&assets.stud, &mut images);
+    ready &= configure_studs_image(&assets.stud_ambient, &mut images);
+    ready &= configure_studs_image(&assets.stud_height, &mut images);
+    ready &= configure_studs_image(&assets.inlet_ambient, &mut images);
+    ready &= configure_studs_image(&assets.inlet_height, &mut images);
+    ready &= configure_studs_image(&assets.inlet, &mut images);
+    if ready {
+        *configured = true;
     }
-    if let Some(mut stud_ambient_image) = images.get_mut(&assets.stud_ambient) {
-        if !matches!(stud_ambient_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            stud_ambient_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
-        }
+}
+
+fn configure_studs_image(handle: &Handle<Image>, images: &mut Assets<Image>) -> bool {
+    let Some(mut image) = images.get_mut(handle) else {
+        return false;
+    };
+    image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+        mag_filter: bevy::image::ImageFilterMode::Linear,
+        min_filter: bevy::image::ImageFilterMode::Linear,
+        mipmap_filter: bevy::image::ImageFilterMode::Linear,
+        anisotropy_clamp: 16,
+        ..default()
+    });
+    generate_mipmaps(&mut image);
+    true
+}
+
+fn generate_mipmaps(image: &mut Image) {
+    if image.texture_descriptor.mip_level_count > 1 {
+        return;
     }
-    if let Some(mut stud_height_image) = images.get_mut(&assets.stud_height) {
-        if !matches!(stud_height_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            stud_height_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
+    let Some(mut data) = image.data.take() else {
+        return;
+    };
+    let Some(bytes_per_pixel) = image.texture_descriptor.format.block_copy_size(None) else {
+        return;
+    };
+    let mut width = image.texture_descriptor.size.width;
+    let mut height = image.texture_descriptor.size.height;
+    let mut mip_data = Vec::with_capacity(data.len());
+    mip_data.extend_from_slice(&data);
+    let mut mip_levels = 1u32;
+    while width > 1 || height > 1 {
+        let next_width = (width / 2).max(1);
+        let next_height = (height / 2).max(1);
+        let mut next_data = vec![0u8; (next_width * next_height) as usize * bytes_per_pixel as usize];
+        for y in 0..next_height {
+            for x in 0..next_width {
+                for byte in 0..bytes_per_pixel as usize {
+                    let mut sum = 0u32;
+                    let mut count = 0u32;
+                    for dy in 0..2u32 {
+                        for dx in 0..2u32 {
+                            let sample_x = (x * 2 + dx).min(width - 1);
+                            let sample_y = (y * 2 + dy).min(height - 1);
+                            sum += data[((sample_y * width + sample_x) as usize) * bytes_per_pixel as usize + byte] as u32;
+                            count += 1;
+                        }
+                    }
+                    next_data[((y * next_width + x) as usize) * bytes_per_pixel as usize + byte] = (sum / count) as u8;
+                }
+            }
         }
+        mip_data.extend_from_slice(&next_data);
+        data = next_data;
+        width = next_width;
+        height = next_height;
+        mip_levels += 1;
     }
-    if let Some(mut inlet_ambient_image) = images.get_mut(&assets.inlet_ambient) {
-        if !matches!(inlet_ambient_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            inlet_ambient_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
-        }
-    }
-    if let Some(mut inlet_height_image) = images.get_mut(&assets.inlet_height) {
-        if !matches!(inlet_height_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            inlet_height_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
-        }
-    }
-    if let Some(mut inlet_image) = images.get_mut(&assets.inlet) {
-        if !matches!(inlet_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {
-            inlet_image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
-                address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                ..default()
-            });
-        }
-    }
-    *configured = true;
+    image.data = Some(mip_data);
+    image.texture_descriptor.mip_level_count = mip_levels;
 }
 
 pub trait MapSamplers {}

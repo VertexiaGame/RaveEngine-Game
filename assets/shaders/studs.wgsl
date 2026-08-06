@@ -62,30 +62,33 @@ fn fragment(
     let stud_count = scale.xz * vec2<f32>(4.0, 2.0);
     let uv = world_size_coord.xz / 0.28 + stud_count * 0.5;
 
+    let height_lod = log2(max(max(length(dpdx(uv)), length(dpdy(uv))), 0.00001));
+
     let local_normal = rot_t * in.world_normal;
 
     let dist = distance(in.world_position.xyz, view.world_position);
-    let fade = clamp((80.0 - dist) / 40.0, 0.0, 1.0);
+    let fade = clamp((64.0 - dist) / 48.0, 0.0, 1.0);
+    let detail = fade * fade;
 
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);
     let local_view = rot_t * view_dir;
 
-    let num_layers = 32u;
+    let num_layers = max(2u, u32(32.0 * detail + 0.5));
     let layer_height = 1.0 / f32(num_layers);
 
     if (local_normal.y > 0.85 && fade > 0.0005) {
         let parallax_dir = local_view.xz / max(local_view.y, 0.1);
-        let parallax_vec = normalize(parallax_dir) * min(length(parallax_dir) * 0.2, 0.25);
+        let parallax_vec = normalize(parallax_dir) * min(length(parallax_dir) * 0.2, 0.25) * detail;
 
         var current_uv = uv + parallax_vec;
-        var current_height = pow(textureSample(stud_height_texture, stud_height_texture_sampler, current_uv).r, 1.0 / 2.2);
+        var current_height = pow(textureSampleLevel(stud_height_texture, stud_height_texture_sampler, current_uv, height_lod).r, 1.0 / 2.2);
         var current_layer = 0.0;
         for (var i = 0u; i < num_layers; i++) {
             if (current_height >= 1.0 - current_layer) {
                 break;
             }
             current_uv -= parallax_vec / f32(num_layers);
-            current_height = pow(textureSample(stud_height_texture, stud_height_texture_sampler, current_uv).r, 1.0 / 2.2);
+            current_height = pow(textureSampleLevel(stud_height_texture, stud_height_texture_sampler, current_uv, height_lod).r, 1.0 / 2.2);
             current_layer += layer_height;
         }
 
@@ -106,17 +109,17 @@ fn fragment(
         pbr_input.material.perceptual_roughness = mix(pbr_input.material.perceptual_roughness, 1.0, stud_mask * 0.15);
     } else if (local_normal.y < -0.85 && fade > 0.0005) {
         let inlet_dir = local_view.xz / max(abs(local_view.y), 0.1);
-        let inlet_vec = normalize(inlet_dir) * min(length(inlet_dir) * 0.2, 0.25);
+        let inlet_vec = normalize(inlet_dir) * min(length(inlet_dir) * 0.2, 0.25) * detail;
 
         var inlet_uv = uv;
-        var inlet_height = pow(textureSample(inlet_height_texture, inlet_height_texture_sampler, inlet_uv).r, 1.0 / 2.2);
+        var inlet_height = pow(textureSampleLevel(inlet_height_texture, inlet_height_texture_sampler, inlet_uv, height_lod).r, 1.0 / 2.2);
         var inlet_layer = 0.0;
         for (var i = 0u; i < num_layers; i++) {
             if (inlet_height >= 1.0 - inlet_layer) {
                 break;
             }
             inlet_uv -= inlet_vec / f32(num_layers);
-            inlet_height = pow(textureSample(inlet_height_texture, inlet_height_texture_sampler, inlet_uv).r, 1.0 / 2.2);
+            inlet_height = pow(textureSampleLevel(inlet_height_texture, inlet_height_texture_sampler, inlet_uv, height_lod).r, 1.0 / 2.2);
             inlet_layer += layer_height;
         }
 

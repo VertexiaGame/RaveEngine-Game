@@ -393,6 +393,7 @@ fn sync_local_player(
                 },
                 Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
                 Msaa::Sample4,
+                bevy::anti_alias::fxaa::Fxaa::default(),
             ));
 
             if std::env::var("VERTIGO_APP").unwrap_or_default() == "client" {
