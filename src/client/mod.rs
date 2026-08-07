@@ -1,18 +1,18 @@
 pub mod player;
 pub mod ui;
-
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
 use bevy::light::ShadowFilteringMethod;
 use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
+use crate::client::ui::chat_container::ChatContState;
+use crate::client::ui::{ChatboxState, chat_container};
 use crate::common::game::bricks::components::{Brick, BrickShapeComponent};
-use crate::common::game::bricks::components;
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
-use bevy_egui::EguiContexts;
+use bevy_egui::{EguiContexts, egui};
 use bevy::camera::Hdr;
 
 #[derive(Resource)]
@@ -73,6 +73,7 @@ impl Plugin for ClientPlugin {
         }
 
         app.init_resource::<ui::ChatboxState>()
+            .init_resource::<ui::chat_container::ChatContState>()
             .init_resource::<PlaytestState>()
             .init_resource::<StudioPlaytestPhysicsState>()
             .add_plugins(player::PlayerPlugin)
@@ -98,7 +99,8 @@ impl Plugin for ClientPlugin {
                 handle_kick_message,
                 handle_auth_success,
             ).run_if(is_playtesting))
-            .add_systems(Update, cleanup_orphaned_visuals);
+            .add_systems(Update, cleanup_orphaned_visuals)
+            .add_systems(Update, send_chat_message);
             #[cfg(debug_assertions)]
             app.add_systems(Update, (
                 debug_cameras,
@@ -664,6 +666,13 @@ fn send_hello_message(
             ukey: ukey.0.clone(),
         });
         commands.entity(entity).insert(HelloSent);
+    }
+}
+
+fn send_chat_message(keyboard_input: Res<ButtonInput<KeyCode>>, chatbox: ResMut<ChatboxState>, mut chat_cont: ResMut<ChatContState>) {
+    if keyboard_input.just_pressed(KeyCode::Enter) {
+        chat_cont.messages.push(chatbox.text.clone());
+        ui::chat_container::get_message(chatbox.text.clone());
     }
 }
 

@@ -1,4 +1,5 @@
-use bevy_egui::{egui, EguiContexts};
+use bevy::ecs::{resource::Resource, system::ResMut};
+use bevy_egui::{EguiContexts, egui::{self}};
 
 struct MockMessage {
     username: &'static str,
@@ -19,8 +20,14 @@ const MOCK_MESSAGES: &[MockMessage] = &[
     },
 ];
 
+#[derive(Resource, Default)]
+pub struct ChatContState {
+    pub messages: Vec<String>
+}
+
 pub fn draw_chat_container(
     mut contexts: EguiContexts,
+    mut chat_cont_state: ResMut<ChatContState>
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
 
@@ -76,7 +83,42 @@ pub fn draw_chat_container(
                                     });
                                 });
                         }
+                        for msg in chat_cont_state.messages.clone() {
+                            let min_w = 138.0 * scale_factor;
+
+                            egui::Frame::NONE
+                                .fill(bg_color)
+                                .corner_radius(4.0 * scale_factor)
+                                .inner_margin(egui::Margin::symmetric(
+                                    (10.0 * scale_factor) as i8,
+                                    (2.3 * scale_factor) as i8,
+                                ))
+                                .show(ui, |ui| {
+                                    ui.set_min_width(min_w);
+
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.spacing_mut().item_spacing = egui::vec2(4.0 * scale_factor, 0.0);
+
+                                        ui.add(egui::Label::new(
+                                            egui::RichText::new("Locke")
+                                                .color(egui::Color32::from_rgb(255, 180, 0))
+                                                .font(egui::FontId::new(13.0 * scale_factor, egui::FontFamily::Proportional))
+                                        ).selectable(false));
+
+                                        ui.add(egui::Label::new(
+                                            egui::RichText::new(msg)
+                                                .color(egui::Color32::WHITE)
+                                                .font(egui::FontId::new(13.0 * scale_factor, egui::FontFamily::Proportional))
+                                        ).selectable(false));
+                                    });
+                                });
+                        }
                     });
                 });
         });
+}
+
+pub fn get_message(text: String) {
+    println!("{}", text);
+    //messages.push(text);
 }
