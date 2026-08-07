@@ -34,7 +34,7 @@ pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usi
 pub struct UiResources<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     pub studs_materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     pub studs_assets: Res<'w, crate::common::game::bricks::studs::StudsAssets>,
     pub count: ResMut<'w, crate::common::game::bricks::data::BrickSpawnerCount>,
@@ -103,7 +103,7 @@ pub struct UiQueries<'w, 's> {
             Option<&'static mut crate::common::game::bricks::components::BrickShapeComponent>,
             &'static GlobalTransform,
             Option<&'static Mesh3d>,
-            Option<&'static MeshMaterial3d<StandardMaterial>>,
+            Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
             Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
             Option<&'static mut crate::common::game::bricks::components::BrickPhysics>,
         ),

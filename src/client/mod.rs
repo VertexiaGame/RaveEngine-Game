@@ -8,6 +8,7 @@ use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
 use crate::common::game::bricks::components::{Brick, BrickShapeComponent, BrickStuds};
+use crate::common::game::bricks::studs;
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
 use crate::common::game::bricks::{plain_material_for_color, studs_material_for_color};
 use crate::common::net::components::NetworkTransform;
@@ -435,7 +436,7 @@ fn on_brick_added(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
-    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     studs_assets: Res<StudsAssets>,
     name_query: Query<&Name>,
     shape_query: Query<&BrickShapeComponent>,
@@ -493,12 +494,12 @@ fn sync_brick_studs_to_material(
         &BrickStuds,
         &crate::common::game::bricks::components::BrickColor,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     ), (Changed<BrickStuds>, With<Brick>)>,
     workspace_studs: Option<Res<crate::common::game::bricks::WorkspaceShowStuds>>,
     mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
-    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     studs_assets: Option<Res<StudsAssets>>,
 ) {
     let Some(studs_assets) = studs_assets else { return };
@@ -512,7 +513,7 @@ fn sync_brick_studs_to_material(
         } else if let Some(plain_mat_handle) = plain_material {
             plain_materials
                 .get(&plain_mat_handle.0)
-                .map(|mat| mat.base_color)
+                .map(|mat| mat.base.base_color)
                 .unwrap_or(brick_color.color)
         } else {
             brick_color.color
@@ -612,7 +613,7 @@ fn sync_brick_color_to_material(
     studs_query: Query<&BrickStuds>,
     mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
-    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     studs_assets: Option<Res<StudsAssets>>,
 ) {
     let Some(studs_assets) = studs_assets else { return };

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
 use crate::common::game::bricks::components::{Brick, BrickShape, BrickShapeComponent};
-use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
+use crate::common::game::bricks::studs::{ShadowOpacityExtension, StudsAssets, StudsExtension};
 use avian3d::prelude::CollisionLayers;
 
 #[derive(Resource, Default)]
@@ -45,7 +45,7 @@ pub struct BrickData {
     pub is_brick: bool,
     pub shape: BrickShape,
     pub mesh: Option<Mesh3d>,
-    pub standard_material: Option<MeshMaterial3d<StandardMaterial>>,
+    pub standard_material: Option<MeshMaterial3d<ExtendedMaterial<StandardMaterial, ShadowOpacityExtension>>>,
     pub studs_material: Option<MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
     pub parent: Option<Entity>,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
@@ -121,8 +121,8 @@ pub fn capture_brick_data(
         Option<&mut BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
-        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, ShadowOpacityExtension>>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,

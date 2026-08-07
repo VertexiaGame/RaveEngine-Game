@@ -4,7 +4,7 @@ use bevy::prelude::*;
 pub struct CopiedEntityBuffer {
     pub transform: Option<Transform>,
     pub mesh: Option<Mesh3d>,
-    pub material: Option<MeshMaterial3d<StandardMaterial>>,
+    pub material: Option<MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     pub studs_material: Option<MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     pub name: Option<String>,
     pub is_brick: bool,
@@ -94,7 +94,7 @@ pub fn handle_file_dialog_results(
     mut lighting_config: Option<ResMut<crate::client::sky::LightingConfig>>,
     mut gravity: Option<ResMut<avian3d::prelude::Gravity>>,
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
-    materials: ResMut<Assets<StandardMaterial>>,
+    materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     entities_query: Query<(Entity, Option<&crate::common::game::bricks::components::Brick>), Without<Camera3d>>,
     explorer_query: Query<(Entity, Option<&crate::scripting::ecs::ServerScript>, Option<&crate::scripting::ecs::LocalScript>, Option<&crate::scripting::ecs::ModuleScript>), Without<Camera3d>>,
@@ -108,7 +108,7 @@ pub fn handle_file_dialog_results(
         Option<&crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
@@ -244,7 +244,7 @@ pub fn handle_file_dialog_results(
                             }
                         } else if let Some(mat_handle) = mat_opt {
                             if let Some(mat) = materials.get(&mat_handle.0) {
-                                current_color = mat.base_color;
+                                current_color = mat.base.base_color;
                             }
                         }
                         let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {

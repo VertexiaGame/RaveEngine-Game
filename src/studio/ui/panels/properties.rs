@@ -48,12 +48,12 @@ pub fn draw_properties(
         Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
     brick_colors: &mut Query<&mut crate::common::game::bricks::components::BrickColor>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>,
     studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
     explorer_query: &Query<(
         Entity,
@@ -224,7 +224,7 @@ pub fn draw_properties(
             }
         } else if let Some(mat_handle) = first_mat_opt {
             if let Some(mat) = materials.get(&mat_handle.0) {
-                first_color = mat.base_color;
+                first_color = mat.base.base_color;
             }
         }
 
@@ -304,7 +304,7 @@ pub fn draw_properties(
                 }
             } else if let Some(mat_handle) = mat_opt {
                 if let Some(mat) = materials.get(&mat_handle.0) {
-                    color = mat.base_color;
+                    color = mat.base.base_color;
                 }
             }
             if color != first_color { all_color_same = false; }
@@ -478,8 +478,8 @@ pub fn draw_properties(
                                             } else {
                                                 if let Some(mat_handle) = mat_opt {
                                                     if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                        mat.base_color = new_color;
-                                                        mat.alpha_mode = new_alpha_mode;
+                                                        mat.base.base_color = new_color;
+                                                        mat.base.alpha_mode = new_alpha_mode;
                                                     }
                                                 }
                                             }
@@ -507,7 +507,7 @@ pub fn draw_properties(
                                                     }
                                                 } else if let Some(mat_handle) = mat_opt {
                                                     if let Some(mat) = materials.get(&mat_handle.0) {
-                                                        current_color = mat.base_color;
+                                                        current_color = mat.base.base_color;
                                                     }
                                                 }
                                                 let mut srgba = current_color.to_srgba();
@@ -524,8 +524,8 @@ pub fn draw_properties(
                                                 } else {
                                                     if let Some(mat_handle) = mat_opt {
                                                         if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                            mat.base_color = new_color;
-                                                            mat.alpha_mode = new_alpha_mode;
+                                                            mat.base.base_color = new_color;
+                                                            mat.base.alpha_mode = new_alpha_mode;
                                                         }
                                                     }
                                                 }
@@ -551,7 +551,7 @@ pub fn draw_properties(
                                                     }
                                                 } else if let Some(mat_handle) = mat_opt {
                                                     if let Some(mat) = materials.get(&mat_handle.0) {
-                                                        current_color = mat.base_color;
+                                                        current_color = mat.base.base_color;
                                                     }
                                                 }
                                                 let mut srgba = current_color.to_srgba();
@@ -568,8 +568,8 @@ pub fn draw_properties(
                                                 } else {
                                                     if let Some(mat_handle) = mat_opt {
                                                         if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                            mat.base_color = new_color;
-                                                            mat.alpha_mode = new_alpha_mode;
+                                                            mat.base.base_color = new_color;
+                                                            mat.base.alpha_mode = new_alpha_mode;
                                                         }
                                                     }
                                                 }

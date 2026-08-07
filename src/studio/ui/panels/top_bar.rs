@@ -13,7 +13,7 @@ pub fn draw_top_bar(
     current_tool: &State<ToolState>,
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     studs_materials: &mut ResMut<Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     studs_assets: &StudsAssets,
     count: &mut ResMut<BrickSpawnerCount>,
@@ -46,7 +46,7 @@ pub fn draw_top_bar(
         Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
@@ -116,7 +116,7 @@ pub fn draw_top_bar(
                                         }
                                     } else if let Some(mat_handle) = mat_opt {
                                         if let Some(mat) = materials.get(&mat_handle.0) {
-                                            current_color = mat.base_color;
+                                            current_color = mat.base.base_color;
                                         }
                                     }
                                     let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
@@ -703,7 +703,7 @@ pub fn draw_top_bar(
                                         }
                                     } else if let Some(ref mat_handle) = b.standard_material {
                                         if let Some(mat) = materials.get(&mat_handle.0) {
-                                            current_color = mat.base_color;
+                                            current_color = mat.base.base_color;
                                         }
                                     }
                                     let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = b.physics {

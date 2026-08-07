@@ -8,7 +8,7 @@ use bevy::pbr::{ExtendedMaterial, MaterialPlugin};
 #[derive(Resource, Default)]
 pub struct BrickMaterialCache {
     pub studs_materials: std::collections::HashMap<[u32; 4], Handle<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
-    pub plain_materials: std::collections::HashMap<[u32; 4], Handle<StandardMaterial>>,
+    pub plain_materials: std::collections::HashMap<[u32; 4], Handle<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     pub block_mesh: Option<Handle<Mesh>>,
     pub sphere_mesh: Option<Handle<Mesh>>,
 }
@@ -39,6 +39,7 @@ impl Plugin for BricksPlugin {
 
         if app.is_plugin_added::<bevy::render::RenderPlugin>() {
             app.add_plugins(MaterialPlugin::<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>::default())
+                .add_plugins(MaterialPlugin::<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>::default())
                 .add_systems(Startup, studs::setup_studs)
                 .add_systems(Update, (
                     studs::configure_studs_samplers,
@@ -107,9 +108,9 @@ pub fn studs_material_for_color(
 
 pub fn plain_material_for_color(
     cache: &mut BrickMaterialCache,
-    plain_materials: &mut Assets<StandardMaterial>,
+    plain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>,
     base_color: Color,
-) -> Handle<StandardMaterial> {
+) -> Handle<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>> {
     let srgba = base_color.to_srgba();
     let cache_key = [
         srgba.red.to_bits(),
@@ -121,11 +122,14 @@ pub fn plain_material_for_color(
     if let Some(existing) = cache.plain_materials.get(&cache_key) {
         existing.clone()
     } else {
-        let new_mat = plain_materials.add(StandardMaterial {
-            base_color,
-            perceptual_roughness: 0.85,
-            alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-            ..default()
+        let new_mat = plain_materials.add(ExtendedMaterial {
+            base: StandardMaterial {
+                base_color,
+                perceptual_roughness: 0.85,
+                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+                ..default()
+            },
+            extension: studs::ShadowOpacityExtension::default(),
         });
         cache.plain_materials.insert(cache_key, new_mat.clone());
         new_mat
@@ -253,7 +257,7 @@ const STUD_LOD_DISTANCE_SQ: f32 = 80.0 * 80.0;
 pub fn optimize_brick_visibility(
     mut commands: Commands,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
-    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     studs_assets: Res<studs::StudsAssets>,
     camera_query: Query<(&GlobalTransform, &Camera), With<Camera3d>>,
     bricks_query: Query<(
@@ -262,7 +266,7 @@ pub fn optimize_brick_visibility(
         &components::BrickColor,
         Option<&components::BrickStuds>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     ), With<components::Brick>>,
     workspace_studs: Option<Res<WorkspaceShowStuds>>,
     mut cache: ResMut<BrickMaterialCache>,
@@ -302,7 +306,7 @@ pub fn optimize_brick_visibility(
         } else if let Some(plain_mat_handle) = plain_material {
             plain_materials
                 .get(&plain_mat_handle.0)
-                .map(|mat| mat.base_color)
+                .map(|mat| mat.base.base_color)
                 .unwrap_or(color.color)
         } else {
             color.color

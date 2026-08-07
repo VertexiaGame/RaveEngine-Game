@@ -42,6 +42,22 @@ impl MaterialExtension for StudsExtension {
     fn fragment_shader() -> ShaderRef {
         "shaders/studs.wgsl".into()
     }
+
+    fn prepass_fragment_shader() -> ShaderRef {
+        "shaders/translucent_shadow_prepass.wgsl".into()
+    }
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
+pub struct ShadowOpacityExtension {
+    #[uniform(0)]
+    pub _marker: u32,
+}
+
+impl MaterialExtension for ShadowOpacityExtension {
+    fn prepass_fragment_shader() -> ShaderRef {
+        "shaders/translucent_shadow_prepass.wgsl".into()
+    }
 }
 
 pub fn setup_studs(
