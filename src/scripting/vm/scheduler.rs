@@ -51,12 +51,12 @@ impl LuaScheduler {
     }
 
     pub fn collect_ready(&mut self, now: Instant, out: &mut Vec<mlua::RegistryKey>) {
-        let old_tasks = std::mem::take(&mut self.tasks);
-        for task in old_tasks {
-            if task.wake_time.map_or(true, |wake| now >= wake) {
-                out.push(task.thread_key);
+        let mut i = 0;
+        while i < self.tasks.len() {
+            if self.tasks[i].wake_time.map_or(true, |wake| now >= wake) {
+                out.push(self.tasks.swap_remove(i).thread_key);
             } else {
-                self.tasks.push(task);
+                i += 1;
             }
         }
         while let Some(key) = self.deferred.pop_front() {

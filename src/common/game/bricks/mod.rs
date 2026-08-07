@@ -200,7 +200,6 @@ fn spawn_bricks_benchmark(mut commands: Commands) {
                     RigidBody::Dynamic,
                     collider,
                     CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
-                    SleepingDisabled,
                 ));
                 index += 1;
             }

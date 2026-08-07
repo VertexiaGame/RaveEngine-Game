@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 pub struct GameChannel;
 
-#[derive(Message, Serialize, Deserialize, Debug, Clone)]
+pub struct InputChannel;
+
+#[derive(Message, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PlayerInputMessage {
     pub w: bool,
     pub a: bool,

@@ -13,6 +13,9 @@ pub struct ServerSettings {
     pub port: u16,
 }
 
+#[derive(Resource, Default)]
+pub struct ClientPlayerMap(pub std::collections::HashMap<u64, Entity>);
+
 pub struct ServerPlugin {
     pub map_path: String,
     pub port: u16,
@@ -25,6 +28,10 @@ impl Plugin for ServerPlugin {
             port: self.port,
         })
         .insert_resource(Gravity(Vec3::new(0.0, -186.9 * 0.28, 0.0)))
+        .insert_resource(ReplicationMetadata::new(
+            Duration::from_secs_f64(1.0 / 30.0),
+        ))
+        .init_resource::<ClientPlayerMap>()
         .add_plugins(server::ServerPlugins {
             tick_duration: Duration::from_secs_f64(1.0 / 60.0),
         })
@@ -32,6 +39,7 @@ impl Plugin for ServerPlugin {
         .add_systems(Startup, (setup_server, map::load_map))
         .add_systems(Update, (
             player::handle_player_inputs,
+            player::zero_stale_player_velocities,
             player::handle_hello_messages,
             player::sync_players_service_properties,
         ))

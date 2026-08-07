@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicate;
-use avian3d::prelude::*;
 use crate::common::core::vrtx::VrtxFileState;
 use crate::common::game::bricks::components::{Brick, BrickShape, BrickShapeComponent, BrickPhysics, BrickColor};
 use crate::common::net::components::NetworkTransform;
@@ -28,11 +27,6 @@ pub fn load_fallback_map(
             rotation: Quat::IDENTITY,
             scale: Vec3::new(25.0, 1.0, 50.0),
         },
-        RigidBody::Static,
-        Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
-        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
-        Friction::new(0.3),
-        Restitution::new(0.3),
         Replicate::default(),
     ));
 
@@ -55,13 +49,6 @@ pub fn load_fallback_map(
             rotation: Quat::IDENTITY,
             scale: Vec3::ONE,
         },
-        RigidBody::Dynamic,
-        Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
-        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
-        Friction::new(0.3),
-        Restitution::new(0.3),
-        LinearDamping(0.1),
-        AngularDamping(0.1),
         Replicate::default(),
     ));
 }
@@ -131,27 +118,6 @@ pub fn load_map(
 }
 
 pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::vrtx::VrtxBrick) -> Entity {
-    let collider = match brick.shape {
-        BrickShape::Block => {
-            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)
-        }
-        BrickShape::Sphere => {
-            Collider::sphere(1.0 * 0.28)
-        }
-    };
-
-    let body_type = if brick.physics_enabled {
-        RigidBody::Dynamic
-    } else {
-        RigidBody::Static
-    };
-
-    let layers = if brick.player_can_collide {
-        CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
-    } else {
-        CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
-    };
-
     commands.spawn((
         brick.transform,
         Name::new(brick.name.clone()),
@@ -171,16 +137,6 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
             rotation: brick.transform.rotation,
             scale: brick.transform.scale,
         },
-        body_type,
-        collider,
-        layers,
-    )).insert((
-        Friction::new(brick.friction),
-        Restitution::new(brick.bounciness),
-        GravityScale(brick.gravity_scale),
-        Mass(brick.mass),
-        LinearDamping(0.1),
-        AngularDamping(0.1),
         Replicate::default(),
     )).id()
 }

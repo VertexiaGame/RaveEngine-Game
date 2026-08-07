@@ -1,7 +1,12 @@
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParamItem;
 use bevy::pbr::MaterialExtension;
 use bevy::shader::ShaderRef;
-use bevy::render::render_resource::AsBindGroup;
+use bevy::render::render_resource::{
+    AsBindGroup, AsBindGroupError, BindGroupLayout, BindGroupLayoutEntry, BindingResources,
+    UnpreparedBindGroup,
+};
+use bevy::render::renderer::RenderDevice;
 
 #[derive(Resource)]
 pub struct StudsAssets {
@@ -48,10 +53,37 @@ impl MaterialExtension for StudsExtension {
     }
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
-pub struct ShadowOpacityExtension {
-    #[uniform(0)]
-    pub _marker: u32,
+#[derive(Asset, TypePath, Clone, Debug, Default)]
+pub struct ShadowOpacityExtension;
+
+impl AsBindGroup for ShadowOpacityExtension {
+    type Data = ();
+    type Param = ();
+
+    fn label() -> &'static str {
+        "ShadowOpacityExtension"
+    }
+
+    fn bind_group_data(&self) -> Self::Data {}
+
+    fn unprepared_bind_group(
+        &self,
+        _layout: &BindGroupLayout,
+        _render_device: &RenderDevice,
+        _param: &mut SystemParamItem<'_, '_, Self::Param>,
+        _force_no_bindless: bool,
+    ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
+        Ok(UnpreparedBindGroup {
+            bindings: BindingResources(Vec::new()),
+        })
+    }
+
+    fn bind_group_layout_entries(
+        _render_device: &RenderDevice,
+        _force_no_bindless: bool,
+    ) -> Vec<BindGroupLayoutEntry> {
+        Vec::new()
+    }
 }
 
 impl MaterialExtension for ShadowOpacityExtension {

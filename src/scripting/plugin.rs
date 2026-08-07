@@ -22,8 +22,6 @@ impl Plugin for ScriptingPlugin {
                 detect_touched_collisions,
                 detect_player_added_events,
                 trigger_run_service_events,
-                server_scheduler_system,
-                client_scheduler_system,
             ).chain())
             .add_systems(PostUpdate, (cache_service_entities, sweep_stale_connections));
     }
@@ -54,22 +52,6 @@ fn spawn_and_run_callback(
                 crate::scripting::output::push_error("Event", e.to_string());
             }
         }
-    }
-}
-
-pub fn server_scheduler_system(world: &mut World) {
-    if let Some(server_vm) = world.remove_resource::<ServerScriptVM>() {
-        server_vm.lua.set_app_data(WorldRef(world as *mut World));
-        crate::scripting::vm::scheduler::run_scheduler_tick(&server_vm.scheduler, &server_vm.lua);
-        world.insert_resource(server_vm);
-    }
-}
-
-pub fn client_scheduler_system(world: &mut World) {
-    if let Some(client_vm) = world.remove_resource::<ClientScriptVM>() {
-        client_vm.lua.set_app_data(WorldRef(world as *mut World));
-        crate::scripting::vm::scheduler::run_scheduler_tick(&client_vm.scheduler, &client_vm.lua);
-        world.insert_resource(client_vm);
     }
 }
 
@@ -206,13 +188,11 @@ fn collect_signal_callbacks(
     }
 }
 
-pub fn detect_touched_collisions(world: &mut World) {
-    let previous = world
-        .get_resource::<PreviousCollisions>()
-        .map(|history| history.0.clone())
-        .unwrap_or_default();
-
-    let mut current: std::collections::HashSet<(Entity, Entity)> = std::collections::HashSet::new();
+pub fn detect_touched_collisions(
+    world: &mut World,
+    mut current: Local<std::collections::HashSet<(Entity, Entity)>>,
+) {
+    current.clear();
     let mut query = world.query::<(Entity, &CollidingEntities)>();
     for (entity, colliding) in query.iter(world) {
         for other in colliding.iter() {
@@ -221,10 +201,14 @@ pub fn detect_touched_collisions(world: &mut World) {
         }
     }
 
-    let began: Vec<(Entity, Entity)> = current.difference(&previous).copied().collect();
-    if let Some(mut history) = world.get_resource_mut::<PreviousCollisions>() {
-        history.0 = current;
-    }
+    let began: Vec<(Entity, Entity)> = {
+        let mut history = world
+            .get_resource_mut::<PreviousCollisions>()
+            .expect("PreviousCollisions resource must exist");
+        let began = current.difference(&history.0).copied().collect();
+        std::mem::swap(&mut history.0, &mut current);
+        began
+    };
 
     if began.is_empty() {
         return;
@@ -285,14 +269,19 @@ pub fn detect_player_added_events(
     world: &mut World,
     mut last_players: Local<std::collections::HashSet<Entity>>,
 ) {
-    let mut current_players = std::collections::HashSet::new();
-    let mut query = world.query::<(Entity, &crate::common::net::components::Player)>();
-    for (entity, _) in query.iter(world) {
-        current_players.insert(entity);
+    let mut joined = Vec::new();
+    {
+        let mut query = world.query::<(Entity, &crate::common::net::components::Player)>();
+        for (entity, _) in query.iter(world) {
+            if !last_players.contains(&entity) {
+                joined.push(entity);
+            }
+        }
+        last_players.clear();
+        for (entity, _) in query.iter(world) {
+            last_players.insert(entity);
+        }
     }
-
-    let joined: Vec<Entity> = current_players.difference(&last_players).cloned().collect();
-    *last_players = current_players;
 
     if joined.is_empty() {
         return;
@@ -387,6 +376,8 @@ pub fn trigger_run_service_events(world: &mut World) {
             spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg);
         }
 
+        crate::scripting::vm::scheduler::run_scheduler_tick(&server_vm.scheduler, &server_vm.lua);
+
         world.insert_resource(server_vm);
     }
 
@@ -411,6 +402,8 @@ pub fn trigger_run_service_events(world: &mut World) {
         for (func, arg) in callbacks {
             spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg);
         }
+
+        crate::scripting::vm::scheduler::run_scheduler_tick(&client_vm.scheduler, &client_vm.lua);
 
         world.insert_resource(client_vm);
     }

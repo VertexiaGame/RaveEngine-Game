@@ -185,33 +185,21 @@ fn initialize_client_physics(
 }
 
 fn sync_network_transforms_to_client(
-    time: Res<Time>,
     mut query: Query<(
         &NetworkTransform,
         &mut Transform,
-        Option<&crate::common::net::components::Player>,
-        Option<&LocalPlayer>,
     ), Without<Replicate>>,
-    camera_query: Query<&player::CameraSettings, With<player::PlayerCamera>>,
 ) {
-    let lerp_factor = (25.0 * time.delta_secs()).min(1.0);
-    let in_first_person = camera_query.iter().next().map(|s| s.distance <= 0.6).unwrap_or(false);
-
-    for (net_transform, mut transform, player_opt, local_opt) in &mut query {
+    for (net_transform, mut transform) in &mut query {
+        if transform.translation == net_transform.translation
+            && transform.rotation == net_transform.rotation
+            && transform.scale == net_transform.scale
+        {
+            continue;
+        }
         transform.translation = net_transform.translation;
         transform.scale = net_transform.scale;
-
-        if player_opt.is_some() {
-            if local_opt.is_some() {
-                if !in_first_person {
-                    transform.rotation = transform.rotation.slerp(net_transform.rotation, lerp_factor);
-                }
-            } else {
-                transform.rotation = transform.rotation.slerp(net_transform.rotation, lerp_factor);
-            }
-        } else {
-            transform.rotation = net_transform.rotation;
-        }
+        transform.rotation = net_transform.rotation;
     }
 }
 
@@ -220,6 +208,7 @@ fn send_player_inputs(
     camera_query: Query<(&Transform, &player::CameraSettings), With<player::PlayerCamera>>,
     mut sender_query: Query<&mut MessageSender<crate::common::net::messages::PlayerInputMessage>>,
     mut contexts: EguiContexts,
+    mut last_sent: Local<Option<(crate::common::net::messages::PlayerInputMessage, std::time::Instant)>>,
 ) {
     let wants_keyboard = if let Ok(ctx) = contexts.ctx_mut() {
         ctx.egui_wants_keyboard_input()
@@ -258,7 +247,17 @@ fn send_player_inputs(
         in_first_person,
     };
 
-    let _ = sender.send::<crate::common::net::messages::GameChannel>(message);
+    let now = std::time::Instant::now();
+    let send = match &*last_sent {
+        Some((last, at)) => {
+            *last != message || now.duration_since(*at) >= std::time::Duration::from_millis(100)
+        }
+        None => true,
+    };
+    if send {
+        *last_sent = Some((message.clone(), now));
+        let _ = sender.send::<crate::common::net::messages::InputChannel>(message);
+    }
 }
 
 fn on_client_connected(
