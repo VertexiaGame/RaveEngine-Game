@@ -1,10 +1,12 @@
 use bevy::prelude::*;
+use bevy::app::ScheduleRunnerPlugin;
 use bevy::state::app::StatesPlugin;
 use crate::app::server::config::ServerAppConfig;
 use crate::common::CommonPlugin;
 use crate::server::ServerPlugin;
 use crate::app::common::log::setup_app_logging;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 pub static SHUTDOWN_SERVER: AtomicBool = AtomicBool::new(false);
 
@@ -23,7 +25,7 @@ impl RaveServerApp {
             let log_plugin = setup_app_logging("server");
             app.add_plugins(log_plugin);
         }
-        app.add_plugins(MinimalPlugins);
+        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(16))));
         app.add_plugins(AssetPlugin::default());
         app.init_asset::<Mesh>();
         app.add_plugins(StatesPlugin);

@@ -943,7 +943,7 @@ pub fn draw_lighting_properties(
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Raymarch Steps").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
-                    ui.add(egui::Slider::new(&mut lighting_config.cloud_raymarch_steps, 1..=100));
+                    ui.add(egui::Slider::new(&mut lighting_config.cloud_raymarch_steps, 48..=100));
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Shadow Steps").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));

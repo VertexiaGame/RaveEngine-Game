@@ -1,9 +1,10 @@
 #import bevy_open_world::common
 
-const EPSILON = 0.000001;
 const MAX_DISTANCE = 1.0e9;
 const WORLEY_RESOLUTION = 32;
 const WORLEY_RESOLUTION_F32 = 32.0;
+const IMAGE_SIZE_F32 = 1440.0;
+const ATLAS_REFERENCE_RESOLUTION = 810.0;
 
 struct Config {
     clouds_base_scale: f32,
@@ -33,8 +34,10 @@ struct Config {
     reprojection_strength: f32,
     render_resolution: vec2f,
     inverse_camera_view: mat4x4f,
+    previous_inverse_camera_view: mat4x4f,
     inverse_camera_projection: mat4x4f,
     wind_displacement: vec3f,
+    atlas_seed: f32,
 };
 
 @group(0) @binding(0) var<uniform> config: Config;
@@ -56,17 +59,15 @@ struct RaymarchResult {
 }
 
 fn cloud_map_base(p: vec3f, normalized_height: f32) -> f32 {
-	let uv = abs(p * (0.00005 * config.clouds_base_scale) * config.render_resolution.xyy);
+    let uv = p * (0.00005 * config.clouds_base_scale) * ATLAS_REFERENCE_RESOLUTION;
+    let sample = common::mod_tile(vec3f(uv.x, uv.z, 0.0), IMAGE_SIZE_F32).xy;
     let cloud = textureLoad(
         clouds_atlas_texture,
-         vec2u(
-            u32(uv.x) % u32(config.render_resolution.x),
-            u32(uv.z) % u32(config.render_resolution.y)
-        )
+        vec2u(u32(sample.x), u32(sample.y))
     ).rgb;
 
     var n = normalized_height * normalized_height * cloud.b + pow(1.0 - normalized_height, 16.0);
-	return common::remap(cloud.r - n, cloud.g, 1.0);
+    return clamp(common::remap(cloud.r - n, 0.15, 0.75), 0.0, 1.0);
 }
 
 fn cloud_map_detail(position: vec3f) -> f32 {
@@ -99,7 +100,11 @@ fn get_cloud_map_density(pos: vec3f, normalized_height: f32) -> f32 {
 		m -= cloud_map_detail(ps) * clouds_detail_strength * config.clouds_detail_strength;
     }
 
-	m = smoothstep(0.0, config.clouds_base_edge_softness, m + config.clouds_coverage - 1.0);
+	m = smoothstep(
+        1.0 - config.clouds_coverage,
+        1.0 - config.clouds_coverage + config.clouds_base_edge_softness,
+        m
+    );
     m *= common::linearstep0(config.clouds_bottom_softness, normalized_height);
 
     return clamp(m * config.clouds_density * (1.0 + max((ps.x - 7000.0) * 0.005, 0.0)), 0.0, 1.0);
@@ -295,7 +300,14 @@ fn get_sky_color(ray_dir: vec3f) -> vec3f {
 }
 
 fn render_clouds_atlas(frag_coord: vec2f) -> vec4f {
-    let v_uv = frag_coord / config.render_resolution.xy;
+    let seed_shift = vec2f(
+        fract(config.atlas_seed * 61.80339887),
+        fract(config.atlas_seed * 34.72031)
+    ) * IMAGE_SIZE_F32;
+    let v_uv = common::mod_tile(
+        vec3f(frag_coord.x + seed_shift.x, frag_coord.y + seed_shift.y, 0.0),
+        IMAGE_SIZE_F32
+    ).xy / IMAGE_SIZE_F32;
     let coord = vec3f(v_uv, 0.5);
 
     let mfbm = 0.9;
@@ -314,21 +326,22 @@ fn render_clouds_atlas(frag_coord: vec2f) -> vec4f {
 }
 
 fn render_clouds_worley(coord: vec3f) -> vec4f {
-    let r = common::tilable_voronoi(coord, 16, 3.0);
-    let g = common::tilable_voronoi(coord, 4, 8.0);
-    let b = common::tilable_voronoi(coord, 4, 16.0);
+    let seed_shift = vec3f(
+        fract(config.atlas_seed * 97.131),
+        fract(config.atlas_seed * 173.193),
+        fract(config.atlas_seed * 271.633)
+    );
+    let sc = coord + seed_shift;
+    let r = common::tilable_voronoi(sc, 16, 3.0);
+    let g = common::tilable_voronoi(sc, 4, 8.0);
+    let b = common::tilable_voronoi(sc, 4, 16.0);
 
     let c = max(0.0, 1.0 - (r + g * 0.5 + b * 0.25) / 1.75);
 
     return vec4f(c);
 }
 
-fn get_clouds_color(frag_coord: vec2f, camera: mat4x4f, old_cam: mat4x4f, ray_dir: vec3f, ray_origin: vec3f) -> vec4f {
-    if (frag_coord.y < 1.5) {
-        if frag_coord.x < 1.0 { return vec4f(config.render_resolution.xy, 0.0, 0.0); }
-        return common::save_camera(camera, frag_coord, ray_origin);
-    }
-
+fn get_clouds_color(frag_coord: vec2f, camera: mat4x4f, ray_dir: vec3f, ray_origin: vec3f) -> vec4f {
     let result = raymarch(ray_origin, ray_dir, MAX_DISTANCE);
     let transmittance = result.color.a;
 
@@ -344,12 +357,14 @@ fn get_clouds_color(frag_coord: vec2f, camera: mat4x4f, old_cam: mat4x4f, ray_di
         transmittance
     );
 
-    if length(
-        abs(old_cam[0] - camera[0]) +
-        abs(old_cam[1] - camera[1]) +
-        abs(old_cam[2] - camera[2]) +
-        abs(old_cam[3] - camera[3])
-    ) > EPSILON {
+    let old_cam = config.previous_inverse_camera_view;
+    let camera_moved = (
+        length(old_cam[0].xyz - camera[0].xyz) > 1.0e-4 ||
+        length(old_cam[1].xyz - camera[1].xyz) > 1.0e-4 ||
+        length(old_cam[2].xyz - camera[2].xyz) > 1.0e-4 ||
+        length(old_cam[3].xyz - camera[3].xyz) > 0.1
+    );
+    if camera_moved {
         return col;
     }
 
@@ -384,7 +399,7 @@ fn get_ray_direction(frag_coord: vec2f) -> vec3f {
 @compute @workgroup_size(8, 8, 1)
 fn init(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let index = vec2f(f32(invocation_id.x), f32(invocation_id.y)) + vec2f(0.5);
-    let inverted_y_coord = config.render_resolution.y - index.y;
+    let inverted_y_coord = IMAGE_SIZE_F32 - index.y;
 
     let worley_coord = vec2f(index.x, inverted_y_coord);
 
@@ -409,18 +424,11 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>, @builtin(num_
 
     let index = vec2f(f32(invocation_id.x), f32(invocation_id.y)) + vec2f(0.5);
 
-    let sample_y = u32(config.render_resolution.y) - 1;
-    let old_cam = mat4x4f(
-        textureLoad(clouds_render_texture, vec2u(1, sample_y)),
-        textureLoad(clouds_render_texture, vec2u(2, sample_y)),
-        textureLoad(clouds_render_texture, vec2u(3, sample_y)),
-        textureLoad(clouds_render_texture, vec2u(4, sample_y)),
-    );
     var frag_coord = vec2f(index.x, config.render_resolution.y - index.y);
 
     var ray_origin = get_ray_origin(config.time);
     var ray_dir = get_ray_direction(index);
-    var col = get_clouds_color(frag_coord, config.inverse_camera_view, old_cam, ray_dir, ray_origin);
+    var col = get_clouds_color(frag_coord, config.inverse_camera_view, ray_dir, ray_origin);
     let sky_color = vec4f(get_sky_color(ray_dir), 1.0);
 
     storageBarrier();

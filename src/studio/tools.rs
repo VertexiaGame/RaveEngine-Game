@@ -988,6 +988,18 @@ pub fn update_cursor(
     }
 }
 
+pub fn any_brick_transform_changed(
+    query: Query<
+        &Transform,
+        (
+            With<crate::common::game::bricks::components::Brick>,
+            Changed<Transform>,
+        ),
+    >,
+) -> bool {
+    !query.is_empty()
+}
+
 pub fn correct_child_transforms(
     root_query: Query<(Entity, &GlobalTransform), (Without<ChildOf>, With<crate::common::game::bricks::components::Brick>)>,
     child_query: Query<(&Transform, Option<&Children>)>,

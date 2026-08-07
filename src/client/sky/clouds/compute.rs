@@ -49,9 +49,11 @@ fn prepare_uniforms_bind_group(
     clouds_config: Res<CloudsConfig>,
     render_device: Res<RenderDevice>,
     time: Res<Time>,
+    mut previous_inverse_camera_view: Local<Mat4>,
 ) {
     let buffer = clouds_uniform_buffer.buffer.get_mut();
 
+    buffer.previous_inverse_camera_view = *previous_inverse_camera_view;
     buffer.clouds_raymarch_steps_count = clouds_config.clouds_raymarch_steps_count;
     buffer.planet_radius = clouds_config.planet_radius;
     buffer.clouds_bottom_height = clouds_config.clouds_bottom_height;
@@ -80,8 +82,10 @@ fn prepare_uniforms_bind_group(
     buffer.reprojection_strength = clouds_config.reprojection_strength;
     buffer.render_resolution = clouds_config.render_resolution;
     buffer.inverse_camera_view = camera.inverse_camera_view;
+    *previous_inverse_camera_view = camera.inverse_camera_view;
     buffer.inverse_camera_projection = camera.inverse_camera_projection;
     buffer.wind_displacement += time.delta_secs() * clouds_config.wind_velocity;
+    buffer.atlas_seed = time.elapsed_secs_wrapped().fract();
 
     clouds_uniform_buffer
         .buffer

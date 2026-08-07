@@ -17,15 +17,6 @@ fn remap(v: f32, s: f32, e: f32) -> f32 {
     return (v - s) / (e - s);
 }
 
-fn save_camera(camera: mat4x4f, frag_coord: vec2f, ray_origin: vec3f) -> vec4f {
-    if frag_coord.x < 2.0 { return camera[0]; }
-    if frag_coord.x < 3.0 { return camera[1]; }
-    if frag_coord.x < 4.0 { return camera[2]; }
-    if frag_coord.x < 5.0 { return camera[3]; }
-
-    return vec4f(0.0);
-}
-
 fn mod_tile(v: vec3f, tile: f32) -> vec3f {
     return (v % vec3f(tile) + vec3f(tile)) % vec3f(tile);
 }

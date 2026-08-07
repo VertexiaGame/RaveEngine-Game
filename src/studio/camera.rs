@@ -71,11 +71,13 @@ pub fn disable_camera_on_ui_interaction(
     mut camera_query: Query<&mut bevy::camera_controller::free_camera::FreeCameraState>,
     mut contexts: bevy_egui::EguiContexts,
     mut picking_settings: ResMut<bevy::picking::PickingSettings>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     hover_state: Res<crate::studio::tools::HoverState>,
     onboarding_state: Res<State<crate::studio::tools::OnboardingState>>,
     playtest: Option<Res<crate::client::PlaytestState>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    mut last_cursor_position: Local<Option<Vec2>>,
 ) {
     let onboarding_active = *onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
     let playtesting_active = playtest.map_or(false, |p| p.active);
@@ -88,12 +90,34 @@ pub fn disable_camera_on_ui_interaction(
     ]);
     let camera_moving = right_mouse_held || movement_keys_held;
 
+    let mut cursor_moved = false;
+    if let Ok(window) = windows.single() {
+        if let Some(cursor_pos) = window.cursor_position() {
+            cursor_moved = last_cursor_position
+                .map_or(true, |last| cursor_pos.distance_squared(last) > 0.0001);
+            if cursor_moved {
+                *last_cursor_position = Some(cursor_pos);
+            }
+        } else {
+            *last_cursor_position = None;
+            cursor_moved = true;
+        }
+    }
+
+    let mouse_pressed = mouse_buttons.any_pressed([
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ]);
+
     if let Ok(ctx) = contexts.ctx_mut() {
         let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui || onboarding_active || playtesting_active;
         for mut state in &mut camera_query {
             state.enabled = !wants_input;
         }
-        picking_settings.is_enabled = !wants_input && !camera_moving;
+        picking_settings.is_enabled = !wants_input && !camera_moving && (cursor_moved || mouse_pressed);
     }
 }
 

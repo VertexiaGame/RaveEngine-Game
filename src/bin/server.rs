@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::log::LogPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::app::ScheduleRunnerPlugin;
 use RaveEngineLib::server::ServerPlugin;
 use RaveEngineLib::common::CommonPlugin;
 #[cfg(feature = "bench")]
@@ -125,7 +126,18 @@ fn main() {
         filter: "wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=debug,lightyear_udp=trace,lightyear_netcode=trace,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off".to_string(),
         ..default()
     });
-    app.add_plugins(MinimalPlugins);
+    #[cfg(feature = "bench")]
+    {
+        if bench_mode {
+            app.add_plugins(MinimalPlugins);
+        } else {
+            app.add_plugins(MinimalPlugins
+                .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::from_millis(16))));
+        }
+    }
+    #[cfg(not(feature = "bench"))]
+    app.add_plugins(MinimalPlugins
+        .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::from_millis(16))));
     app.add_plugins(AssetPlugin::default());
     app.init_asset::<Mesh>();
     app.add_plugins(StatesPlugin);

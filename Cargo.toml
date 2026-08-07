@@ -50,6 +50,9 @@ mlua = { version = "0.12", features = ["luau", "luau-jit", "send", "serde", "mac
 [features]
 bench = []
 
+[dev-dependencies]
+naga = { version = "29.0.4", features = ["wgsl-in"] }
+
 [profile.dev]
 opt-level = 1
 

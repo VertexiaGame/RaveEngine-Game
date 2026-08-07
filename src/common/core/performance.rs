@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy::winit::{WinitSettings, UpdateMode};
 use bevy::window::{PrimaryWindow, WindowMode};
-use bevy::camera_controller::free_camera::FreeCamera;
 use std::time::Duration;
 
 #[derive(Component)]
@@ -38,24 +37,19 @@ impl Plugin for PerformancePlugin {
 
 pub fn manage_winit_performance(
     mut winit_settings: ResMut<WinitSettings>,
-    selection: Option<Res<crate::studio::tools::Selection>>,
     drag_state: Option<Res<crate::studio::tools::DragState>>,
     part_drag_state: Option<Res<crate::studio::tools::PartDragState>>,
     physics_state: Option<Res<crate::common::game::physics::PhysicsSimulationState>>,
-    camera_query: Query<(Entity, &Transform), (With<Camera3d>, With<FreeCamera>)>,
+    camera_query: Query<(Entity, &Transform), With<Camera3d>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut prev_transforms: Query<&mut PreviousTransform>,
     mut commands: Commands,
     mut last_mouse_position: Local<Option<Vec2>>,
     mut last_mouse_movement_time: Local<f32>,
+    mouse_buttons: Option<Res<ButtonInput<MouseButton>>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
 ) {
-    if selection.is_none() {
-        winit_settings.focused_mode = UpdateMode::Continuous;
-        winit_settings.unfocused_mode = UpdateMode::Continuous;
-        return;
-    }
-
     let current_time = time.elapsed_secs();
     
     let mut is_hovered = false;
@@ -82,9 +76,24 @@ pub fn manage_winit_performance(
     }
 
     let time_since_last_move = current_time - *last_mouse_movement_time;
-    let is_mouse_active = is_hovered && (time_since_last_move < 30.0);
+    let is_mouse_active = is_hovered && (time_since_last_move < 3.0);
 
-    let mut is_active = is_fullscreen || is_mouse_active;
+    let buttons_pressed = mouse_buttons.is_some_and(|b| b.any_pressed([
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ]));
+    let keys_pressed = keys.is_some_and(|k| k.any_pressed([
+        KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD,
+        KeyCode::KeyQ, KeyCode::KeyE, KeyCode::ArrowUp, KeyCode::ArrowDown,
+        KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Space,
+        KeyCode::ShiftLeft, KeyCode::ShiftRight,
+        KeyCode::ControlLeft, KeyCode::ControlRight,
+    ]));
+
+    let mut is_active = is_fullscreen || is_mouse_active || buttons_pressed || keys_pressed;
 
     if let Some(ds) = drag_state {
         if ds.active {
@@ -96,8 +105,11 @@ pub fn manage_winit_performance(
             is_active = true;
         }
     }
+
+    let mut physics_running = false;
     if let Some(ps) = physics_state {
         if *ps == crate::common::game::physics::PhysicsSimulationState::Running {
+            physics_running = true;
             is_active = true;
         }
     }
@@ -119,6 +131,12 @@ pub fn manage_winit_performance(
     if is_active {
         winit_settings.focused_mode = UpdateMode::Continuous;
     } else {
-        winit_settings.focused_mode = UpdateMode::reactive(Duration::from_millis(16));
+        winit_settings.focused_mode = UpdateMode::reactive(Duration::from_secs(60));
+    }
+
+    if physics_running {
+        winit_settings.unfocused_mode = UpdateMode::Continuous;
+    } else {
+        winit_settings.unfocused_mode = UpdateMode::reactive_low_power(Duration::from_secs(60));
     }
 }

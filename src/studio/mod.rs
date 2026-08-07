@@ -98,7 +98,9 @@ impl Plugin for StudioPlugin {
             .add_systems(Update, ui::resources::cleanup_play_processes_on_exit)
             .add_systems(
                 PostUpdate,
-                tools::correct_child_transforms.after(bevy::transform::TransformSystems::Propagate),
+                tools::correct_child_transforms
+                    .run_if(tools::any_brick_transform_changed)
+                    .after(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);
     }
