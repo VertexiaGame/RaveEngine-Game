@@ -4,7 +4,7 @@ param(
     [string]$MapPath = "assets/maps/temp_playtest.vrtx",
     [int]$Frames = 500,
     [int]$WarmupFrames = 100,
-    [ValidateSet("server", "client", "studio", "all")]
+    [ValidateSet("server", "bricks", "client", "studio", "all")]
     [string]$Scenario = "server"
 )
 
@@ -64,6 +64,13 @@ pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usi
     $studioMarker = [Array]::IndexOf($studioSource, 'fn spawn_studio_benchmark(mut commands: Commands) {')
     if ($studioMarker -lt 1) { throw "Studio benchmark harness marker not found" }
     Add-Content -LiteralPath (Join-Path $Worktree "src/studio/mod.rs") -Value ("`n" + ($studioSource[($studioMarker - 1)..($studioSource.Count - 1)] -join "`n"))
+
+    $bricksPath = Join-Path $Worktree "src/common/game/bricks/mod.rs"
+    $bricksSource = Get-Content -LiteralPath (Join-Path $repo "src/common/game/bricks/mod.rs")
+    $bricksMarker = [Array]::IndexOf($bricksSource, 'fn spawn_bricks_benchmark(mut commands: Commands) {')
+    if ($bricksMarker -lt 1) { throw "Bricks benchmark harness marker not found" }
+    Add-Content -LiteralPath $bricksPath -Value ("`n" + ($bricksSource[($bricksMarker - 1)..($bricksSource.Count - 1)] -join "`n"))
+
     if (-not $hasBenchFeature) {
         Add-Content -LiteralPath (Join-Path $Worktree "Cargo.toml") -Value "`n[features]`nbench = []"
     }
@@ -76,7 +83,13 @@ function Run-Bench {
     Push-Location $Worktree
     try {
         Invoke-Native { cargo build --release --features bench --bin RaveEngineServer } "Build failed for $Commit"
-        $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        try {
+            $result = & .\target\release\RaveEngineServer.exe --benchmark --bench-scenario $BenchScenario --bench-frames $Frames --bench-warmup $WarmupFrames --map $MapPath 2>&1
+        } finally {
+            $ErrorActionPreference = $eap
+        }
         if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $Commit" }
         $jsonLine = $result | Select-String '^\{"scenario"' | Select-Object -Last 1
         if (-not $jsonLine) { throw "No JSON output from benchmark for $Commit" }
@@ -100,7 +113,7 @@ try {
         return "+$pct% (slower)"
     }
 
-    $scenarios = if ($Scenario -eq "all") { @("server", "client", "studio") } else { @($Scenario) }
+    $scenarios = if ($Scenario -eq "all") { @("server", "bricks", "client", "studio") } else { @($Scenario) }
     foreach ($benchScenario in $scenarios) {
         $beforeFile = Run-Bench "before" $beforeWorktree $beforeHash $benchScenario
         $afterFile = Run-Bench "after" $afterWorktree $afterHash $benchScenario

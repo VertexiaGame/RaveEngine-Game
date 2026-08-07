@@ -1,15 +1,17 @@
 pub mod player;
+pub mod sky;
 pub mod ui;
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
-use bevy::light::ShadowFilteringMethod;
 use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
 use crate::client::ui::chat_container::ChatContState;
 use crate::client::ui::{ChatboxState, chat_container};
-use crate::common::game::bricks::components::{Brick, BrickShapeComponent};
+use crate::common::game::bricks::components::{Brick, BrickShapeComponent, BrickStuds};
+use crate::common::game::bricks::studs;
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
+use crate::common::game::bricks::{plain_material_for_color, studs_material_for_color};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
 use bevy_egui::{EguiContexts, egui};
@@ -77,6 +79,7 @@ impl Plugin for ClientPlugin {
             .init_resource::<PlaytestState>()
             .init_resource::<StudioPlaytestPhysicsState>()
             .add_plugins(player::PlayerPlugin)
+            .add_plugins(sky::SkyPlugin)
             .add_plugins(crate::common::net::ProtocolPlugin)
             .add_systems(Startup, (
                 setup_physics_initializer,
@@ -99,8 +102,9 @@ impl Plugin for ClientPlugin {
                 handle_kick_message,
                 handle_auth_success,
             ).run_if(is_playtesting))
-            .add_systems(Update, cleanup_orphaned_visuals)
-            .add_systems(Update, send_chat_message);
+            .add_systems(Update, send_chat_message)
+            .add_systems(Update, sync_brick_studs_to_material)
+            .add_systems(Update, cleanup_orphaned_visuals);
             #[cfg(debug_assertions)]
             app.add_systems(Update, (
                 debug_cameras,
@@ -141,9 +145,6 @@ fn setup_physics_initializer(
         StartupCamera,
         Transform::from_xyz(0.0, 15.0, 30.0).looking_at(Vec3::ZERO, Vec3::Y),
         Msaa::Sample4,
-        Hdr,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
-        ShadowFilteringMethod::Gaussian,
         bevy_egui::PrimaryEguiContext,
     ));
     commands.spawn((
@@ -153,7 +154,7 @@ fn setup_physics_initializer(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Hdr,
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
         bevy::ui::prelude::IsDefaultUiCamera,
     ));
 }
@@ -188,33 +189,21 @@ fn initialize_client_physics(
 }
 
 fn sync_network_transforms_to_client(
-    time: Res<Time>,
     mut query: Query<(
         &NetworkTransform,
         &mut Transform,
-        Option<&crate::common::net::components::Player>,
-        Option<&LocalPlayer>,
     ), Without<Replicate>>,
-    camera_query: Query<&player::CameraSettings, With<player::PlayerCamera>>,
 ) {
-    let lerp_factor = (25.0 * time.delta_secs()).min(1.0);
-    let in_first_person = camera_query.iter().next().map(|s| s.distance <= 0.6).unwrap_or(false);
-
-    for (net_transform, mut transform, player_opt, local_opt) in &mut query {
+    for (net_transform, mut transform) in &mut query {
+        if transform.translation == net_transform.translation
+            && transform.rotation == net_transform.rotation
+            && transform.scale == net_transform.scale
+        {
+            continue;
+        }
         transform.translation = net_transform.translation;
         transform.scale = net_transform.scale;
-
-        if player_opt.is_some() {
-            if local_opt.is_some() {
-                if !in_first_person {
-                    transform.rotation = transform.rotation.slerp(net_transform.rotation, lerp_factor);
-                }
-            } else {
-                transform.rotation = transform.rotation.slerp(net_transform.rotation, lerp_factor);
-            }
-        } else {
-            transform.rotation = net_transform.rotation;
-        }
+        transform.rotation = net_transform.rotation;
     }
 }
 
@@ -223,6 +212,7 @@ fn send_player_inputs(
     camera_query: Query<(&Transform, &player::CameraSettings), With<player::PlayerCamera>>,
     mut sender_query: Query<&mut MessageSender<crate::common::net::messages::PlayerInputMessage>>,
     mut contexts: EguiContexts,
+    mut last_sent: Local<Option<(crate::common::net::messages::PlayerInputMessage, std::time::Instant)>>,
 ) {
     let wants_keyboard = if let Ok(ctx) = contexts.ctx_mut() {
         ctx.egui_wants_keyboard_input()
@@ -261,7 +251,17 @@ fn send_player_inputs(
         in_first_person,
     };
 
-    let _ = sender.send::<crate::common::net::messages::GameChannel>(message);
+    let now = std::time::Instant::now();
+    let send = match &*last_sent {
+        Some((last, at)) => {
+            *last != message || now.duration_since(*at) >= std::time::Duration::from_millis(100)
+        }
+        None => true,
+    };
+    if send {
+        *last_sent = Some((message.clone(), now));
+        let _ = sender.send::<crate::common::net::messages::InputChannel>(message);
+    }
 }
 
 fn on_client_connected(
@@ -397,9 +397,6 @@ fn sync_local_player(
                 },
                 Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
                 Msaa::Sample4,
-                Hdr,
-                bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
-                ShadowFilteringMethod::Gaussian,
             ));
 
             if std::env::var("VERTIGO_APP").unwrap_or_default() == "client" {
@@ -442,10 +439,13 @@ fn on_brick_added(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     studs_assets: Res<StudsAssets>,
     name_query: Query<&Name>,
     shape_query: Query<&BrickShapeComponent>,
     color_query: Query<&crate::common::game::bricks::components::BrickColor>,
+    studs_query: Query<&BrickStuds>,
+    workspace_studs: Option<Res<crate::common::game::bricks::WorkspaceShowStuds>>,
     mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
 ) {
     let entity = trigger.entity;
@@ -472,43 +472,62 @@ fn on_brick_added(
     } else {
         let name_opt = name_query.get(entity).ok().map(|n| n.as_str());
         if name_opt == Some("Baseplate") {
-            Color::srgb(0.28, 0.62, 0.32)
+            Color::srgb(0.18, 0.38, 0.18)
         } else {
             Color::srgb(0.84, 0.24, 0.16)
         }
     };
 
-    let srgba = base_color.to_srgba();
-    let cache_key = [
-        srgba.red.to_bits(),
-        srgba.green.to_bits(),
-        srgba.blue.to_bits(),
-        srgba.alpha.to_bits(),
-    ];
+    let show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true)
+        && workspace_studs.map(|w| w.enabled).unwrap_or(true);
 
-    let material_handle = if let Some(existing) = cache.studs_materials.get(&cache_key) {
-        existing.clone()
+    let mut entity_cmd = commands.entity(entity);
+    entity_cmd.insert(Mesh3d(mesh_handle));
+    if show_studs {
+        entity_cmd.insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
     } else {
-        let new_mat = studs_materials.add(ExtendedMaterial {
-            base: StandardMaterial {
-                base_color,
-                perceptual_roughness: 0.9,
-                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-                ..default()
-            },
-            extension: StudsExtension {
-                stud_texture: studs_assets.stud.clone(),
-                inlet_texture: studs_assets.inlet.clone(),
-            },
-        });
-        cache.studs_materials.insert(cache_key, new_mat.clone());
-        new_mat
-    };
+        entity_cmd.insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
+    }
+}
 
-    commands.entity(entity).insert((
-        Mesh3d(mesh_handle),
-        MeshMaterial3d(material_handle),
-    ));
+fn sync_brick_studs_to_material(
+    mut commands: Commands,
+    query: Query<(
+        Entity,
+        &BrickStuds,
+        &crate::common::game::bricks::components::BrickColor,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
+    ), (Changed<BrickStuds>, With<Brick>)>,
+    workspace_studs: Option<Res<crate::common::game::bricks::WorkspaceShowStuds>>,
+    mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
+    mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
+    studs_assets: Option<Res<StudsAssets>>,
+) {
+    let Some(studs_assets) = studs_assets else { return };
+    let show_studs_globally = workspace_studs.map(|w| w.enabled).unwrap_or(true);
+    for (entity, studs, brick_color, studs_material, plain_material) in &query {
+        let base_color = if let Some(studs_mat_handle) = studs_material {
+            studs_materials
+                .get(&studs_mat_handle.0)
+                .map(|mat| mat.base.base_color)
+                .unwrap_or(brick_color.color)
+        } else if let Some(plain_mat_handle) = plain_material {
+            plain_materials
+                .get(&plain_mat_handle.0)
+                .map(|mat| mat.base.base_color)
+                .unwrap_or(brick_color.color)
+        } else {
+            brick_color.color
+        };
+
+        if show_studs_globally && studs.enabled {
+            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
+        } else {
+            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
+        }
+    }
 }
 
 fn on_network_transform_added(
@@ -594,39 +613,22 @@ fn sync_predicted_interpolated_transforms(
 fn sync_brick_color_to_material(
     mut commands: Commands,
     query: Query<(Entity, &crate::common::game::bricks::components::BrickColor), Changed<crate::common::game::bricks::components::BrickColor>>,
+    studs_query: Query<&BrickStuds>,
     mut cache: ResMut<crate::common::game::bricks::BrickMaterialCache>,
     mut studs_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
-    studs_assets: Res<StudsAssets>,
+    mut plain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
+    studs_assets: Option<Res<StudsAssets>>,
 ) {
+    let Some(studs_assets) = studs_assets else { return };
     for (entity, brick_color) in &query {
         let base_color = brick_color.color;
-        let srgba = base_color.to_srgba();
-        let cache_key = [
-            srgba.red.to_bits(),
-            srgba.green.to_bits(),
-            srgba.blue.to_bits(),
-            srgba.alpha.to_bits(),
-        ];
+        let show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true);
 
-        let material_handle = if let Some(existing) = cache.studs_materials.get(&cache_key) {
-            existing.clone()
+        if show_studs {
+            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
         } else {
-            let new_mat = studs_materials.add(ExtendedMaterial {
-                base: StandardMaterial {
-                    base_color,
-                    perceptual_roughness: 0.9,
-                    alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-                    ..default()
-                },
-                extension: StudsExtension {
-                    stud_texture: studs_assets.stud.clone(),
-                    inlet_texture: studs_assets.inlet.clone(),
-                },
-            });
-            cache.studs_materials.insert(cache_key, new_mat.clone());
-            new_mat
-        };
-        commands.entity(entity).insert(MeshMaterial3d(material_handle));
+            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
+        }
     }
 }
 

@@ -34,7 +34,7 @@ pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usi
 pub struct UiResources<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     pub studs_materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     pub studs_assets: Res<'w, crate::common::game::bricks::studs::StudsAssets>,
     pub count: ResMut<'w, crate::common::game::bricks::data::BrickSpawnerCount>,
@@ -46,7 +46,8 @@ pub struct UiResources<'w, 's> {
     pub gravity: Option<ResMut<'w, avian3d::prelude::Gravity>>,
     pub brick_colors: Query<'w, 's, &'static mut crate::common::game::bricks::components::BrickColor>,
     pub players_service: Option<ResMut<'w, crate::studio::tools::PlayersService>>,
-    pub lighting_service: Option<ResMut<'w, crate::common::game::environment::lighting::LightingService>>,
+    pub lighting_config: ResMut<'w, crate::client::sky::LightingConfig>,
+    pub workspace_studs: ResMut<'w, crate::common::game::bricks::WorkspaceShowStuds>,
 }
 
 #[derive(SystemParam)]
@@ -74,6 +75,7 @@ pub struct UiStateResources<'w> {
     pub playtest_backup: ResMut<'w, crate::studio::ui::resources::PlaytestBackup>,
     pub active_editor: ResMut<'w, ActiveScriptEditor>,
     pub file_dialog_state: ResMut<'w, FileDialogState>,
+    pub output_panel: ResMut<'w, panels::output::OutputPanelState>,
 }
 
 #[derive(SystemParam)]
@@ -101,7 +103,7 @@ pub struct UiQueries<'w, 's> {
             Option<&'static mut crate::common::game::bricks::components::BrickShapeComponent>,
             &'static GlobalTransform,
             Option<&'static Mesh3d>,
-            Option<&'static MeshMaterial3d<StandardMaterial>>,
+            Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
             Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
             Option<&'static mut crate::common::game::bricks::components::BrickPhysics>,
         ),
@@ -122,6 +124,7 @@ pub struct UiQueries<'w, 's> {
         ),
         Without<Camera3d>,
     >,
+    pub studs_query: Query<'w, 's, &'static crate::common::game::bricks::components::BrickStuds>,
     pub playtest_client_query: Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
     pub playtest_cameras: Query<'w, 's, Entity, With<crate::client::player::PlayerCamera>>,
@@ -283,6 +286,7 @@ pub fn studio_ui(
                                                 code: script_data.code,
                                                 enabled: script_data.enabled,
                                                 started: false,
+                                                running_code: String::new(),
                                             });
                                         }
                                         1 => {
@@ -291,6 +295,7 @@ pub fn studio_ui(
                                                     code: script_data.code,
                                                     enabled: script_data.enabled,
                                                     started: false,
+                                                    running_code: String::new(),
                                                 },
                                                 lightyear::prelude::Replicate::default(),
                                             ));
@@ -323,14 +328,6 @@ pub fn studio_ui(
                                     }
                                     if let Ok(mut shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.write() {
                                         *shared = ps_val;
-                                    }
-                                }
-                                if let Some(ls_val) = ui_state.playtest_backup.lighting_service.take() {
-                                    if let Some(ref mut ls) = ui_res.lighting_service {
-                                        **ls = ls_val.clone();
-                                    }
-                                    if let Ok(mut shared) = crate::studio::tools::SHARED_LIGHTING_SERVICE.write() {
-                                        *shared = ls_val.time_of_day;
                                     }
                                 }
                             }
@@ -375,6 +372,7 @@ pub fn studio_ui(
                 &mut ui_res.physics_action_writer,
                 &mut ui_state.settings_window,
                 &mut ui_state.graphics_settings,
+                &mut ui_res.lighting_config,
                 &mut ui_res.gravity,
                 &mut queries.camera_transform_query,
                 &mut queries.entities_query,
@@ -387,8 +385,9 @@ pub fn studio_ui(
                 &queries.explorer_query,
                 onboarding_active,
                 &mut ui_res.players_service,
-                &mut ui_res.lighting_service,
                 &ui_state.file_dialog_state,
+                &queries.studs_query,
+                &ui_res.workspace_studs,
             );
         });
 
@@ -451,6 +450,7 @@ pub fn studio_ui(
                                     script_tex,
                                     localscript_tex,
                                     modulescript_tex,
+                                    &queries.studs_query,
                                 );
                             });
                     }
@@ -496,6 +496,8 @@ pub fn studio_ui(
                                 &mut ui_res.studs_materials,
                                 &queries.explorer_query,
                                 &mut ui_state.active_editor,
+                                &queries.studs_query,
+                                &ui_res.workspace_studs,
                             );
                         });
                 } else if ui_state.selection.workspace_selected {
@@ -531,6 +533,7 @@ pub fn studio_ui(
                             panels::draw_workspace_properties(
                                 ui,
                                 &mut ui_res.gravity,
+                                &mut ui_res.workspace_studs,
                             );
                         });
                 } else if ui_state.selection.players_selected {
@@ -600,7 +603,7 @@ pub fn studio_ui(
                         .show(ui, |ui| {
                             panels::draw_lighting_properties(
                                 ui,
-                                &mut ui_res.lighting_service,
+                                &mut ui_res.lighting_config,
                             );
                         });
                 }
@@ -636,6 +639,24 @@ pub fn studio_ui(
         }
     }
 
+    let output_panel_res = if !onboarding_active {
+        Some(
+            egui::Panel::bottom("output_panel")
+                .frame(egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(250, 250, 250))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                )
+                .resizable(true)
+                .default_height(220.0)
+                .min_height(100.0)
+                .show(ctx, |ui| {
+                    panels::draw_output(ui, &mut ui_state.output_panel, &queries.explorer_query);
+                }),
+        )
+    } else {
+        None
+    };
+
     if ui_state.settings_window.open {
         panels::draw_settings_window(ctx, &mut ui_state.settings_window.open, &mut ui_state.graphics_settings);
     }
@@ -660,6 +681,7 @@ pub fn studio_ui(
                         &mut ui_state.copiedbuffer,
                         &queries.entities_query,
                         &mut ui_res.history,
+                        &queries.studs_query,
                     )
                 })
             });
@@ -1027,12 +1049,14 @@ pub fn studio_ui(
                                     code: current_source.clone(),
                                     enabled: server_script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             } else if let Some(local_script) = local_opt {
                                 e_cmd.insert(crate::scripting::ecs::LocalScript {
                                     code: current_source.clone(),
                                     enabled: local_script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             } else if module_opt.is_some() {
                                 e_cmd.insert(crate::scripting::ecs::ModuleScript {
@@ -1057,6 +1081,11 @@ pub fn studio_ui(
         if panel_res.response.rect.contains(pos) {
             is_hovering_ui = true;
         }
+        if let Some(output_res) = &output_panel_res {
+            if output_res.response.rect.contains(pos) {
+                is_hovering_ui = true;
+            }
+        }
         if let Some(rect) = script_editor_rect {
             if rect.contains(pos) {
                 is_hovering_ui = true;
@@ -1079,6 +1108,7 @@ pub fn studio_ui(
             &mut ui_res.studs_materials,
             &ui_res.studs_assets,
             &mut ui_res.count,
+            &mut ui_res.lighting_config,
             thumb_empty_tex,
             thumb_baseplate_tex,
             &ui_state.file_dialog_state,

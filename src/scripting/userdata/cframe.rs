@@ -8,6 +8,13 @@ pub struct CFrame {
     pub rotation: Quat,
 }
 
+impl CFrame {
+    pub fn to_euler(&self) -> (f32, f32, f32) {
+        let (x, y, z) = self.rotation.to_euler(EulerRot::XYZ);
+        (x + 0.0, y + 0.0, z + 0.0)
+    }
+}
+
 impl LuaUserData for CFrame {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(LuaMetaMethod::Mul, |lua, this, other: LuaValue| {
@@ -29,15 +36,36 @@ impl LuaUserData for CFrame {
         });
 
         methods.add_meta_method(LuaMetaMethod::ToString, |_, this, _: ()| {
-            Ok(format!("Position: {:?}, Rotation: {:?}", this.position, this.rotation))
+            let (x, y, z) = (this.position.x, this.position.y, this.position.z);
+            let (rx, ry, rz) = this.to_euler();
+            Ok(format!("{}, {}, {}, {}, {}, {}", x, y, z, rx, ry, rz))
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |_, this, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: String| {
+            let this = *this;
             match key.as_str() {
-                "Position" => Ok(Some(Vector3(this.position))),
-                "LookVector" => Ok(Some(Vector3(this.rotation.mul_vec3(Vec3::NEG_Z)))),
-                "RightVector" => Ok(Some(Vector3(this.rotation.mul_vec3(Vec3::X)))),
-                "UpVector" => Ok(Some(Vector3(this.rotation.mul_vec3(Vec3::Y)))),
+                "Position" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.position))?))),
+                "LookVector" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.rotation.mul_vec3(Vec3::NEG_Z).normalize_or_zero()))?))),
+                "RightVector" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.rotation.mul_vec3(Vec3::X).normalize_or_zero()))?))),
+                "UpVector" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.rotation.mul_vec3(Vec3::Y).normalize_or_zero()))?))),
+                "Lerp" => Ok(Some(LuaValue::Function(lua.create_function(move |lua, args: LuaMultiValue| {
+                    let goal = args.iter().rev().find_map(|v| match v {
+                        LuaValue::UserData(ud) => ud.borrow::<CFrame>().ok().map(|r| *r),
+                        _ => None,
+                    }).ok_or_else(|| mlua::Error::RuntimeError("CFrame expected for Lerp".to_string()))?;
+                    let alpha = args.iter().rev().find_map(|v| match v {
+                        LuaValue::Number(n) => Some(*n as f32),
+                        LuaValue::Integer(i) => Some(*i as f32),
+                        _ => None,
+                    }).ok_or_else(|| mlua::Error::RuntimeError("Lerp expects an alpha number".to_string()))?;
+                    let pos = this.position.lerp(goal.position, alpha);
+                    let rot = this.rotation.slerp(goal.rotation, alpha);
+                    lua.create_userdata(CFrame { position: pos, rotation: rot }).map(LuaValue::UserData)
+                })?))),
+                "ToEulerAnglesXYZ" => Ok(Some(LuaValue::Function(lua.create_function(move |lua, _: ()| {
+                    let (rx, ry, rz) = this.to_euler();
+                    lua.create_userdata(Vector3(Vec3::new(rx, ry, rz))).map(LuaValue::UserData)
+                })?))),
                 _ => Ok(None),
             }
         });

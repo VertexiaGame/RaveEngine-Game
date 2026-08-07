@@ -7,9 +7,13 @@ pub struct RunService;
 
 impl LuaUserData for RunService {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method(LuaMetaMethod::Eq, |_, _, other: LuaAnyUserData| {
+            Ok(other.is::<RunService>())
+        });
+
         methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: String| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-            let world = unsafe { &mut *world_ref.0 };
+            let world = unsafe { &*world_ref.0 };
 
             match key.as_str() {
                 "ClassName" => Ok(LuaValue::String(lua.create_string("RunService")?)),

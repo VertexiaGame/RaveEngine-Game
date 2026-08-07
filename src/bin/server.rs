@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::log::LogPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::app::ScheduleRunnerPlugin;
 use RaveEngineLib::server::ServerPlugin;
 use RaveEngineLib::common::CommonPlugin;
 #[cfg(feature = "bench")]
@@ -125,7 +126,18 @@ fn main() {
         filter: "wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=debug,lightyear_udp=trace,lightyear_netcode=trace,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off".to_string(),
         ..default()
     });
-    app.add_plugins(MinimalPlugins);
+    #[cfg(feature = "bench")]
+    {
+        if bench_mode {
+            app.add_plugins(MinimalPlugins);
+        } else {
+            app.add_plugins(MinimalPlugins
+                .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::from_millis(16))));
+        }
+    }
+    #[cfg(not(feature = "bench"))]
+    app.add_plugins(MinimalPlugins
+        .set(ScheduleRunnerPlugin::run_loop(std::time::Duration::from_millis(16))));
     app.add_plugins(AssetPlugin::default());
     app.init_asset::<Mesh>();
     app.add_plugins(StatesPlugin);
@@ -140,7 +152,7 @@ fn main() {
 
     #[cfg(feature = "bench")]
     if bench_mode {
-        if bench_scenario != "server" && bench_scenario != "client" && bench_scenario != "studio" {
+        if bench_scenario != "server" && bench_scenario != "client" && bench_scenario != "studio" && bench_scenario != "bricks" {
             panic!("unsupported benchmark scenario: {bench_scenario}");
         }
         app.world_mut()
@@ -151,8 +163,10 @@ fn main() {
             app.add_systems(Update, bench_move_players);
         } else if bench_scenario == "client" {
             RaveEngineLib::client::add_client_benchmark(&mut app);
-        } else {
+        } else if bench_scenario == "studio" {
             RaveEngineLib::studio::add_studio_benchmark(&mut app);
+        } else {
+            RaveEngineLib::common::game::bricks::add_bricks_benchmark(&mut app);
         }
         info!("BENCH: Running {} with {} warmup and {} measured frames", bench_scenario, bench_warmup, bench_frames);
     }

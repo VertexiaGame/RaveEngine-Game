@@ -4,12 +4,13 @@ use bevy::prelude::*;
 pub struct CopiedEntityBuffer {
     pub transform: Option<Transform>,
     pub mesh: Option<Mesh3d>,
-    pub material: Option<MeshMaterial3d<StandardMaterial>>,
+    pub material: Option<MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     pub studs_material: Option<MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     pub name: Option<String>,
     pub is_brick: bool,
     pub shape: crate::common::game::bricks::components::BrickShape,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
+    pub show_studs: bool,
 }
 
 #[derive(Resource, Default)]
@@ -33,7 +34,6 @@ pub struct PlaytestBackup {
     pub scripts: Vec<crate::common::core::vrtx::VrtxScript>,
     pub gravity: Option<Vec3>,
     pub players_service: Option<crate::studio::tools::PlayersService>,
-    pub lighting_service: Option<crate::common::game::environment::lighting::LightingService>,
 }
 
 #[derive(Component)]
@@ -89,11 +89,13 @@ pub fn handle_file_dialog_results(
     mut commands: Commands,
     file_dialog_state: Res<FileDialogState>,
     mut onboarding_data: ResMut<crate::studio::ui::panels::onboarding::OnboardingData>,
+    mut next_onboarding_state: ResMut<NextState<crate::studio::tools::OnboardingState>>,
     mut graphics_settings: ResMut<crate::common::core::performance::GraphicsSettings>,
+    mut lighting_config: Option<ResMut<crate::client::sky::LightingConfig>>,
     mut gravity: Option<ResMut<avian3d::prelude::Gravity>>,
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+    materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
+    studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
     entities_query: Query<(Entity, Option<&crate::common::game::bricks::components::Brick>), Without<Camera3d>>,
     explorer_query: Query<(Entity, Option<&crate::scripting::ecs::ServerScript>, Option<&crate::scripting::ecs::LocalScript>, Option<&crate::scripting::ecs::ModuleScript>), Without<Camera3d>>,
     save_query: Query<(
@@ -106,7 +108,7 @@ pub fn handle_file_dialog_results(
         Option<&crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
@@ -120,6 +122,7 @@ pub fn handle_file_dialog_results(
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
     ), Without<Camera3d>>,
+    studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
 ) {
     let rx = file_dialog_state.rx.lock().unwrap();
     while let Ok(result) = rx.try_recv() {
@@ -132,6 +135,10 @@ pub fn handle_file_dialog_results(
                 let open_path_str = path.display().to_string();
                 if let Ok(state) = crate::common::core::vrtx::VrtxFileState::load_from_file(&open_path_str) {
                     onboarding_data.save_path = open_path_str;
+                    if onboarding_data.quick_open {
+                        onboarding_data.quick_open = false;
+                        next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
+                    }
                     for (entity, brick_opt) in &entities_query {
                         if brick_opt.is_some() {
                             commands.entity(entity).try_despawn();
@@ -145,6 +152,9 @@ pub fn handle_file_dialog_results(
                     graphics_settings.ssao = state.settings.ssao;
                     graphics_settings.contact_shadows = state.settings.contact_shadows;
                     graphics_settings.bloom = state.settings.bloom;
+                    if let Some(mut lighting) = lighting_config.as_mut() {
+                        **lighting = state.lighting.clone().into();
+                    }
                     if let Some(ref mut g) = gravity {
                         g.0 = state.gravity;
                     }
@@ -185,6 +195,7 @@ pub fn handle_file_dialog_results(
                                     code: script.code,
                                     enabled: script.enabled,
                                     started: false,
+                                    running_code: String::new(),
                                 });
                             }
                             1 => {
@@ -193,6 +204,7 @@ pub fn handle_file_dialog_results(
                                         code: script.code,
                                         enabled: script.enabled,
                                         started: false,
+                                        running_code: String::new(),
                                     },
                                     lightyear::prelude::Replicate::default(),
                                 ));
@@ -214,6 +226,7 @@ pub fn handle_file_dialog_results(
                         }
                     }
                 }
+                onboarding_data.quick_open = false;
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             FileDialogResult::SaveAs(path) => {
@@ -221,7 +234,7 @@ pub fn handle_file_dialog_results(
                 onboarding_data.save_path = save_path_str.clone();
 
                 let mut bricks_data = Vec::new();
-                for (_, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in &save_query {
+                for (entity, transform, name, _, _, brick_opt, shape_opt, _, _, mat_opt, studs_mat_opt, phys_opt) in &save_query {
                     if brick_opt.is_some() {
                         let shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
                         let mut current_color = Color::Srgba(Srgba::new(0.84, 0.24, 0.16, 1.0));
@@ -231,7 +244,7 @@ pub fn handle_file_dialog_results(
                             }
                         } else if let Some(mat_handle) = mat_opt {
                             if let Some(mat) = materials.get(&mat_handle.0) {
-                                current_color = mat.base_color;
+                                current_color = mat.base.base_color;
                             }
                         }
                         let (physics_enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
@@ -250,6 +263,7 @@ pub fn handle_file_dialog_results(
                             friction,
                             gravity_scale,
                             mass,
+                            show_studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
                         });
                     }
                 }
@@ -299,13 +313,17 @@ pub fn handle_file_dialog_results(
                     Transform::IDENTITY
                 };
                 let state = crate::common::core::vrtx::VrtxFileState {
-                    version: 5,
+                    version: crate::common::core::vrtx::FORMAT_VERSION,
                     gravity: gravity_val,
                     settings: crate::common::core::vrtx::VrtxSettings {
                         ssao: graphics_settings.ssao,
                         contact_shadows: graphics_settings.contact_shadows,
                         bloom: graphics_settings.bloom,
                     },
+                    lighting: lighting_config
+                        .as_ref()
+                        .map(|lighting| crate::common::core::vrtx::VrtxLighting::from(&**lighting))
+                        .unwrap_or_default(),
                     camera_transform: cam_transform,
                     bricks: bricks_data,
                     scripts: scripts_data,
@@ -314,6 +332,7 @@ pub fn handle_file_dialog_results(
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
             FileDialogResult::Cancel => {
+                onboarding_data.quick_open = false;
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
             }
         }

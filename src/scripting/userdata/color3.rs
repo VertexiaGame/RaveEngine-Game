@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+﻿use bevy::prelude::*;
 use mlua::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,12 +18,22 @@ impl LuaUserData for Color3 {
             }
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |_, this, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: String| {
+            let this = *this;
             let srgba = this.0.to_srgba();
             match key.as_str() {
-                "R" | "r" => Ok(Some(srgba.red)),
-                "G" | "g" => Ok(Some(srgba.green)),
-                "B" | "b" => Ok(Some(srgba.blue)),
+                "R" | "r" => Ok(Some(LuaValue::Number(srgba.red as f64))),
+                "G" | "g" => Ok(Some(LuaValue::Number(srgba.green as f64))),
+                "B" | "b" => Ok(Some(LuaValue::Number(srgba.blue as f64))),
+                "ToHex" => Ok(Some(LuaValue::Function(lua.create_function(move |_, _: ()| {
+                    let srgba = this.0.to_srgba();
+                    Ok(format!(
+                        "#{:02X}{:02X}{:02X}",
+                        (srgba.red * 255.0).round() as u32,
+                        (srgba.green * 255.0).round() as u32,
+                        (srgba.blue * 255.0).round() as u32
+                    ))
+                })?))),
                 _ => Ok(None),
             }
         });

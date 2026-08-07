@@ -6,13 +6,18 @@ pub struct WorkspaceService;
 
 impl LuaUserData for WorkspaceService {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method(LuaMetaMethod::Eq, |_, _, other: LuaAnyUserData| {
+            Ok(other.is::<WorkspaceService>())
+        });
+
         methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: String| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-            let world = unsafe { &mut *world_ref.0 };
+            let world = unsafe { &*world_ref.0 };
 
             match key.as_str() {
                 "Gravity" => {
                     let g = world.get_resource::<avian3d::prelude::Gravity>().map(|g| -g.0.y / 0.28).unwrap_or(186.9);
+                    let g = (g * 100.0).round() / 100.0;
                     Ok(LuaValue::Number(g as f64))
                 }
                 "ClassName" => Ok(LuaValue::String(lua.create_string("Workspace")?)),

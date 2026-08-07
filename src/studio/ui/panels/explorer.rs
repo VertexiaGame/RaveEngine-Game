@@ -201,7 +201,7 @@ fn draw_entity_node(
         Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
@@ -209,6 +209,7 @@ fn draw_entity_node(
     dragged_entity: &mut ResMut<HierarchyDraggedEntity>,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     active_editor: &mut ResMut<ActiveScriptEditor>,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     workspace_tex: egui::TextureId,
     brick_tex: egui::TextureId,
     script_tex: egui::TextureId,
@@ -311,6 +312,7 @@ fn draw_entity_node(
                         copiedbuffer,
                         entities_query,
                         history,
+                        studs_query,
                     );
                 });
 
@@ -397,6 +399,7 @@ fn draw_entity_node(
                         dragged_entity,
                         history,
                         active_editor,
+                        studs_query,
                         workspace_tex,
                         brick_tex,
                         script_tex,
@@ -467,6 +470,7 @@ fn draw_entity_node(
                 copiedbuffer,
                 entities_query,
                 history,
+                studs_query,
             );
         });
 
@@ -620,7 +624,7 @@ pub fn draw_explorer(
         Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
         &GlobalTransform,
         Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
@@ -635,6 +639,7 @@ pub fn draw_explorer(
     script_tex: egui::TextureId,
     localscript_tex: egui::TextureId,
     modulescript_tex: egui::TextureId,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
 ) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Explorer").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
@@ -710,6 +715,7 @@ pub fn draw_explorer(
                 dragged_entity,
                 history,
                 active_editor,
+                studs_query,
                 workspace_tex,
                 brick_tex,
                 script_tex,

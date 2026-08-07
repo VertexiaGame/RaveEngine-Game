@@ -5,6 +5,7 @@ use super::{Player, PlayerController, CameraSettings, PlayerCamera};
 
 pub fn player_movement(
     keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
     mut player_query: Query<
         (
             Entity,
@@ -119,7 +120,14 @@ pub fn player_movement(
             let target_angle = move_direction.z.atan2(move_direction.x);
             let target_rotation =
                 Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2);
-            player_transform.rotation = player_transform.rotation.lerp(target_rotation, 0.15);
+            let angle = player_transform.rotation.angle_between(target_rotation);
+            let max_turn = 6.0 * time.delta_secs();
+            let factor = if angle > 0.0001 {
+                (max_turn / angle).min(1.0)
+            } else {
+                1.0
+            };
+            player_transform.rotation = player_transform.rotation.slerp(target_rotation, factor);
         }
     } else {
         velocity.x = 0.0;

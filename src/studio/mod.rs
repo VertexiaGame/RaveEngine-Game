@@ -38,10 +38,10 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::resources::PlayInClientProcesses>()
             .init_resource::<ui::resources::PlaytestBackup>()
             .init_resource::<ui::resources::FileDialogState>()
+            .init_resource::<ui::panels::output::OutputPanelState>()
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
             .init_resource::<tools::PlayersService>()
-            .init_resource::<crate::common::game::environment::lighting::LightingService>()
             .init_resource::<ui::panels::onboarding::OnboardingData>()
             .add_message::<tools::UndoRedoAction>()
             .insert_resource(bevy::picking::mesh_picking::MeshPickingSettings {
@@ -71,6 +71,7 @@ impl Plugin for StudioPlugin {
                     tools::handle_hover,
                     tools::update_cursor,
                     tools::handle_keyboard_shortcuts,
+                    tools::handle_delete_keys,
                     tools::handle_undo_redo_action,
                     tools::handle_marquee_selection,
                 ).run_if(in_state(tools::OnboardingState::Inactive)),
@@ -97,15 +98,16 @@ impl Plugin for StudioPlugin {
             .add_systems(Update, ui::resources::cleanup_play_processes_on_exit)
             .add_systems(
                 PostUpdate,
-                tools::correct_child_transforms.after(bevy::transform::TransformSystems::Propagate),
+                tools::correct_child_transforms
+                    .run_if(tools::any_brick_transform_changed)
+                    .after(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(EguiPrimaryContextPass, ui::studio_ui);
     }
 }
 
 #[cfg(feature = "bench")]
-fn spawn_studio_benchmark(mut commands: Commands) {
-    let target = commands.spawn((
+fn spawn_studio_benchmark(mut commands: Commands) {    let target = commands.spawn((
         Name::new("BenchBrick"),
         Transform::default(),
         GlobalTransform::default(),

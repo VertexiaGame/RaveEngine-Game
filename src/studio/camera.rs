@@ -1,11 +1,8 @@
 use bevy::prelude::*;
-use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrepass};
-use bevy::anti_alias::fxaa::Fxaa;
+use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::camera_controller::free_camera::FreeCamera;
-use bevy::camera::Hdr;
-use bevy::post_process::bloom::Bloom;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
-use bevy::light::ShadowFilteringMethod;
 
 #[derive(Component)]
 pub struct GizmoCamera;
@@ -14,15 +11,9 @@ pub fn setup_studio(
     mut commands: Commands,
     mut egui_global_settings: ResMut<bevy_egui::EguiGlobalSettings>,
     graphics_settings: Res<crate::studio::ui::GraphicsSettings>,
-    ambient: Option<ResMut<GlobalAmbientLight>>,
 ) {
     egui_global_settings.auto_create_primary_context = false;
 
-    if let Some(mut amb) = ambient {
-        amb.color = Color::srgb(0.55, 0.75, 0.95);
-        amb.brightness = 600.0;
-    }
-    
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera::default(),
@@ -31,35 +22,20 @@ pub fn setup_studio(
             fov: 80.0f32.to_radians(),
             ..default()
         }),
-        Hdr,
         Msaa::Sample4,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
         MeshPickingCamera,
         FreeCamera::default(),
         DepthPrepass,
         NormalPrepass,
         bevy::render::occlusion_culling::OcclusionCulling,
-        ShadowFilteringMethod::Gaussian,
     ));
 
-    camera.insert((
-        MotionVectorPrepass,
-        Fxaa::default(),
-    ));
-
-    let ssao_val = if graphics_settings.ssao { Some(ScreenSpaceAmbientOcclusion::default()) } else { None };
-    let contact_shadows_val = if graphics_settings.contact_shadows { Some(ContactShadows::default()) } else { None };
-    let bloom_val = if graphics_settings.bloom { Some(Bloom::default()) } else { None };
-
-    if let Some(ssao) = ssao_val.clone() {
-        camera.insert(ssao);
+    if graphics_settings.ssao {
+        camera.insert(ScreenSpaceAmbientOcclusion::default());
     }
-    if let Some(contact) = contact_shadows_val.clone() {
-        camera.insert(contact);
-    }
-    if let Some(bloom) = bloom_val.clone() {
-        camera.insert(bloom);
+    if graphics_settings.contact_shadows {
+        camera.insert(ContactShadows::default());
     }
 
     commands.spawn((
@@ -69,9 +45,8 @@ pub fn setup_studio(
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Hdr,
+        Tonemapping::None,
         Msaa::Sample4,
-        bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface,
         bevy::camera::visibility::RenderLayers::layer(1),
         bevy_egui::PrimaryEguiContext,
         GizmoCamera,
@@ -96,11 +71,13 @@ pub fn disable_camera_on_ui_interaction(
     mut camera_query: Query<&mut bevy::camera_controller::free_camera::FreeCameraState>,
     mut contexts: bevy_egui::EguiContexts,
     mut picking_settings: ResMut<bevy::picking::PickingSettings>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     hover_state: Res<crate::studio::tools::HoverState>,
     onboarding_state: Res<State<crate::studio::tools::OnboardingState>>,
     playtest: Option<Res<crate::client::PlaytestState>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    mut last_cursor_position: Local<Option<Vec2>>,
 ) {
     let onboarding_active = *onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
     let playtesting_active = playtest.map_or(false, |p| p.active);
@@ -113,12 +90,34 @@ pub fn disable_camera_on_ui_interaction(
     ]);
     let camera_moving = right_mouse_held || movement_keys_held;
 
+    let mut cursor_moved = false;
+    if let Ok(window) = windows.single() {
+        if let Some(cursor_pos) = window.cursor_position() {
+            cursor_moved = last_cursor_position
+                .map_or(true, |last| cursor_pos.distance_squared(last) > 0.0001);
+            if cursor_moved {
+                *last_cursor_position = Some(cursor_pos);
+            }
+        } else {
+            *last_cursor_position = None;
+            cursor_moved = true;
+        }
+    }
+
+    let mouse_pressed = mouse_buttons.any_pressed([
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ]);
+
     if let Ok(ctx) = contexts.ctx_mut() {
         let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui || onboarding_active || playtesting_active;
         for mut state in &mut camera_query {
             state.enabled = !wants_input;
         }
-        picking_settings.is_enabled = !wants_input && !camera_moving;
+        picking_settings.is_enabled = !wants_input && !camera_moving && (cursor_moved || mouse_pressed);
     }
 }
 
