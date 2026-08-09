@@ -219,6 +219,7 @@ impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(clouds::CloudsPlugin)
             .add_plugins(MaterialPlugin::<CustomSkyMaterial>::default())
+            .insert_resource(bevy::light::DirectionalLightShadowMap { size: 1024 })
             .init_resource::<LightingConfig>()
             .register_type::<LightingConfig>()
             .add_systems(Startup, setup_sky_environment)
@@ -227,6 +228,15 @@ impl Plugin for SkyPlugin {
 }
 
 fn setup_sky_environment(mut commands: Commands) {
+    let cascade_config = CascadeShadowConfigBuilder {
+        num_cascades: 3,
+        minimum_distance: 0.1,
+        maximum_distance: 300.0,
+        first_cascade_far_bound: 15.0,
+        overlap_proportion: 0.2,
+    }
+    .build();
+
     commands.spawn((
         DirectionalLight {
             illuminance: SUN_ILLUMINANCE,
@@ -235,14 +245,7 @@ fn setup_sky_environment(mut commands: Commands) {
             shadow_normal_bias: 0.6,
             ..default()
         },
-        CascadeShadowConfigBuilder {
-            num_cascades: 4,
-            minimum_distance: 0.1,
-            maximum_distance: 1000.0,
-            first_cascade_far_bound: 15.0,
-            overlap_proportion: 0.2,
-        }
-        .build(),
+        cascade_config.clone(),
         Transform::IDENTITY,
         SunLightEntity,
     ));
@@ -256,6 +259,7 @@ fn setup_sky_environment(mut commands: Commands) {
             shadow_normal_bias: 0.6,
             ..default()
         },
+        cascade_config,
         Transform::IDENTITY,
         MoonLightEntity,
     ));

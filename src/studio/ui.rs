@@ -48,6 +48,8 @@ pub struct UiResources<'w, 's> {
     pub players_service: Option<ResMut<'w, crate::studio::tools::PlayersService>>,
     pub lighting_config: ResMut<'w, crate::client::sky::LightingConfig>,
     pub workspace_studs: ResMut<'w, crate::common::game::bricks::WorkspaceShowStuds>,
+    pub explorer_cache: Local<'s, panels::explorer::ExplorerRowCache>,
+    pub explorer_expanded: Local<'s, std::collections::HashSet<Entity>>,
 }
 
 #[derive(SystemParam)]
@@ -125,6 +127,21 @@ pub struct UiQueries<'w, 's> {
         Without<Camera3d>,
     >,
     pub studs_query: Query<'w, 's, &'static crate::common::game::bricks::components::BrickStuds>,
+    pub explorer_changes: Query<'w, 's, (), Or<(
+        Added<Name>,
+        Changed<Name>,
+        Added<ChildOf>,
+        Changed<ChildOf>,
+        Added<Children>,
+        Changed<Children>,
+        Added<Brick>,
+        Added<crate::scripting::ecs::ServerScript>,
+        Added<crate::scripting::ecs::LocalScript>,
+        Added<crate::scripting::ecs::ModuleScript>,
+    )>>,
+    pub removed_children: RemovedComponents<'w, 's, Children>,
+    pub removed_child_of: RemovedComponents<'w, 's, ChildOf>,
+    pub removed_brick: RemovedComponents<'w, 's, Brick>,
     pub playtest_client_query: Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
     pub playtest_cameras: Query<'w, 's, Entity, With<crate::client::player::PlayerCamera>>,
@@ -429,32 +446,33 @@ pub fn studio_ui(
                     egui::vec2(ui.available_width(), explorer_height),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_source("explorer_scroll")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                panels::draw_explorer(
-                                    ui,
-                                    &mut ui_res.commands,
-                                    &mut ui_state.selection,
-                                    &queries.explorer_query,
-                                    &queries.entities_query,
-                                    &mut ui_state.copiedbuffer,
-                                    &mut ui_state.dragged_entity,
-                                    &mut ui_res.history,
-                                    &mut ui_state.active_editor,
-                                    workspace_tex,
-                                    brick_tex,
-                                    players_tex,
-                                    lighting_tex,
-                                    script_tex,
-                                    localscript_tex,
-                                    modulescript_tex,
-                                    &queries.studs_query,
-                                );
-                            });
-                    }
-                );
+                        let explorer_changed = !queries.explorer_changes.is_empty()
+                            || !queries.removed_children.is_empty()
+                            || !queries.removed_child_of.is_empty()
+                            || !queries.removed_brick.is_empty();
+                        panels::draw_explorer(
+                            ui,
+                            &mut ui_res.commands,
+                            &mut ui_state.selection,
+                            &queries.explorer_query,
+                            &queries.entities_query,
+                            &mut ui_state.copiedbuffer,
+                            &mut ui_state.dragged_entity,
+                            &mut ui_res.history,
+                            &mut ui_state.active_editor,
+                            workspace_tex,
+                            brick_tex,
+                            players_tex,
+                            lighting_tex,
+                            script_tex,
+                            localscript_tex,
+                            modulescript_tex,
+                            &queries.studs_query,
+                            &mut ui_res.explorer_cache,
+                            &mut ui_res.explorer_expanded,
+                            explorer_changed,
+                        );
+                    });
 
                 if !selected_bricks.is_empty() || !selected_scripts.is_empty() {
                     let sep_height = 20.0;

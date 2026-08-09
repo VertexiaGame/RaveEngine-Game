@@ -3,6 +3,7 @@ pub mod sky;
 pub mod ui;
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
+use bevy::ecs::change_detection::DetectChanges;
 use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use lightyear::prelude::*;
@@ -11,7 +12,6 @@ use crate::client::ui::{ChatboxState, chat_container};
 use crate::common::game::bricks::components::{Brick, BrickShapeComponent, BrickStuds};
 use crate::common::game::bricks::studs;
 use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
-use crate::common::game::bricks::{plain_material_for_color, studs_material_for_color};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
 use bevy_egui::{EguiContexts, egui};
@@ -78,6 +78,7 @@ impl Plugin for ClientPlugin {
             .init_resource::<ui::chat_container::ChatContState>()
             .init_resource::<PlaytestState>()
             .init_resource::<StudioPlaytestPhysicsState>()
+            .init_resource::<LocalPredictionState>()
             .add_plugins(player::PlayerPlugin)
             .add_plugins(sky::SkyPlugin)
             .add_plugins(crate::common::net::ProtocolPlugin)
@@ -92,6 +93,8 @@ impl Plugin for ClientPlugin {
             .add_systems(Update, (
                 sync_network_transforms_to_client,
                 sync_predicted_interpolated_transforms,
+                predict_local_player_transform,
+                interpolate_remote_player_transforms,
                 sync_brick_color_to_material,
                 send_player_inputs,
                 sync_local_player,
@@ -192,7 +195,7 @@ fn sync_network_transforms_to_client(
     mut query: Query<(
         &NetworkTransform,
         &mut Transform,
-    ), Without<Replicate>>,
+    ), (Without<Replicate>, Without<crate::common::net::components::Player>)>,
 ) {
     for (net_transform, mut transform) in &mut query {
         if transform.translation == net_transform.translation
@@ -204,6 +207,240 @@ fn sync_network_transforms_to_client(
         transform.translation = net_transform.translation;
         transform.scale = net_transform.scale;
         transform.rotation = net_transform.rotation;
+    }
+}
+
+const CLIENT_GRAVITY: f32 = -186.9 * 0.28;
+const LOCAL_ERR_SOFT_START: f32 = 0.12;
+const LOCAL_ERR_SOFT_END: f32 = 0.8;
+const REMOTE_INTERP_DELAY_SECS: f64 = 0.1;
+const REMOTE_INTERP_MAX_BUFFER_SECS: f64 = 0.3;
+const REMOTE_INTERP_MAX_AGE_SECS: f64 = 2.0;
+
+#[derive(Resource, Default)]
+struct LocalPredictionState {
+    initialized: bool,
+    vy: f32,
+    airborne: bool,
+    jump_anchor_y: f32,
+    last_server_y: f32,
+}
+
+fn predict_local_player_transform(
+    mut prediction: ResMut<LocalPredictionState>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut contexts: EguiContexts,
+    camera_query: Query<&player::CameraSettings, With<player::PlayerCamera>>,
+    mut local_query: Query<(
+        &crate::common::net::components::Player,
+        &NetworkTransform,
+        &mut Transform,
+    ), (With<LocalPlayer>, Without<Replicate>)>,
+    time: Res<Time>,
+) {
+    let Some((player, net_transform, mut transform)) = local_query.iter_mut().next() else {
+        return;
+    };
+    let Some(camera_settings) = camera_query.iter().next() else {
+        return;
+    };
+
+    let wants_keyboard = if let Ok(ctx) = contexts.ctx_mut() {
+        ctx.egui_wants_keyboard_input()
+    } else {
+        false
+    };
+
+    let server_xz = Vec2::new(net_transform.translation.x, net_transform.translation.z);
+    let server_y = net_transform.translation.y;
+
+    if !prediction.initialized {
+        prediction.initialized = true;
+        prediction.last_server_y = server_y;
+        transform.translation = net_transform.translation;
+        transform.rotation = net_transform.rotation;
+        return;
+    }
+
+    let dt = time.delta_secs().min(0.1);
+    let speed = player.speed;
+
+    let w = !wants_keyboard && keys.pressed(KeyCode::KeyW);
+    let a = !wants_keyboard && keys.pressed(KeyCode::KeyA);
+    let s = !wants_keyboard && keys.pressed(KeyCode::KeyS);
+    let d = !wants_keyboard && keys.pressed(KeyCode::KeyD);
+    let jump = !wants_keyboard && keys.pressed(KeyCode::Space);
+
+    let rotation = Quat::from_rotation_y(camera_settings.yaw);
+    let forward = rotation * Vec3::NEG_Z;
+    let right = rotation * Vec3::X;
+
+    let mut move_direction = Vec3::ZERO;
+    if w {
+        move_direction += forward;
+    }
+    if s {
+        move_direction -= forward;
+    }
+    if a {
+        move_direction -= right;
+    }
+    if d {
+        move_direction += right;
+    }
+
+    let direction = if move_direction.length_squared() > 0.001 {
+        move_direction.normalize()
+    } else {
+        Vec3::ZERO
+    };
+
+    let velocity = direction * speed;
+    let current_xz = Vec2::new(transform.translation.x, transform.translation.z);
+    let predicted_xz = current_xz + Vec2::new(velocity.x, velocity.z) * dt;
+
+    if jump && !prediction.airborne {
+        prediction.vy = player.jump_power;
+        prediction.jump_anchor_y = prediction.last_server_y;
+        prediction.airborne = true;
+    }
+
+    let mut predicted_y = if prediction.airborne {
+        prediction.vy += CLIENT_GRAVITY * dt;
+        let prev_offset = transform.translation.y - prediction.jump_anchor_y;
+        let new_offset = prev_offset + prediction.vy * dt;
+        if new_offset <= 0.0 {
+            prediction.airborne = false;
+            prediction.vy = 0.0;
+            prediction.last_server_y
+        } else {
+            prediction.jump_anchor_y + new_offset
+        }
+    } else {
+        prediction.last_server_y
+    };
+
+    let error_xz = predicted_xz.distance(server_xz);
+    let blend = (error_xz - LOCAL_ERR_SOFT_START).max(0.0)
+        / (LOCAL_ERR_SOFT_END - LOCAL_ERR_SOFT_START).max(0.001)
+        * (dt * 3.0).min(1.0);
+    let blend = blend.clamp(0.0, 1.0);
+    let final_xz = predicted_xz.lerp(server_xz, blend);
+
+    let y_error = predicted_y - server_y;
+    if y_error.abs() > 1.0 {
+        predicted_y = predicted_y.lerp(server_y, (dt * 3.0).min(1.0));
+        if y_error.abs() > 2.0 {
+            prediction.airborne = false;
+            prediction.vy = 0.0;
+        }
+    }
+
+    transform.translation.x = final_xz.x;
+    transform.translation.z = final_xz.y;
+    transform.translation.y = predicted_y;
+
+    let in_first_person = camera_settings.distance <= 0.6;
+    if in_first_person {
+        transform.rotation = Quat::from_rotation_y(camera_settings.yaw);
+    } else if direction.length_squared() > 0.001 {
+        let target_angle = direction.z.atan2(direction.x);
+        transform.rotation = Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2);
+    }
+
+    prediction.last_server_y = server_y;
+}
+
+#[derive(Clone, Copy)]
+struct RemoteSample {
+    time: f64,
+    translation: Vec3,
+    rotation: Quat,
+    scale: Vec3,
+}
+
+#[derive(Default)]
+struct RemoteInterpBuffer {
+    samples: std::collections::VecDeque<RemoteSample>,
+    last_seen: f64,
+}
+
+fn sample_interpolated(buffer: &RemoteInterpBuffer, target: f64) -> Option<RemoteSample> {
+    if buffer.samples.is_empty() {
+        return None;
+    }
+    if buffer.samples.len() == 1 || target <= buffer.samples[0].time {
+        return buffer.samples.front().copied();
+    }
+    for i in 0..buffer.samples.len() - 1 {
+        let a = buffer.samples[i];
+        let b = buffer.samples[i + 1];
+        if a.translation.distance(b.translation) > 5.0 {
+            return Some(b);
+        }
+        if target >= a.time && target <= b.time {
+            let t = if b.time > a.time {
+                ((target - a.time) / (b.time - a.time)) as f32
+            } else {
+                1.0
+            };
+            return Some(RemoteSample {
+                time: target,
+                translation: a.translation.lerp(b.translation, t),
+                rotation: a.rotation.slerp(b.rotation, t),
+                scale: a.scale.lerp(b.scale, t),
+            });
+        }
+    }
+    buffer.samples.back().copied()
+}
+
+fn interpolate_remote_player_transforms(
+    mut query: Query<(
+        Entity,
+        Ref<NetworkTransform>,
+        &mut Transform,
+    ), (With<crate::common::net::components::Player>, Without<LocalPlayer>, Without<Replicate>)>,
+    mut buffers: Local<std::collections::HashMap<Entity, RemoteInterpBuffer>>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+
+    for (entity, net_transform, _) in &query {
+        let buffer = buffers.entry(entity).or_default();
+        buffer.last_seen = now;
+        if net_transform.is_changed() {
+            buffer.samples.push_back(RemoteSample {
+                time: now,
+                translation: net_transform.translation,
+                rotation: net_transform.rotation,
+                scale: net_transform.scale,
+            });
+        }
+    }
+
+    buffers.retain(|_, buffer| now - buffer.last_seen < REMOTE_INTERP_MAX_AGE_SECS);
+    for buffer in buffers.values_mut() {
+        while let Some(front) = buffer.samples.front() {
+            if front.time < now - REMOTE_INTERP_MAX_BUFFER_SECS {
+                buffer.samples.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    let target_time = now - REMOTE_INTERP_DELAY_SECS;
+    for (entity, _net_transform, mut transform) in &mut query {
+        let Some(buffer) = buffers.get(&entity) else {
+            continue;
+        };
+        let Some(sample) = sample_interpolated(buffer, target_time) else {
+            continue;
+        };
+        transform.translation = sample.translation;
+        transform.rotation = sample.rotation;
+        transform.scale = sample.scale;
     }
 }
 
@@ -252,9 +489,16 @@ fn send_player_inputs(
     };
 
     let now = std::time::Instant::now();
+    let any_input = w || a || s || d || jump;
     let send = match &*last_sent {
         Some((last, at)) => {
-            *last != message || now.duration_since(*at) >= std::time::Duration::from_millis(100)
+            if *last != message {
+                true
+            } else if any_input {
+                now.duration_since(*at) >= std::time::Duration::from_millis(16)
+            } else {
+                false
+            }
         }
         None => true,
     };
@@ -479,15 +723,19 @@ fn on_brick_added(
     };
 
     let show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true)
-        && workspace_studs.map(|w| w.enabled).unwrap_or(true);
+        && workspace_studs.as_ref().map(|w| w.enabled).unwrap_or(true);
 
-    let mut entity_cmd = commands.entity(entity);
-    entity_cmd.insert(Mesh3d(mesh_handle));
-    if show_studs {
-        entity_cmd.insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
-    } else {
-        entity_cmd.insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
-    }
+    commands.entity(entity).insert(Mesh3d(mesh_handle));
+    crate::common::game::bricks::swap_brick_material(
+        &mut commands,
+        entity,
+        show_studs,
+        &mut cache,
+        &mut studs_materials,
+        &mut plain_materials,
+        &studs_assets,
+        base_color,
+    );
 }
 
 fn sync_brick_studs_to_material(
@@ -523,9 +771,27 @@ fn sync_brick_studs_to_material(
         };
 
         if show_studs_globally && studs.enabled {
-            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
+            crate::common::game::bricks::swap_brick_material(
+                &mut commands,
+                entity,
+                true,
+                &mut cache,
+                &mut studs_materials,
+                &mut plain_materials,
+                &studs_assets,
+                base_color,
+            );
         } else {
-            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
+            crate::common::game::bricks::swap_brick_material(
+                &mut commands,
+                entity,
+                false,
+                &mut cache,
+                &mut studs_materials,
+                &mut plain_materials,
+                &studs_assets,
+                base_color,
+            );
         }
     }
 }
@@ -625,9 +891,27 @@ fn sync_brick_color_to_material(
         let show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true);
 
         if show_studs {
-            commands.entity(entity).insert(MeshMaterial3d(studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color)));
+            crate::common::game::bricks::swap_brick_material(
+                &mut commands,
+                entity,
+                true,
+                &mut cache,
+                &mut studs_materials,
+                &mut plain_materials,
+                &studs_assets,
+                base_color,
+            );
         } else {
-            commands.entity(entity).insert(MeshMaterial3d(plain_material_for_color(&mut cache, &mut plain_materials, base_color)));
+            crate::common::game::bricks::swap_brick_material(
+                &mut commands,
+                entity,
+                false,
+                &mut cache,
+                &mut studs_materials,
+                &mut plain_materials,
+                &studs_assets,
+                base_color,
+            );
         }
     }
 }

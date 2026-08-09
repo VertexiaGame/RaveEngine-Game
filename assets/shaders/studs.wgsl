@@ -67,7 +67,7 @@ fn fragment(
     let local_normal = rot_t * in.world_normal;
 
     let dist = distance(in.world_position.xyz, view.world_position);
-    let fade = clamp((64.0 - dist) / 48.0, 0.0, 1.0);
+    let fade = clamp((20.0 - dist) / 16.0, 0.0, 1.0);
     let detail = fade * fade;
 
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);

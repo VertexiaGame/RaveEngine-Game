@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod gizmos;
+pub mod picking;
 pub mod tools;
 pub mod ui;
 
@@ -46,9 +47,9 @@ impl Plugin for StudioPlugin {
             .add_message::<tools::UndoRedoAction>()
             .insert_resource(bevy::picking::mesh_picking::MeshPickingSettings {
                 require_markers: false,
-                ..default()
+                ray_cast_visibility: bevy::picking::mesh_picking::ray_cast::RayCastVisibility::Visible,
             })
-            .add_plugins(MeshPickingPlugin)
+            .add_plugins(picking::GatedMeshPickingPlugin)
             .add_plugins(FreeCameraPlugin)
             .add_systems(Startup, (
                 crate::studio::camera::setup_studio.after(crate::common::game::bricks::studs::setup_studs),

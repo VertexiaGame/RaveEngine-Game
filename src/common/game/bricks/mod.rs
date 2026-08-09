@@ -4,11 +4,12 @@ pub mod data;
 
 use bevy::prelude::*;
 use bevy::pbr::{ExtendedMaterial, MaterialPlugin};
+use bevy::light::NotShadowCaster;
 
 #[derive(Resource, Default)]
 pub struct BrickMaterialCache {
-    pub studs_materials: std::collections::HashMap<[u32; 4], Handle<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
-    pub plain_materials: std::collections::HashMap<[u32; 4], Handle<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
+    pub studs_materials: std::collections::HashMap<[u8; 4], Handle<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
+    pub plain_materials: std::collections::HashMap<[u8; 4], Handle<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
     pub block_mesh: Option<Handle<Mesh>>,
     pub sphere_mesh: Option<Handle<Mesh>>,
 }
@@ -68,18 +69,30 @@ pub fn apply_workspace_show_studs(
     }
 }
 
+pub fn quantize_color(base_color: Color) -> Color {
+    let srgba = base_color.to_srgba();
+    let quantize = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0;
+    Color::srgba(
+        quantize(srgba.red),
+        quantize(srgba.green),
+        quantize(srgba.blue),
+        quantize(srgba.alpha),
+    )
+}
+
 pub fn studs_material_for_color(
     cache: &mut BrickMaterialCache,
     studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>,
     studs_assets: &studs::StudsAssets,
     base_color: Color,
 ) -> Handle<ExtendedMaterial<StandardMaterial, studs::StudsExtension>> {
-    let srgba = base_color.to_srgba();
+    let quantized = quantize_color(base_color);
+    let srgba = quantized.to_srgba();
     let cache_key = [
-        srgba.red.to_bits(),
-        srgba.green.to_bits(),
-        srgba.blue.to_bits(),
-        srgba.alpha.to_bits(),
+        (srgba.red * 255.0).round() as u8,
+        (srgba.green * 255.0).round() as u8,
+        (srgba.blue * 255.0).round() as u8,
+        (srgba.alpha * 255.0).round() as u8,
     ];
 
     if let Some(existing) = cache.studs_materials.get(&cache_key) {
@@ -87,9 +100,9 @@ pub fn studs_material_for_color(
     } else {
         let new_mat = studs_materials.add(ExtendedMaterial {
             base: StandardMaterial {
-                base_color,
+                base_color: quantized,
                 perceptual_roughness: 0.85,
-                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+                alpha_mode: if quantized.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                 ..default()
             },
             extension: studs::StudsExtension {
@@ -111,12 +124,13 @@ pub fn plain_material_for_color(
     plain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>,
     base_color: Color,
 ) -> Handle<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>> {
-    let srgba = base_color.to_srgba();
+    let quantized = quantize_color(base_color);
+    let srgba = quantized.to_srgba();
     let cache_key = [
-        srgba.red.to_bits(),
-        srgba.green.to_bits(),
-        srgba.blue.to_bits(),
-        srgba.alpha.to_bits(),
+        (srgba.red * 255.0).round() as u8,
+        (srgba.green * 255.0).round() as u8,
+        (srgba.blue * 255.0).round() as u8,
+        (srgba.alpha * 255.0).round() as u8,
     ];
 
     if let Some(existing) = cache.plain_materials.get(&cache_key) {
@@ -124,9 +138,9 @@ pub fn plain_material_for_color(
     } else {
         let new_mat = plain_materials.add(ExtendedMaterial {
             base: StandardMaterial {
-                base_color,
+                base_color: quantized,
                 perceptual_roughness: 0.85,
-                alpha_mode: if base_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+                alpha_mode: if quantized.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
                 ..default()
             },
             extension: studs::ShadowOpacityExtension::default(),
@@ -251,7 +265,34 @@ pub fn add_bricks_benchmark(app: &mut App) {
 
 fn links_optimizer_system() {} // dummy hook for common optimization module
 
-const STUD_LOD_DISTANCE_SQ: f32 = 80.0 * 80.0;
+const STUD_LOD_DISTANCE_SQ: f32 = 28.0 * 28.0;
+const SHADOW_LOD_DISTANCE_SQ: f32 = 80.0 * 80.0;
+const HIDE_LOD_DISTANCE_SQ: f32 = 160.0 * 160.0;
+const LOD_CAMERA_MOVE_SQ: f32 = 16.0 * 16.0;
+
+pub fn swap_brick_material(
+    commands: &mut Commands,
+    entity: Entity,
+    want_studs: bool,
+    cache: &mut BrickMaterialCache,
+    studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>,
+    plain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>,
+    studs_assets: &studs::StudsAssets,
+    base_color: Color,
+) {
+    let mut cmd = commands.entity(entity);
+    if want_studs {
+        cmd.remove::<MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>();
+        cmd.insert(MeshMaterial3d(
+            studs_material_for_color(cache, studs_materials, studs_assets, base_color),
+        ));
+    } else {
+        cmd.remove::<MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>();
+        cmd.insert(MeshMaterial3d(
+            plain_material_for_color(cache, plain_materials, base_color),
+        ));
+    }
+}
 
 pub fn optimize_brick_visibility(
     mut commands: Commands,
@@ -266,6 +307,8 @@ pub fn optimize_brick_visibility(
         Option<&components::BrickStuds>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
+        Option<&NotShadowCaster>,
+        Option<&Visibility>,
     ), With<components::Brick>>,
     workspace_studs: Option<Res<WorkspaceShowStuds>>,
     mut cache: ResMut<BrickMaterialCache>,
@@ -279,46 +322,64 @@ pub fn optimize_brick_visibility(
     }
 
     let cam_pos = camera_transform.translation();
+    let show_studs_globally = workspace_studs.as_ref().map(|w| w.enabled).unwrap_or(true);
+    let workspace_changed = workspace_studs.as_ref().map(|w| w.is_changed()).unwrap_or(false);
     let moved = last_camera_position
-        .map(|previous| previous.distance_squared(cam_pos) > 4.0)
+        .map(|previous| previous.distance_squared(cam_pos) > LOD_CAMERA_MOVE_SQ)
         .unwrap_or(true);
     *last_camera_position = Some(cam_pos);
-    if !moved {
+    if !moved && !workspace_changed {
         return;
     }
 
-    let show_studs_globally = workspace_studs.map(|w| w.enabled).unwrap_or(true);
-    for (entity, transform, color, studs, studs_material, plain_material) in &bricks_query {
-        let want_studs = show_studs_globally
-            && studs.map(|s| s.enabled).unwrap_or(true)
-            && transform.translation().distance_squared(cam_pos) <= STUD_LOD_DISTANCE_SQ;
+    for (entity, transform, color, studs, studs_material, plain_material, not_shadow_caster, visibility) in &bricks_query {
+        let dist_sq = transform.translation().distance_squared(cam_pos);
+        let brick_wants_studs = studs.map(|s| s.enabled).unwrap_or(true);
+        let want_studs = show_studs_globally && brick_wants_studs && dist_sq <= STUD_LOD_DISTANCE_SQ;
 
-        if want_studs == studs_material.is_some() {
-            continue;
+        if want_studs != studs_material.is_some() {
+            let base_color = if let Some(studs_mat_handle) = studs_material {
+                studs_materials
+                    .get(&studs_mat_handle.0)
+                    .map(|mat| mat.base.base_color)
+                    .unwrap_or(color.color)
+            } else if let Some(plain_mat_handle) = plain_material {
+                plain_materials
+                    .get(&plain_mat_handle.0)
+                    .map(|mat| mat.base.base_color)
+                    .unwrap_or(color.color)
+            } else {
+                color.color
+            };
+            swap_brick_material(
+                &mut commands,
+                entity,
+                want_studs,
+                &mut cache,
+                &mut studs_materials,
+                &mut plain_materials,
+                &studs_assets,
+                base_color,
+            );
         }
 
-        let base_color = if let Some(studs_mat_handle) = studs_material {
-            studs_materials
-                .get(&studs_mat_handle.0)
-                .map(|mat| mat.base.base_color)
-                .unwrap_or(color.color)
-        } else if let Some(plain_mat_handle) = plain_material {
-            plain_materials
-                .get(&plain_mat_handle.0)
-                .map(|mat| mat.base.base_color)
-                .unwrap_or(color.color)
-        } else {
-            color.color
-        };
+        let want_shadow_caster = dist_sq <= SHADOW_LOD_DISTANCE_SQ;
+        if want_shadow_caster == not_shadow_caster.is_some() {
+            if want_shadow_caster {
+                commands.entity(entity).remove::<NotShadowCaster>();
+            } else {
+                commands.entity(entity).insert(NotShadowCaster);
+            }
+        }
 
-        if want_studs {
-            commands.entity(entity).insert(MeshMaterial3d(
-                studs_material_for_color(&mut cache, &mut studs_materials, &studs_assets, base_color),
-            ));
-        } else {
-            commands.entity(entity).insert(MeshMaterial3d(
-                plain_material_for_color(&mut cache, &mut plain_materials, base_color),
-            ));
+        let want_visible = dist_sq <= HIDE_LOD_DISTANCE_SQ;
+        let is_visible = visibility.is_none_or(|v| *v != Visibility::Hidden);
+        if want_visible != is_visible {
+            if want_visible {
+                commands.entity(entity).insert(Visibility::Inherited);
+            } else {
+                commands.entity(entity).insert(Visibility::Hidden);
+            }
         }
     }
 }
