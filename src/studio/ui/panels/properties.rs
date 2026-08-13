@@ -55,6 +55,8 @@ pub fn draw_properties(
     brick_colors: &mut Query<&mut crate::common::game::bricks::components::BrickColor>,
     materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>,
     studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
+    material_cache: &mut crate::common::game::bricks::BrickMaterialCache,
+    studs_assets: &crate::common::game::bricks::studs::StudsAssets,
     explorer_query: &Query<(
         Entity,
         &Name,
@@ -199,7 +201,6 @@ pub fn draw_properties(
         first_name_str,
         first_shape_opt_val,
         first_color,
-        is_extended,
         first_phys_enabled,
         first_bounciness,
         first_player_can_collide,
@@ -216,11 +217,9 @@ pub fn draw_properties(
         let first_shape_opt_val = first_shape_opt.as_ref().map(|s| s.shape);
 
         let mut first_color = Color::srgb(0.84, 0.24, 0.16);
-        let mut is_extended = false;
         if let Some(studs_mat_handle) = first_studs_mat_opt {
             if let Some(mat) = studs_materials.get(&studs_mat_handle.0) {
                 first_color = mat.base.base_color;
-                is_extended = true;
             }
         } else if let Some(mat_handle) = first_mat_opt {
             if let Some(mat) = materials.get(&mat_handle.0) {
@@ -239,7 +238,6 @@ pub fn draw_properties(
             first_name_str,
             first_shape_opt_val,
             first_color,
-            is_extended,
             first_phys_enabled,
             first_bounciness,
             first_player_can_collide,
@@ -465,24 +463,18 @@ pub fn draw_properties(
                                 }
                                 if color_btn.changed() {
                                     let new_color = Color::Srgba(Srgba::new(color_array[0], color_array[1], color_array[2], color_array[3]));
-                                    let new_alpha_mode = if new_color.alpha() < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
                                     for &entity in selected_entities {
-                                        if let Ok((_, _, _, _, _, _, _, _, _, mat_opt, studs_mat_opt, _)) = properties_query.get_mut(entity) {
-                                            if is_extended {
-                                                if let Some(studs_mat_handle) = studs_mat_opt {
-                                                    if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
-                                                        mat.base.base_color = new_color;
-                                                        mat.base.alpha_mode = new_alpha_mode;
-                                                    }
-                                                }
-                                            } else {
-                                                if let Some(mat_handle) = mat_opt {
-                                                    if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                        mat.base.base_color = new_color;
-                                                        mat.base.alpha_mode = new_alpha_mode;
-                                                    }
-                                                }
-                                            }
+                                        if let Ok((_, _, _, _, _, _, _, _, _, _, studs_mat_opt, _)) = properties_query.get_mut(entity) {
+                                            crate::common::game::bricks::swap_brick_material(
+                                                commands,
+                                                entity,
+                                                studs_mat_opt.is_some(),
+                                                material_cache,
+                                                studs_materials,
+                                                materials,
+                                                studs_assets,
+                                                new_color,
+                                            );
                                             if let Ok(mut bc) = brick_colors.get_mut(entity) {
                                                 bc.color = new_color;
                                             }
@@ -513,22 +505,16 @@ pub fn draw_properties(
                                                 let mut srgba = current_color.to_srgba();
                                                 srgba.alpha = 1.0 - transparency;
                                                 let new_color = Color::Srgba(srgba);
-                                                let new_alpha_mode = if srgba.alpha < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
-                                                if is_extended {
-                                                    if let Some(studs_mat_handle) = studs_mat_opt {
-                                                        if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
-                                                            mat.base.base_color = new_color;
-                                                            mat.base.alpha_mode = new_alpha_mode;
-                                                        }
-                                                    }
-                                                } else {
-                                                    if let Some(mat_handle) = mat_opt {
-                                                        if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                            mat.base.base_color = new_color;
-                                                            mat.base.alpha_mode = new_alpha_mode;
-                                                        }
-                                                    }
-                                                }
+                                                crate::common::game::bricks::swap_brick_material(
+                                                    commands,
+                                                    entity,
+                                                    studs_mat_opt.is_some(),
+                                                    material_cache,
+                                                    studs_materials,
+                                                    materials,
+                                                    studs_assets,
+                                                    new_color,
+                                                );
                                                 if let Ok(mut bc) = brick_colors.get_mut(entity) {
                                                     bc.color = new_color;
                                                 }
@@ -557,22 +543,16 @@ pub fn draw_properties(
                                                 let mut srgba = current_color.to_srgba();
                                                 srgba.alpha = 1.0 - transparency;
                                                 let new_color = Color::Srgba(srgba);
-                                                let new_alpha_mode = if srgba.alpha < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque };
-                                                if is_extended {
-                                                    if let Some(studs_mat_handle) = studs_mat_opt {
-                                                        if let Some(mut mat) = studs_materials.get_mut(&studs_mat_handle.0) {
-                                                            mat.base.base_color = new_color;
-                                                            mat.base.alpha_mode = new_alpha_mode;
-                                                        }
-                                                    }
-                                                } else {
-                                                    if let Some(mat_handle) = mat_opt {
-                                                        if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-                                                            mat.base.base_color = new_color;
-                                                            mat.base.alpha_mode = new_alpha_mode;
-                                                        }
-                                                    }
-                                                }
+                                                crate::common::game::bricks::swap_brick_material(
+                                                    commands,
+                                                    entity,
+                                                    studs_mat_opt.is_some(),
+                                                    material_cache,
+                                                    studs_materials,
+                                                    materials,
+                                                    studs_assets,
+                                                    new_color,
+                                                );
                                                 if let Ok(mut bc) = brick_colors.get_mut(entity) {
                                                     bc.color = new_color;
                                                 }

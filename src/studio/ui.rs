@@ -36,6 +36,7 @@ pub struct UiResources<'w, 's> {
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     pub studs_materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+    pub material_cache: ResMut<'w, crate::common::game::bricks::BrickMaterialCache>,
     pub studs_assets: Res<'w, crate::common::game::bricks::studs::StudsAssets>,
     pub count: ResMut<'w, crate::common::game::bricks::data::BrickSpawnerCount>,
     pub snap_config: ResMut<'w, crate::studio::tools::SnapConfig>,
@@ -398,12 +399,13 @@ pub fn studio_ui(
                 &mut ui_state.playtest_state,
                 &mut ui_state.playtest_backup,
                 &queries.playtest_client_query,
-                &ui_state.selection,
+                &mut ui_state.selection,
                 &queries.explorer_query,
                 onboarding_active,
                 &mut ui_res.players_service,
                 &ui_state.file_dialog_state,
                 &queries.studs_query,
+                &ui_res.brick_colors,
                 &ui_res.workspace_studs,
             );
         });
@@ -468,6 +470,7 @@ pub fn studio_ui(
                             localscript_tex,
                             modulescript_tex,
                             &queries.studs_query,
+                            &ui_res.brick_colors,
                             &mut ui_res.explorer_cache,
                             &mut ui_res.explorer_expanded,
                             explorer_changed,
@@ -512,6 +515,8 @@ pub fn studio_ui(
                                 &mut ui_res.brick_colors,
                                 &mut ui_res.materials,
                                 &mut ui_res.studs_materials,
+                                &mut ui_res.material_cache,
+                                &ui_res.studs_assets,
                                 &queries.explorer_query,
                                 &mut ui_state.active_editor,
                                 &queries.studs_query,
@@ -700,6 +705,7 @@ pub fn studio_ui(
                         &queries.entities_query,
                         &mut ui_res.history,
                         &queries.studs_query,
+                        &ui_res.brick_colors,
                     )
                 })
             });

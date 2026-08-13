@@ -347,6 +347,7 @@ fn render_flat_row(
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     active_editor: &mut ResMut<ActiveScriptEditor>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     brick_tex: egui::TextureId,
     script_tex: egui::TextureId,
     localscript_tex: egui::TextureId,
@@ -514,6 +515,7 @@ fn render_flat_row(
             entities_query,
             history,
             studs_query,
+            brick_colors,
         );
     });
 
@@ -683,6 +685,7 @@ pub fn draw_explorer(
     localscript_tex: egui::TextureId,
     modulescript_tex: egui::TextureId,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     explorer_cache: &mut ExplorerRowCache,
     expanded: &mut HashSet<Entity>,
     explorer_changed: bool,
@@ -780,6 +783,7 @@ pub fn draw_explorer(
                                 history,
                                 active_editor,
                                 studs_query,
+                                brick_colors,
                                 brick_tex,
                                 script_tex,
                                 localscript_tex,
@@ -804,6 +808,7 @@ pub fn draw_explorer(
                         history,
                         active_editor,
                         studs_query,
+                        brick_colors,
                         brick_tex,
                         script_tex,
                         localscript_tex,

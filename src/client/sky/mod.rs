@@ -297,7 +297,7 @@ fn configure_sky_cameras(
     }
 }
 
-fn sync_lighting_system(
+pub(crate) fn sync_lighting_system(
     config: Res<LightingConfig>,
     mut sun_query: Query<
         (&mut DirectionalLight, &mut Transform),

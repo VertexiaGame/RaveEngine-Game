@@ -67,3 +67,9 @@ impl Default for BrickStuds {
         Self { enabled: true }
     }
 }
+
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BrickMeshKey {
+    pub shape: BrickShape,
+    pub scale_key: [u32; 3],
+}

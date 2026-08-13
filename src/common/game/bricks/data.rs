@@ -50,6 +50,7 @@ pub struct BrickData {
     pub parent: Option<Entity>,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
     pub studs: bool,
+    pub color: Option<Color>,
 }
 
 impl BrickData {
@@ -75,7 +76,9 @@ pub fn spawn_from_data(
         spawned.insert((
             Brick,
             BrickShapeComponent { shape: data.shape },
-            crate::common::game::bricks::components::BrickColor::default(),
+            crate::common::game::bricks::components::BrickColor {
+                color: data.color.unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
+            },
             crate::common::game::bricks::components::BrickStuds { enabled: data.studs },
         ));
     }
@@ -126,6 +129,7 @@ pub fn capture_brick_data(
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
 ) -> Option<BrickData> {
     if let Ok((_, transform, name, child_of_opt, _, brick_opt, shape_opt, _, mesh_opt, mat_opt, studs_mat_opt, phys_opt)) = query.get(entity) {
         let is_brick = brick_opt.is_some();
@@ -141,6 +145,7 @@ pub fn capture_brick_data(
             parent: child_of_opt.map(|co| co.parent()),
             physics: phys_opt.cloned(),
             studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
+            color: brick_colors.get(entity).ok().map(|bc| bc.color),
         })
     } else {
         None

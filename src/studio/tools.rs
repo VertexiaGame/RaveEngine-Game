@@ -50,7 +50,10 @@ pub struct PartDragState {
     pub active: bool,
     pub dragged_entity: Option<Entity>,
     pub start_transform: Option<Transform>,
+    pub press_cursor: Option<Vec2>,
 }
+
+const PART_DRAG_THRESHOLD_PX: f32 = 5.0;
 
 #[derive(Resource, Default)]
 pub struct HoverState {
@@ -249,6 +252,7 @@ pub fn handle_delete_keys(
         Option<&mut crate::common::game::bricks::components::BrickPhysics>,
     ), Without<Camera3d>>,
     studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: Query<&mut crate::common::game::bricks::components::BrickColor>,
 ) {
     if !keys.just_pressed(KeyCode::Delete) && !keys.just_pressed(KeyCode::Backspace) {
         return;
@@ -263,7 +267,7 @@ pub fn handle_delete_keys(
     }
 
     for entity in selection.entities.drain(..) {
-        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, &entities_query, &studs_query) {
+        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, &entities_query, &studs_query, &brick_colors) {
             history.push_command(UndoCommand::Delete { entity, data });
         }
         commands.entity(entity).try_despawn();
@@ -499,6 +503,7 @@ pub fn select_brick(
     mut clicks: MessageReader<Pointer<Click>>,
     bricks: Query<Entity, With<Brick>>,
     gizmos: Query<Entity, With<ToolGizmo>>,
+    keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<Selection>,
     mut context_menu: ResMut<CanvasContextMenu>,
     mut contexts: bevy_egui::EguiContexts,
@@ -513,8 +518,22 @@ pub fn select_brick(
         let target = click.event_target();
         if click.button == PointerButton::Primary {
             if bricks.get(target).is_ok() {
-                selection.entity = Some(target);
-                selection.entities = vec![target];
+                let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+                if shift {
+                    if selection.entities.contains(&target) {
+                        selection.entities.retain(|e| *e != target);
+                    } else {
+                        selection.entities.push(target);
+                    }
+                    selection.entity = if selection.entities.is_empty() {
+                        None
+                    } else {
+                        Some(selection.entities[0])
+                    };
+                } else {
+                    selection.entity = Some(target);
+                    selection.entities = vec![target];
+                }
                 selection.workspace_selected = false;
                 selection.players_selected = false;
                 context_menu.entity = None;
@@ -763,6 +782,7 @@ pub fn handle_part_drag_start(
     mut drags: MessageReader<Pointer<DragStart>>,
     bricks: Query<&Transform, With<Brick>>,
     gizmos: Query<&ToolGizmo>,
+    mut selection: ResMut<Selection>,
     mut part_drag_state: ResMut<PartDragState>,
 ) {
     for drag in drags.read() {
@@ -777,6 +797,11 @@ pub fn handle_part_drag_start(
             part_drag_state.active = true;
             part_drag_state.dragged_entity = Some(target);
             part_drag_state.start_transform = Some(*transform);
+            part_drag_state.press_cursor = Some(drag.pointer_location.position);
+            selection.entity = Some(target);
+            selection.entities = vec![target];
+            selection.workspace_selected = false;
+            selection.players_selected = false;
         }
     }
 }
@@ -812,6 +837,7 @@ pub fn handle_part_drag(
 ) {
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
         part_drag_state.active = false;
+        part_drag_state.press_cursor = None;
         return;
     }
     if !part_drag_state.active { return; }
@@ -820,6 +846,14 @@ pub fn handle_part_drag(
     let Some((camera, camera_transform)) = camera_query.iter().next() else { return };
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
+
+    if part_drag_state
+        .press_cursor
+        .is_some_and(|press| cursor_pos.distance(press) < PART_DRAG_THRESHOLD_PX)
+    {
+        return;
+    }
+
     let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return };
 
     for _ in drags.read() {}
@@ -829,6 +863,7 @@ pub fn handle_part_drag(
             part_drag_state.active = false;
             part_drag_state.dragged_entity = None;
             part_drag_state.start_transform = None;
+            part_drag_state.press_cursor = None;
             return;
         };
         (brick_global.rotation(), brick_global.scale(), child_of_opt.map(|co| co.parent()))
@@ -943,6 +978,7 @@ pub fn handle_part_drag_end(
     part_drag_state.active = false;
     part_drag_state.dragged_entity = None;
     part_drag_state.start_transform = None;
+    part_drag_state.press_cursor = None;
 }
 
 pub fn handle_hover(

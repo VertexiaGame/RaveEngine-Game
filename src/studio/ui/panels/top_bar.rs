@@ -55,7 +55,7 @@ pub fn draw_top_bar(
     playtest_state: &mut ResMut<crate::client::PlaytestState>,
     playtest_backup: &mut ResMut<crate::studio::ui::resources::PlaytestBackup>,
     playtest_client_query: &Query<Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
-    selection: &Selection,
+    selection: &mut Selection,
     explorer_query: &Query<(
         Entity,
         &Name,
@@ -70,6 +70,7 @@ pub fn draw_top_bar(
     players_service: &mut Option<ResMut<crate::studio::tools::PlayersService>>,
     file_dialog_state: &crate::studio::ui::resources::FileDialogState,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     workspace_studs: &crate::common::game::bricks::WorkspaceShowStuds,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
@@ -428,7 +429,7 @@ pub fn draw_top_bar(
                                         };
 
                                         let default_mesh = match shape {
-                                            crate::common::game::bricks::components::BrickShape::Block => Some(Mesh3d(meshes.add(Cuboid::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)))),
+                                            crate::common::game::bricks::components::BrickShape::Block => Some(Mesh3d(meshes.add(crate::common::game::bricks::block_brick_mesh(Vec3::ONE)))),
                                             crate::common::game::bricks::components::BrickShape::Sphere => Some(Mesh3d(meshes.add(Sphere::new(1.0 * 0.28)))),
                                         };
 
@@ -458,6 +459,7 @@ pub fn draw_top_bar(
                                             parent: None,
                                             physics: Some(crate::common::game::bricks::components::BrickPhysics::default()),
                                             studs: workspace_studs.enabled,
+                                            color: None,
                                         };
 
                                         history.push_command(crate::studio::tools::UndoCommand::Spawn {
@@ -546,6 +548,11 @@ pub fn draw_top_bar(
                     if ribbonbutton(ui, Some(playc_btn_tex), playc_btn_label, playtesting_active).clicked() {
                         if playtesting_active {
                             playtest_state.active = false;
+                            selection.entity = None;
+                            selection.entities.clear();
+                            selection.workspace_selected = false;
+                            selection.players_selected = false;
+                            selection.lighting_selected = false;
 
                             crate::scripting::output::end_run();
                             crate::app::server::bootstrap::SHUTDOWN_SERVER.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -623,6 +630,11 @@ pub fn draw_top_bar(
                             }
                         } else {
                             playtest_state.active = true;
+                            selection.entity = None;
+                            selection.entities.clear();
+                            selection.workspace_selected = false;
+                            selection.players_selected = false;
+                            selection.lighting_selected = false;
 
                             crate::scripting::output::start_run("Playtest");
 
@@ -640,7 +652,7 @@ pub fn draw_top_bar(
                             let mut backup_bricks = Vec::new();
                             for (entity, _, _name, _, _, brick_opt, _, _, _, _, _, _) in entities_query.iter() {
                                 if brick_opt.is_some() {
-                                    if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query) {
+                                    if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query, brick_colors) {
                                         backup_bricks.push(data);
                                     }
                                     commands.entity(entity).despawn();

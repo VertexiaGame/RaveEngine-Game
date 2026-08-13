@@ -12,6 +12,7 @@ use bevy::prelude::*;
 
 use self::{
     compute::{CameraMatrices, CloudsComputePlugin},
+    config::{adapt_clouds_quality, CloudsQuality},
     images::{build_images, build_render_images_with_size, RENDER_HEIGHT, RENDER_WIDTH},
     render::{CloudsMaterial, CloudsShaderPlugin},
     skybox::{init_skybox_mesh, update_skybox_transform, SkyboxMaterials},
@@ -27,11 +28,16 @@ pub struct CloudsPlugin;
 impl Plugin for CloudsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CloudsConfig::default())
+            .init_resource::<CloudsQuality>()
             .add_plugins((CloudsComputePlugin, CloudsShaderPlugin))
             .add_systems(Startup, clouds_setup)
             .add_systems(
                 Update,
                 update_clouds_resolution,
+            )
+            .add_systems(
+                Update,
+                adapt_clouds_quality.after(crate::client::sky::sync_lighting_system),
             )
             .add_systems(
                 PostUpdate,

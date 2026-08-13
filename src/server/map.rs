@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicate;
 use crate::common::core::vrtx::VrtxFileState;
-use crate::common::game::bricks::components::{Brick, BrickShape, BrickShapeComponent, BrickPhysics, BrickColor};
+use crate::common::game::bricks::components::{Brick, BrickShape, BrickShapeComponent, BrickPhysics, BrickColor, BrickStuds};
 use crate::common::net::components::NetworkTransform;
 use crate::server::ServerSettings;
 
@@ -22,6 +22,7 @@ pub fn load_fallback_map(
             mass: 1.0,
         },
         BrickColor { color: Color::srgb(0.18, 0.38, 0.18) },
+        BrickStuds::default(),
         NetworkTransform {
             translation: Vec3::new(0.0, -0.14, 0.0),
             rotation: Quat::IDENTITY,
@@ -44,6 +45,7 @@ pub fn load_fallback_map(
             mass: 1.0,
         },
         BrickColor { color: Color::srgb(0.84, 0.24, 0.16) },
+        BrickStuds::default(),
         NetworkTransform {
             translation: Vec3::new(0.0, 0.14, 0.0),
             rotation: Quat::IDENTITY,
@@ -132,6 +134,7 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
             mass: brick.mass,
         },
         BrickColor { color: brick.color },
+        BrickStuds { enabled: brick.show_studs },
         NetworkTransform {
             translation: brick.transform.translation,
             rotation: brick.transform.rotation,

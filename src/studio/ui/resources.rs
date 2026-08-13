@@ -11,6 +11,7 @@ pub struct CopiedEntityBuffer {
     pub shape: crate::common::game::bricks::components::BrickShape,
     pub physics: Option<crate::common::game::bricks::components::BrickPhysics>,
     pub show_studs: bool,
+    pub color: Option<Color>,
 }
 
 #[derive(Resource, Default)]
@@ -181,6 +182,7 @@ pub fn handle_file_dialog_results(
                                 mass: brick.mass,
                             },
                             crate::common::game::bricks::components::BrickColor { color: brick.color },
+                            crate::common::game::bricks::components::BrickStuds { enabled: brick.show_studs },
                             layers,
                             Pickable::default(),
                             Name::new(brick.name.clone()),

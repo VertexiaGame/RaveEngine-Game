@@ -687,6 +687,7 @@ fn on_brick_added(
     studs_assets: Res<StudsAssets>,
     name_query: Query<&Name>,
     shape_query: Query<&BrickShapeComponent>,
+    transform_query: Query<&Transform>,
     color_query: Query<&crate::common::game::bricks::components::BrickColor>,
     studs_query: Query<&BrickStuds>,
     workspace_studs: Option<Res<crate::common::game::bricks::WorkspaceShowStuds>>,
@@ -695,13 +696,11 @@ fn on_brick_added(
     let entity = trigger.entity;
     trace!("Brick added to scene: {:?}", entity);
     let shape = shape_query.get(entity).map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+    let scale = transform_query.get(entity).map(|t| t.scale).unwrap_or(Vec3::ONE);
 
     let mesh_handle = match shape {
         crate::common::game::bricks::components::BrickShape::Block => {
-            if cache.block_mesh.is_none() {
-                cache.block_mesh = Some(meshes.add(Cuboid::new(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)));
-            }
-            cache.block_mesh.clone().unwrap()
+            crate::common::game::bricks::block_mesh_for_scale(&mut cache, &mut meshes, scale)
         }
         crate::common::game::bricks::components::BrickShape::Sphere => {
             if cache.sphere_mesh.is_none() {
@@ -726,6 +725,10 @@ fn on_brick_added(
         && workspace_studs.as_ref().map(|w| w.enabled).unwrap_or(true);
 
     commands.entity(entity).insert(Mesh3d(mesh_handle));
+    commands.entity(entity).insert(crate::common::game::bricks::components::BrickMeshKey {
+        shape,
+        scale_key: crate::common::game::bricks::brick_scale_key(scale),
+    });
     crate::common::game::bricks::swap_brick_material(
         &mut commands,
         entity,

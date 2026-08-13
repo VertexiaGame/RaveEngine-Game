@@ -27,6 +27,7 @@ pub fn draw_entity_context_menu(
     ), Without<Camera3d>>,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
 ) -> bool {
     let mut closed = false;
     if ui.button("Copy").clicked() {
@@ -40,6 +41,7 @@ pub fn draw_entity_context_menu(
             copiedbuffer.shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
             copiedbuffer.physics = phys_opt.cloned();
             copiedbuffer.show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true);
+            copiedbuffer.color = brick_colors.get(entity).ok().map(|bc| bc.color);
         }
         ui.close();
         closed = true;
@@ -67,16 +69,28 @@ pub fn draw_entity_context_menu(
                 commands.entity(new_entity).insert(studs_mat.clone());
             }
             if copiedbuffer.is_brick {
-                commands.entity(new_entity).insert((
+                let mut new_entity_cmd = commands.entity(new_entity);
+                new_entity_cmd.insert((
                     Brick,
                     crate::common::game::bricks::components::BrickShapeComponent { shape: copiedbuffer.shape },
                     crate::common::game::bricks::components::BrickStuds { enabled: copiedbuffer.show_studs },
+                    crate::common::game::bricks::components::BrickColor {
+                        color: copiedbuffer.color.unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
+                    },
                 ));
             }
             if let Some(phys) = copiedbuffer.physics {
-                commands.entity(new_entity).insert(phys.clone());
+                let layers = if phys.player_can_collide {
+                    avian3d::prelude::CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                } else {
+                    avian3d::prelude::CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                };
+                commands.entity(new_entity).insert((phys, layers));
             } else if copiedbuffer.is_brick {
-                commands.entity(new_entity).insert(crate::common::game::bricks::components::BrickPhysics::default());
+                commands.entity(new_entity).insert((
+                    crate::common::game::bricks::components::BrickPhysics::default(),
+                    avian3d::prelude::CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+                ));
             }
 
             let data = crate::common::game::bricks::data::BrickData {
@@ -90,12 +104,18 @@ pub fn draw_entity_context_menu(
                 parent: None,
                 physics: copiedbuffer.physics.clone(),
                 studs: copiedbuffer.show_studs,
+                color: copiedbuffer.color,
             };
 
             history.push_command(crate::studio::tools::UndoCommand::Spawn {
                 entity: new_entity,
                 data,
             });
+
+            selection.entity = Some(new_entity);
+            selection.entities = vec![new_entity];
+            selection.workspace_selected = false;
+            selection.players_selected = false;
 
             ui.close();
             closed = true;
@@ -122,16 +142,28 @@ pub fn draw_entity_context_menu(
             }
             let shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
             if brick_opt.is_some() {
-                commands.entity(new_entity).insert((
+                let mut new_entity_cmd = commands.entity(new_entity);
+                new_entity_cmd.insert((
                     Brick,
                     crate::common::game::bricks::components::BrickShapeComponent { shape },
                     crate::common::game::bricks::components::BrickStuds { enabled: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true) },
+                    crate::common::game::bricks::components::BrickColor {
+                        color: brick_colors.get(entity).map(|bc| bc.color).unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
+                    },
                 ));
             }
             if let Some(phys) = phys_opt {
-                commands.entity(new_entity).insert(phys.clone());
+                let layers = if phys.player_can_collide {
+                    avian3d::prelude::CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
+                } else {
+                    avian3d::prelude::CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
+                };
+                commands.entity(new_entity).insert((phys.clone(), layers));
             } else if brick_opt.is_some() {
-                commands.entity(new_entity).insert(crate::common::game::bricks::components::BrickPhysics::default());
+                commands.entity(new_entity).insert((
+                    crate::common::game::bricks::components::BrickPhysics::default(),
+                    avian3d::prelude::CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+                ));
             }
 
             let parent_entity = child_of_opt.map(|co| co.parent());
@@ -152,6 +184,7 @@ pub fn draw_entity_context_menu(
                 parent: parent_entity,
                 physics: phys_opt.cloned(),
                 studs: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
+                color: brick_colors.get(entity).ok().map(|bc| bc.color),
             };
 
             history.push_command(crate::studio::tools::UndoCommand::Spawn {
@@ -159,12 +192,17 @@ pub fn draw_entity_context_menu(
                 data,
             });
 
+            selection.entity = Some(new_entity);
+            selection.entities = vec![new_entity];
+            selection.workspace_selected = false;
+            selection.players_selected = false;
+
             ui.close();
             closed = true;
         }
     }
     if ui.button("Delete").clicked() {
-        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query) {
+        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query, brick_colors) {
             history.push_command(crate::studio::tools::UndoCommand::Delete {
                 entity,
                 data,
