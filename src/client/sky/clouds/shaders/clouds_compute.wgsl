@@ -168,7 +168,7 @@ fn get_ray(ray_origin: vec3f, ray_dir: vec3f, max_dist: f32) -> Ray {
 
     let step_distance = (end - start) / f32(config.clouds_raymarch_steps_count);
     let horizon_jitter_fade = smoothstep(0.0, 0.12, ray_dir.y);
-    let hashed_offset = common::hash13(ray_dir * 128.0 + fract(config.time));
+    let hashed_offset = common::hash13(ray_dir * 128.0);
     var dir_length = start - step_distance * hashed_offset * horizon_jitter_fade;
 
     return Ray(step_distance, dir_length, start);

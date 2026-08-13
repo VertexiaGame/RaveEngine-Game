@@ -5,6 +5,7 @@ use bevy_egui::egui;
 pub struct CameraSpeedIndicator {
     pub visible_timer: f32,
     pub current_speed: f32,
+    pub last_rect: Option<egui::Rect>,
 }
 
 #[derive(Resource, Default)]
@@ -12,6 +13,12 @@ pub struct FovIndicator {
     pub visible_timer: f32,
     pub current_fov: f32,
     pub interacting: bool,
+    pub last_rect: Option<egui::Rect>,
+}
+
+fn pointer_over_self(ctx: &egui::Context, own_rect: Option<egui::Rect>) -> bool {
+    ctx.input(|i| i.pointer.latest_pos())
+        .is_some_and(|pos| own_rect.is_some_and(|rect| rect.contains(pos)))
 }
 
 pub fn updatecameraspeedindicator(
@@ -97,8 +104,12 @@ pub fn draw_indicator(
         &bevy::camera_controller::free_camera::FreeCamera,
         &mut bevy::camera_controller::free_camera::FreeCameraState,
     )>,
+    pointer_over_ui: bool,
 ) {
     if cameraindicator.visible_timer > 0.0 {
+        if pointer_over_ui && !pointer_over_self(ctx, cameraindicator.last_rect) {
+            return;
+        }
         let alphafactor = if cameraindicator.visible_timer < 1.0 {
             cameraindicator.visible_timer.clamp(0.0, 1.0)
         } else {
@@ -143,6 +154,7 @@ pub fn draw_indicator(
         if arearesponse.response.hovered() || innerhovered || slideractive {
             cameraindicator.visible_timer = 2.0;
         }
+        cameraindicator.last_rect = Some(arearesponse.response.rect);
     }
 }
 
@@ -150,8 +162,12 @@ pub fn draw_fov_indicator(
     ctx: &egui::Context,
     fov_indicator: &mut FovIndicator,
     camera_query: &mut Query<&mut Projection, With<Camera3d>>,
+    pointer_over_ui: bool,
 ) {
     if fov_indicator.visible_timer > 0.0 {
+        if pointer_over_ui && !pointer_over_self(ctx, fov_indicator.last_rect) {
+            return;
+        }
         let alphafactor = if fov_indicator.visible_timer < 1.0 {
             fov_indicator.visible_timer.clamp(0.0, 1.0)
         } else {
@@ -198,6 +214,7 @@ pub fn draw_fov_indicator(
         if arearesponse.response.hovered() || innerhovered || slideractive {
             fov_indicator.visible_timer = 2.0;
         }
+        fov_indicator.last_rect = Some(arearesponse.response.rect);
         fov_indicator.interacting = slideractive;
     }
 }

@@ -35,6 +35,8 @@ impl Plugin for StudioPlugin {
             .init_resource::<ui::CopiedEntityBuffer>()
             .init_resource::<ui::HierarchyDraggedEntity>()
             .init_resource::<ui::SettingsWindow>()
+            .init_resource::<ui::VrtxSaveSettings>()
+            .init_resource::<ui::StudioSettings>()
             .init_resource::<ui::resources::ActiveScriptEditor>()
             .init_resource::<ui::resources::PlayInClientProcesses>()
             .init_resource::<ui::resources::PlaytestBackup>()
@@ -93,6 +95,7 @@ impl Plugin for StudioPlugin {
                     crate::studio::camera::sync_gizmo_camera,
                     crate::studio::camera::toggle_editor_camera_active,
                     crate::studio::camera::disable_cameras_on_minimization,
+                    crate::studio::camera::apply_studio_camera_settings,
                     ui::resources::handle_file_dialog_results,
                 ),
             )

@@ -223,7 +223,11 @@ impl Plugin for SkyPlugin {
             .init_resource::<LightingConfig>()
             .register_type::<LightingConfig>()
             .add_systems(Startup, setup_sky_environment)
-            .add_systems(Update, (configure_sky_cameras, sync_lighting_system));
+            .add_systems(Update, (
+                configure_sky_cameras,
+                sync_lighting_system,
+                apply_cloud_quality_settings.before(sync_lighting_system),
+            ));
     }
 }
 
@@ -295,6 +299,20 @@ fn configure_sky_cameras(
             },
         ));
     }
+}
+
+pub(crate) fn apply_cloud_quality_settings(
+    settings: Res<crate::common::core::performance::GraphicsSettings>,
+    mut lighting_config: ResMut<LightingConfig>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    let (enabled, render_scale, raymarch_steps, shadow_steps) = settings.cloud_quality.preset();
+    lighting_config.volumetric_clouds = enabled;
+    lighting_config.cloud_render_scale = render_scale;
+    lighting_config.cloud_raymarch_steps = raymarch_steps;
+    lighting_config.cloud_shadow_steps = shadow_steps;
 }
 
 pub(crate) fn sync_lighting_system(

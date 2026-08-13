@@ -31,11 +31,18 @@ struct FlatRow {
 pub struct ExplorerRowCache {
     rows: Vec<FlatRow>,
     dirty: bool,
+    scroll_to: Option<Entity>,
+    last_scrolled_to: Option<Entity>,
 }
 
 impl Default for ExplorerRowCache {
     fn default() -> Self {
-        Self { rows: Vec::new(), dirty: false }
+        Self {
+            rows: Vec::new(),
+            dirty: false,
+            scroll_to: None,
+            last_scrolled_to: None,
+        }
     }
 }
 
@@ -741,6 +748,47 @@ pub fn draw_explorer(
         lighting_state.store(ui.ctx());
     }
 
+    if selection.is_changed() {
+        if let Some(entity) = selection.entity {
+            if explorer_cache.last_scrolled_to != Some(entity) {
+                explorer_cache.scroll_to = Some(entity);
+            }
+        }
+    }
+
+    let mut scroll_to_row = None;
+    if let Some(target) = explorer_cache.scroll_to.take() {
+        let mut current = target;
+        let mut expanded_any = false;
+        for _ in 0..1000 {
+            let parent_entity = explorer_query.get(current).ok().and_then(|(_, _, parent_opt, _, _, _, _, _)| parent_opt.map(|co| co.parent()));
+            let Some(parent) = parent_entity else {
+                break;
+            };
+            if parent == current {
+                break;
+            }
+            if is_managed_entity(parent, explorer_query) && !expanded.contains(&parent) {
+                expanded.insert(parent);
+                expanded_any = true;
+            }
+            current = parent;
+        }
+        if expanded_any {
+            explorer_cache.dirty = true;
+        }
+        if explorer_cache.dirty {
+            build_explorer_rows(&mut explorer_cache.rows, expanded, explorer_query);
+            explorer_cache.dirty = false;
+        }
+        if let Some(index) = explorer_cache.rows.iter().position(|row| row.entity == target) {
+            workspace_state.set_open(true);
+            workspace_state.store(ui.ctx());
+            scroll_to_row = Some(index);
+            explorer_cache.last_scrolled_to = Some(target);
+        }
+    }
+
     let workspace_res = workspace_state.show_header(ui, |ui| {
         let label_res = explorerlabel(ui, selection.workspace_selected, "Workspace", Some(workspace_tex), false);
         if label_res.clicked() {
@@ -767,6 +815,17 @@ pub fn draw_explorer(
                     .auto_shrink([false, true])
                     .max_height(rows_height)
                     .show_rows(ui, EXPLORER_ROW_HEIGHT, explorer_cache.rows.len(), |ui, row_range| {
+                        if let Some(scroll_row) = scroll_to_row {
+                            let row_pitch = EXPLORER_ROW_HEIGHT + ui.spacing().item_spacing.y;
+                            let row_top = ui.max_rect().top() + (scroll_row as f32 - row_range.start as f32) * row_pitch;
+                            ui.scroll_to_rect(
+                                egui::Rect::from_min_size(
+                                    egui::pos2(ui.max_rect().left(), row_top),
+                                    egui::vec2(1.0, EXPLORER_ROW_HEIGHT),
+                                ),
+                                None,
+                            );
+                        }
                         for i in row_range {
                             let row = explorer_cache.rows[i];
                             render_flat_row(

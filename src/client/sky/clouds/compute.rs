@@ -79,7 +79,8 @@ fn prepare_uniforms_bind_group(
     buffer.sun_color = clouds_config.sun_color;
     buffer.camera_translation = camera.translation;
     buffer.time = time.elapsed_secs_wrapped();
-    buffer.reprojection_strength = clouds_config.reprojection_strength;
+    buffer.reprojection_strength =
+        clouds_config.reprojection_strength.powf(time.delta_secs() * 60.0);
     buffer.render_resolution = clouds_config.render_resolution;
     buffer.inverse_camera_view = camera.inverse_camera_view;
     *previous_inverse_camera_view = camera.inverse_camera_view;

@@ -1,16 +1,134 @@
 use bevy::prelude::*;
 use bevy::winit::{WinitSettings, UpdateMode};
-use bevy::window::{PrimaryWindow, WindowMode};
+use bevy::window::{PresentMode, PrimaryWindow, WindowMode};
 use std::time::Duration;
 
 #[derive(Component)]
 pub struct PreviousTransform(pub Transform);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MsaaQuality {
+    Off,
+    Sample2,
+    Sample4,
+    Sample8,
+}
+
+impl MsaaQuality {
+    pub fn samples(self) -> u32 {
+        match self {
+            MsaaQuality::Off => 1,
+            MsaaQuality::Sample2 => 2,
+            MsaaQuality::Sample4 => 4,
+            MsaaQuality::Sample8 => 8,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShadowQuality {
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl ShadowQuality {
+    pub fn shadow_map_size(self) -> usize {
+        match self {
+            ShadowQuality::Off | ShadowQuality::Low => 512,
+            ShadowQuality::Medium => 1024,
+            ShadowQuality::High => 2048,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VsyncMode {
+    Off,
+    On,
+    Adaptive,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShadowCascades {
+    Two,
+    Three,
+    Four,
+}
+
+impl ShadowCascades {
+    pub fn count(self) -> usize {
+        match self {
+            ShadowCascades::Two => 2,
+            ShadowCascades::Three => 3,
+            ShadowCascades::Four => 4,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShadowFilter {
+    Fast,
+    HighQuality,
+}
+
+impl ShadowFilter {
+    pub fn method(self) -> bevy::light::ShadowFilteringMethod {
+        match self {
+            ShadowFilter::Fast => bevy::light::ShadowFilteringMethod::Hardware2x2,
+            ShadowFilter::HighQuality => bevy::light::ShadowFilteringMethod::Gaussian,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CloudQuality {
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl CloudQuality {
+    pub fn preset(self) -> (bool, f32, u32, u32) {
+        match self {
+            CloudQuality::Off => (false, 0.5, 6, 3),
+            CloudQuality::Low => (true, 0.5, 6, 3),
+            CloudQuality::Medium => (true, 0.75, 9, 4),
+            CloudQuality::High => (true, 1.0, 12, 6),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ViewDistance {
+    Low,
+    Medium,
+    High,
+}
+
+impl ViewDistance {
+    pub fn brick_lod_distances(self) -> (f32, f32, f32) {
+        match self {
+            ViewDistance::Low => (12.0, 48.0, 96.0),
+            ViewDistance::Medium => (20.0, 64.0, 128.0),
+            ViewDistance::High => (28.0, 80.0, 160.0),
+        }
+    }
+}
 
 #[derive(Resource)]
 pub struct GraphicsSettings {
     pub ssao: bool,
     pub contact_shadows: bool,
     pub bloom: bool,
+    pub msaa: MsaaQuality,
+    pub shadow_quality: ShadowQuality,
+    pub shadow_filter: ShadowFilter,
+    pub vsync: VsyncMode,
+    pub cloud_quality: CloudQuality,
+    pub view_distance: ViewDistance,
 }
 
 impl Default for GraphicsSettings {
@@ -19,6 +137,12 @@ impl Default for GraphicsSettings {
             ssao: false,
             contact_shadows: false,
             bloom: true,
+            msaa: MsaaQuality::Sample4,
+            shadow_quality: ShadowQuality::Medium,
+            shadow_filter: ShadowFilter::HighQuality,
+            vsync: VsyncMode::On,
+            cloud_quality: CloudQuality::High,
+            view_distance: ViewDistance::High,
         }
     }
 }
@@ -28,9 +152,47 @@ pub struct PerformancePlugin;
 impl Plugin for PerformancePlugin {
     fn build(&self, app: &mut App) {
         if app.is_plugin_added::<bevy::render::RenderPlugin>() {
-            app.insert_resource(WinitSettings::desktop_app())
+            app.register_required_components::<Camera3d, bevy::light::ShadowFilteringMethod>()
+                .insert_resource(WinitSettings::desktop_app())
                 .init_resource::<GraphicsSettings>()
-                .add_systems(Update, manage_winit_performance);
+                .add_systems(Update, manage_winit_performance)
+                .add_systems(Last, apply_graphics_settings);
+        }
+    }
+}
+
+pub fn apply_graphics_settings(
+    settings: Res<GraphicsSettings>,
+    mut cameras: Query<&mut Msaa>,
+    mut shadow_filter_methods: Query<&mut bevy::light::ShadowFilteringMethod, With<Camera3d>>,
+    mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
+    mut directional_lights: Query<&mut bevy::light::DirectionalLight>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if settings.is_changed() {
+        let msaa = Msaa::from_samples(settings.msaa.samples());
+        for mut camera_msaa in &mut cameras {
+            *camera_msaa = msaa;
+        }
+        let shadow_filtering = settings.shadow_filter.method();
+        for mut filtering in &mut shadow_filter_methods {
+            *filtering = shadow_filtering;
+        }
+        directional_light_shadow_map.size = settings.shadow_quality.shadow_map_size();
+
+        let present_mode = match settings.vsync {
+            VsyncMode::Off => PresentMode::Immediate,
+            VsyncMode::On => PresentMode::Fifo,
+            VsyncMode::Adaptive => PresentMode::AutoVsync,
+        };
+        for mut window in &mut windows {
+            window.present_mode = present_mode;
+        }
+    }
+
+    if settings.shadow_quality == ShadowQuality::Off {
+        for mut light in &mut directional_lights {
+            light.shadow_maps_enabled = false;
         }
     }
 }

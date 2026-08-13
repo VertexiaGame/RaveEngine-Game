@@ -15,7 +15,7 @@ use bevy::pbr::ExtendedMaterial;
 pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
 pub use indicator::{CameraSpeedIndicator, updatecameraspeedindicator, FovIndicator, update_camera_fov};
 pub use visuals::configure_visuals;
-pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow, ActiveScriptEditor, FileDialogState};
+pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow, ActiveScriptEditor, FileDialogState, VrtxSaveSettings, StudioSettings};
 pub use crate::common::core::performance::GraphicsSettings;
 
 pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usize) -> &str {
@@ -69,6 +69,8 @@ pub struct UiStateResources<'w> {
     pub hover_state: ResMut<'w, crate::studio::tools::HoverState>,
     pub settings_window: ResMut<'w, SettingsWindow>,
     pub graphics_settings: ResMut<'w, GraphicsSettings>,
+    pub vrtx_save_settings: ResMut<'w, VrtxSaveSettings>,
+    pub studio_settings: ResMut<'w, StudioSettings>,
     pub onboarding_state: Res<'w, State<crate::studio::tools::OnboardingState>>,
     pub next_onboarding_state: ResMut<'w, NextState<crate::studio::tools::OnboardingState>>,
     pub onboarding_data: ResMut<'w, crate::studio::ui::panels::onboarding::OnboardingData>,
@@ -681,11 +683,25 @@ pub fn studio_ui(
     };
 
     if ui_state.settings_window.open {
-        panels::draw_settings_window(ctx, &mut ui_state.settings_window.open, &mut ui_state.graphics_settings);
+        panels::draw_settings_window(
+            ctx,
+            &mut ui_state.settings_window,
+            &mut ui_state.graphics_settings,
+            &mut ui_state.vrtx_save_settings,
+            &mut ui_state.studio_settings,
+        );
     }
 
-    indicator::draw_indicator(ctx, &mut ui_state.cameraindicator, &mut queries.cameraquery);
-    indicator::draw_fov_indicator(ctx, &mut ui_state.fovindicator, &mut queries.camera_projection_query);
+    let mut pointer_over_ui = false;
+    if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+        pointer_over_ui = top_bar_res.response.rect.contains(pos)
+            || panel_res.response.rect.contains(pos)
+            || output_panel_res.as_ref().is_some_and(|res| res.response.rect.contains(pos))
+            || ctx.is_pointer_over_area();
+    }
+
+    indicator::draw_indicator(ctx, &mut ui_state.cameraindicator, &mut queries.cameraquery, pointer_over_ui);
+    indicator::draw_fov_indicator(ctx, &mut ui_state.fovindicator, &mut queries.camera_projection_query, pointer_over_ui);
 
     if let (Some(entity), Some(pos)) = (ui_state.context_menu.entity, ui_state.context_menu.position) {
         let mut open_status = true;

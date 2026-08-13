@@ -67,6 +67,23 @@ pub fn setup_studio(
     ));
 }
 
+pub fn apply_studio_camera_settings(
+    settings: Res<crate::studio::ui::StudioSettings>,
+    mut camera_query: Query<(&mut FreeCamera, &mut Projection)>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    for (mut free_camera, mut projection) in &mut camera_query {
+        free_camera.sensitivity = settings.mouse_sensitivity;
+        free_camera.walk_speed = settings.camera_speed;
+        free_camera.run_speed = settings.camera_speed * 3.0;
+        if let Projection::Perspective(perspective) = &mut *projection {
+            perspective.fov = settings.fov.to_radians();
+        }
+    }
+}
+
 pub fn disable_camera_on_ui_interaction(
     mut camera_query: Query<&mut bevy::camera_controller::free_camera::FreeCameraState>,
     mut contexts: bevy_egui::EguiContexts,

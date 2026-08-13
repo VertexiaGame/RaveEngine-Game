@@ -456,9 +456,6 @@ pub fn add_bricks_benchmark(app: &mut App) {
 
 fn links_optimizer_system() {} // dummy hook for common optimization module
 
-const STUD_LOD_DISTANCE_SQ: f32 = 28.0 * 28.0;
-const SHADOW_LOD_DISTANCE_SQ: f32 = 80.0 * 80.0;
-const HIDE_LOD_DISTANCE_SQ: f32 = 160.0 * 160.0;
 const LOD_CAMERA_MOVE_SQ: f32 = 16.0 * 16.0;
 
 pub fn swap_brick_material(
@@ -504,6 +501,7 @@ pub fn optimize_brick_visibility(
     workspace_studs: Option<Res<WorkspaceShowStuds>>,
     mut cache: ResMut<BrickMaterialCache>,
     mut last_camera_position: Local<Option<Vec3>>,
+    graphics_settings: Option<Res<crate::common::core::performance::GraphicsSettings>>,
 ) {
     let Some((camera_transform, camera)) = camera_query.iter().next() else {
         return;
@@ -511,6 +509,13 @@ pub fn optimize_brick_visibility(
     if !camera.is_active {
         return;
     }
+
+    let (stud_lod_distance, shadow_lod_distance, hide_lod_distance) = graphics_settings
+        .map(|settings| settings.view_distance.brick_lod_distances())
+        .unwrap_or((28.0, 80.0, 160.0));
+    let stud_lod_distance_sq = stud_lod_distance * stud_lod_distance;
+    let shadow_lod_distance_sq = shadow_lod_distance * shadow_lod_distance;
+    let hide_lod_distance_sq = hide_lod_distance * hide_lod_distance;
 
     let cam_pos = camera_transform.translation();
     let show_studs_globally = workspace_studs.as_ref().map(|w| w.enabled).unwrap_or(true);
@@ -526,7 +531,7 @@ pub fn optimize_brick_visibility(
     for (entity, transform, color, studs, studs_material, plain_material, not_shadow_caster, visibility) in &bricks_query {
         let dist_sq = transform.translation().distance_squared(cam_pos);
         let brick_wants_studs = studs.map(|s| s.enabled).unwrap_or(true);
-        let want_studs = show_studs_globally && brick_wants_studs && dist_sq <= STUD_LOD_DISTANCE_SQ;
+        let want_studs = show_studs_globally && brick_wants_studs && dist_sq <= stud_lod_distance_sq;
 
         if want_studs != studs_material.is_some() {
             let base_color = if let Some(studs_mat_handle) = studs_material {
@@ -554,7 +559,7 @@ pub fn optimize_brick_visibility(
             );
         }
 
-        let want_shadow_caster = dist_sq <= SHADOW_LOD_DISTANCE_SQ;
+        let want_shadow_caster = dist_sq <= shadow_lod_distance_sq;
         if want_shadow_caster == not_shadow_caster.is_some() {
             if want_shadow_caster {
                 commands.entity(entity).remove::<NotShadowCaster>();
@@ -563,7 +568,7 @@ pub fn optimize_brick_visibility(
             }
         }
 
-        let want_visible = dist_sq <= HIDE_LOD_DISTANCE_SQ;
+        let want_visible = dist_sq <= hide_lod_distance_sq;
         let is_visible = visibility.is_none_or(|v| *v != Visibility::Hidden);
         if want_visible != is_visible {
             if want_visible {

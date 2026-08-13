@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::studio::ui::panels::settings::SettingsTab;
+
 #[derive(Resource, Default)]
 pub struct CopiedEntityBuffer {
     pub transform: Option<Transform>,
@@ -22,6 +24,41 @@ pub struct HierarchyDraggedEntity {
 #[derive(Resource, Default)]
 pub struct SettingsWindow {
     pub open: bool,
+    pub tab: SettingsTab,
+}
+
+#[derive(Resource)]
+pub struct VrtxSaveSettings {
+    pub include_camera_position: bool,
+    pub include_graphics_settings: bool,
+    pub include_lighting: bool,
+}
+
+impl Default for VrtxSaveSettings {
+    fn default() -> Self {
+        Self {
+            include_camera_position: true,
+            include_graphics_settings: true,
+            include_lighting: true,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct StudioSettings {
+    pub mouse_sensitivity: f32,
+    pub camera_speed: f32,
+    pub fov: f32,
+}
+
+impl Default for StudioSettings {
+    fn default() -> Self {
+        Self {
+            mouse_sensitivity: 0.2,
+            camera_speed: 5.0,
+            fov: 80.0,
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -92,6 +129,7 @@ pub fn handle_file_dialog_results(
     mut onboarding_data: ResMut<crate::studio::ui::panels::onboarding::OnboardingData>,
     mut next_onboarding_state: ResMut<NextState<crate::studio::tools::OnboardingState>>,
     mut graphics_settings: ResMut<crate::common::core::performance::GraphicsSettings>,
+    vrtx_save_settings: Res<VrtxSaveSettings>,
     mut lighting_config: Option<ResMut<crate::client::sky::LightingConfig>>,
     mut gravity: Option<ResMut<avian3d::prelude::Gravity>>,
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
@@ -309,23 +347,37 @@ pub fn handle_file_dialog_results(
                 } else {
                     Vec3::new(0.0, -186.9 * 0.28, 0.0)
                 };
-                let cam_transform = if let Some(cam_t) = camera_transform_query.iter().next() {
-                    *cam_t
+                let cam_transform = if vrtx_save_settings.include_camera_position {
+                    camera_transform_query.iter().next().map(|cam_t| *cam_t).unwrap_or_default()
                 } else {
                     Transform::IDENTITY
+                };
+                let saved_settings = if vrtx_save_settings.include_graphics_settings {
+                    crate::common::core::vrtx::VrtxSettings {
+                        ssao: graphics_settings.ssao,
+                        contact_shadows: graphics_settings.contact_shadows,
+                        bloom: graphics_settings.bloom,
+                    }
+                } else {
+                    crate::common::core::vrtx::VrtxSettings {
+                        ssao: false,
+                        contact_shadows: false,
+                        bloom: true,
+                    }
+                };
+                let lighting = if vrtx_save_settings.include_lighting {
+                    lighting_config
+                        .as_ref()
+                        .map(|lighting| crate::common::core::vrtx::VrtxLighting::from(&**lighting))
+                        .unwrap_or_default()
+                } else {
+                    crate::common::core::vrtx::VrtxLighting::default()
                 };
                 let state = crate::common::core::vrtx::VrtxFileState {
                     version: crate::common::core::vrtx::FORMAT_VERSION,
                     gravity: gravity_val,
-                    settings: crate::common::core::vrtx::VrtxSettings {
-                        ssao: graphics_settings.ssao,
-                        contact_shadows: graphics_settings.contact_shadows,
-                        bloom: graphics_settings.bloom,
-                    },
-                    lighting: lighting_config
-                        .as_ref()
-                        .map(|lighting| crate::common::core::vrtx::VrtxLighting::from(&**lighting))
-                        .unwrap_or_default(),
+                    settings: saved_settings,
+                    lighting,
                     camera_transform: cam_transform,
                     bricks: bricks_data,
                     scripts: scripts_data,
