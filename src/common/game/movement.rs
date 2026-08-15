@@ -20,6 +20,7 @@ pub const MAX_STEP_HEIGHT: f32 = 0.29;
 pub const MIN_STEP_HEIGHT: f32 = 0.05;
 pub const GROUND_SNAP_DIST: f32 = 0.15;
 pub const MAX_SLOPE_COS: f32 = 0.7071;
+pub const STEP_UP_DURATION_SECS: f32 = 0.1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MovementProbe {
@@ -53,11 +54,19 @@ pub struct CastHit {
     pub normal: Vec3,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StepUpState {
+    pub start: Vec3,
+    pub target: Vec3,
+    pub elapsed: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Resource)]
 pub struct CharacterMoveState {
     pub horizontal_velocity: Vec2,
     pub jump_buffered_at: Option<f32>,
     pub coyote_until: Option<f32>,
+    pub step_up: Option<StepUpState>,
 }
 
 impl Default for CharacterMoveState {
@@ -66,6 +75,7 @@ impl Default for CharacterMoveState {
             horizontal_velocity: Vec2::ZERO,
             jump_buffered_at: None,
             coyote_until: None,
+            step_up: None,
         }
     }
 }
@@ -147,6 +157,24 @@ pub fn character_move(
     let mut position_y = None;
     let mut position_xz = None;
 
+    if let Some(step) = &mut state.step_up {
+        step.elapsed += dt;
+        let t = (step.elapsed / STEP_UP_DURATION_SECS).min(1.0);
+        if t < 0.5 {
+            position_y = Some(step.start.y.lerp(step.target.y, t * 2.0));
+        } else {
+            position_y = Some(step.target.y);
+            let t2 = (t - 0.5) * 2.0;
+            position_xz = Some(Vec2::new(
+                step.start.x.lerp(step.target.x, t2),
+                step.start.z.lerp(step.target.z, t2),
+            ));
+        }
+        if t >= 1.0 {
+            state.step_up = None;
+        }
+    }
+
     if grounded {
         if let Some(hit) = ground_hit {
             if has_wish {
@@ -158,7 +186,7 @@ pub fn character_move(
             }
 
             let floor_top = feet + 0.1 - hit.distance - probe_half_height(MovementProbe::Ground);
-            if floor_top - feet <= GROUND_SNAP_DIST && feet - floor_top > 0.001 {
+            if state.step_up.is_none() && floor_top - feet <= GROUND_SNAP_DIST && feet - floor_top > 0.001 {
                 position_y = Some(floor_top + PLAYER_HALF_HEIGHT);
             }
         }
@@ -182,7 +210,7 @@ pub fn character_move(
                     dir,
                     reach,
                 );
-                if forward_hit.is_some() && over_hit.is_none() {
+                if state.step_up.is_none() && forward_hit.is_some() && over_hit.is_none() {
                     let land_origin = Vec3::new(
                         center.x + dir.x * (reach + 0.05),
                         feet + MAX_STEP_HEIGHT + 0.3,
@@ -201,11 +229,15 @@ pub fn character_move(
                         let step_height = step_top - feet;
                         if step_height > MIN_STEP_HEIGHT && step_height <= MAX_STEP_HEIGHT {
                             let advance = reach + 0.05 - PLAYER_HALF_DEPTH;
-                            position_xz = Some(Vec2::new(
-                                center.x + dir.x * advance,
-                                center.z + dir.z * advance,
-                            ));
-                            position_y = Some(step_top + PLAYER_HALF_HEIGHT);
+                            state.step_up = Some(StepUpState {
+                                start: Vec3::new(center.x, feet + PLAYER_HALF_HEIGHT, center.z),
+                                target: Vec3::new(
+                                    center.x + dir.x * advance,
+                                    step_top + PLAYER_HALF_HEIGHT,
+                                    center.z + dir.z * advance,
+                                ),
+                                elapsed: 0.0,
+                            });
                             velocity.y = velocity.y.max(0.0);
                         }
                     }
@@ -237,6 +269,7 @@ pub fn character_move(
         velocity.y = params.jump_power;
         state.jump_buffered_at = None;
         state.coyote_until = None;
+        state.step_up = None;
         position_y = None;
     }
 
@@ -435,6 +468,41 @@ mod tests {
             wall_top_y: 0.28,
         };
         let mut state = CharacterMoveState::default();
+        let mut center = Vec3::new(0.0, 0.7, 0.26);
+        let mut velocity = Vec3::ZERO;
+        let mut cast = make_cast(&world);
+        for _ in 0..7 {
+            let output = character_move(
+                center,
+                velocity,
+                0.0,
+                &mut state,
+                &params(Vec2::new(0.0, -1.0), false, 0.0),
+                &mut cast,
+            );
+            if let Some(y) = output.position_y {
+                center.y = y;
+            }
+            if let Some(xz) = output.position_xz {
+                center.x = xz.x;
+                center.z = xz.y;
+            }
+            velocity = output.velocity;
+        }
+        assert_eq!(state.step_up, None, "step-up should have completed");
+        assert!((center.y - 0.98).abs() < 0.01, "rose to: {}", center.y);
+        assert!((center.z - 0.11).abs() < 0.01, "advanced to: {}", center.z);
+    }
+
+    #[test]
+    fn step_up_does_not_teleport_on_the_trigger_tick() {
+        let world = World {
+            floor_y: 0.0,
+            floor_normal: Vec3::Y,
+            wall_z: Some(0.0),
+            wall_top_y: 0.28,
+        };
+        let mut state = CharacterMoveState::default();
         let output = run_once(
             &world,
             Vec3::new(0.0, 0.7, 0.26),
@@ -442,14 +510,72 @@ mod tests {
             &mut state,
             &params(Vec2::new(0.0, -1.0), false, 0.0),
         );
-        let snapped = output.position_y.expect("expected a step-up snap");
-        assert!((snapped - 0.98).abs() < 0.01, "snapped to: {}", snapped);
-        let advanced = output.position_xz.expect("expected a step-up advance");
-        assert!(
-            (advanced.y - 0.11).abs() < 0.01,
-            "advanced to: {}",
-            advanced.y
+        assert!(state.step_up.is_some(), "step-up should have started");
+        assert_eq!(output.position_y, None, "trigger tick must not teleport");
+        assert_eq!(output.position_xz, None, "trigger tick must not teleport");
+    }
+
+    #[test]
+    fn step_up_rises_gradually() {
+        let world = World {
+            floor_y: 0.0,
+            floor_normal: Vec3::Y,
+            wall_z: Some(0.0),
+            wall_top_y: 0.28,
+        };
+        let mut state = CharacterMoveState::default();
+        run_once(
+            &world,
+            Vec3::new(0.0, 0.7, 0.26),
+            Vec3::ZERO,
+            &mut state,
+            &params(Vec2::new(0.0, -1.0), false, 0.0),
         );
+        let output = run_once(
+            &world,
+            Vec3::new(0.0, 0.7, 0.26),
+            Vec3::ZERO,
+            &mut state,
+            &params(Vec2::new(0.0, -1.0), false, 0.0),
+        );
+        let mid = output.position_y.expect("step-up should animate");
+        assert!(
+            (mid - 0.7).abs() > 0.001 && (mid - 0.98).abs() > 0.001,
+            "expected a mid-rise height, got {}",
+            mid
+        );
+        assert_eq!(output.position_xz, None, "advance should come after the rise");
+    }
+
+    #[test]
+    fn jump_cancels_an_in_progress_step_up() {
+        let world = World {
+            floor_y: 0.0,
+            floor_normal: Vec3::Y,
+            wall_z: Some(0.0),
+            wall_top_y: 0.28,
+        };
+        let mut state = CharacterMoveState::default();
+        for _ in 0..2 {
+            run_once(
+                &world,
+                Vec3::new(0.0, 0.7, 0.26),
+                Vec3::ZERO,
+                &mut state,
+                &params(Vec2::new(0.0, -1.0), false, 0.0),
+            );
+        }
+        assert!(state.step_up.is_some(), "step-up should be in progress");
+        let output = run_once(
+            &world,
+            Vec3::new(0.0, 0.7, 0.26),
+            Vec3::ZERO,
+            &mut state,
+            &params(Vec2::ZERO, true, 0.1),
+        );
+        assert_eq!(state.step_up, None, "jump should cancel the step-up");
+        assert_eq!(output.velocity.y, 50.0 * 0.28);
+        assert_eq!(output.position_y, None);
     }
 
     #[test]

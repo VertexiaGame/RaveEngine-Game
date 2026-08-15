@@ -219,6 +219,7 @@ fn sync_network_transforms_to_client(
 const LOCAL_ERR_CORRECTION_RATE: f32 = 10.0;
 const LOCAL_ERR_CORRECTION_MIN: f32 = 0.05;
 const LOCAL_ERR_CORRECTION_SNAP: f32 = 0.25;
+const LOCAL_ERR_CORRECTION_STILL_SPEED: f32 = 1.0;
 const REMOTE_INTERP_DELAY_SECS: f64 = 0.1;
 const REMOTE_INTERP_MAX_BUFFER_SECS: f64 = 0.3;
 const REMOTE_INTERP_MAX_AGE_SECS: f64 = 2.0;
@@ -239,7 +240,9 @@ fn reconcile_prediction_error(
     let y_error = current.y - server.y;
     if y_error.abs() > 2.0 {
         output.position_y = Some(current.y.lerp(server.y, (dt * 3.0).min(1.0)));
-    } else if error.length() > LOCAL_ERR_CORRECTION_SNAP {
+    } else if output.velocity.length() < LOCAL_ERR_CORRECTION_STILL_SPEED
+        && error.length() > LOCAL_ERR_CORRECTION_SNAP
+    {
         output.position_xz = Some(Vec2::new(server.x, server.z));
         output.position_y = Some(server.y);
         output.velocity.x = 0.0;
@@ -1116,7 +1119,7 @@ mod tests {
 
     #[test]
     fn snaps_player_down_when_server_missed_the_step_up() {
-        let mut output = movement_output(Vec3::new(0.0, 0.0, -4.48), None, None);
+        let mut output = movement_output(Vec3::ZERO, None, None);
         reconcile_prediction_error(
             Vec3::new(0.0, 0.98, -0.11),
             Vec3::new(0.0, 0.7, -0.26),
@@ -1126,6 +1129,52 @@ mod tests {
         assert_eq!(output.position_xz, Some(Vec2::new(0.0, -0.26)));
         assert_eq!(output.position_y, Some(0.7));
         assert_eq!(output.velocity, Vec3::new(0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn does_not_snap_while_moving() {
+        let mut output = movement_output(Vec3::new(0.0, 0.0, -4.48), None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.98, -0.11),
+            Vec3::new(0.0, 0.7, -0.26),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, None);
+        assert_eq!(output.position_y, None);
+        assert!(
+            (output.velocity.z - (-4.48 - 0.15)).abs() < 1e-4,
+            "velocity: {:?}",
+            output.velocity
+        );
+    }
+
+    #[test]
+    fn does_not_snap_during_a_jump() {
+        let mut output = movement_output(Vec3::new(0.0, 14.0, 0.0), None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 1.4, 0.0),
+            Vec3::new(0.0, 0.9, 0.0),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, None);
+        assert_eq!(output.position_y, None);
+        assert_eq!(output.velocity, Vec3::new(0.0, 14.0, 0.0));
+    }
+
+    #[test]
+    fn snaps_after_decelerating_to_a_stop() {
+        let mut output = movement_output(Vec3::new(0.0, 0.0, -0.5), None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.98, -0.11),
+            Vec3::new(0.0, 0.7, -0.26),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, Some(Vec2::new(0.0, -0.26)));
+        assert_eq!(output.position_y, Some(0.7));
+        assert_eq!(output.velocity, Vec3::ZERO);
     }
 
     #[test]
