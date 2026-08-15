@@ -444,14 +444,18 @@ fn record_bricks_assets(
 
 #[cfg(feature = "bench")]
 pub fn add_bricks_benchmark(app: &mut App) {
-    app.init_resource::<BrickMaterialCache>()
-        .init_asset::<StandardMaterial>()
-        .add_systems(Startup, spawn_bricks_benchmark)
-        .add_systems(Update, (
-            update_brick_meshes_on_shape_change,
-            toggle_brick_shapes,
-        ))
-        .add_systems(Last, record_bricks_assets.before(crate::common::core::bench::bench_finish_frame));
+    app.insert_resource(crate::server::ServerSettings {
+        map_path: String::new(),
+        port: 0,
+    })
+    .init_resource::<BrickMaterialCache>()
+    .init_asset::<StandardMaterial>()
+    .add_systems(Startup, spawn_bricks_benchmark)
+    .add_systems(Update, (
+        update_brick_meshes_on_shape_change,
+        toggle_brick_shapes,
+    ))
+    .add_systems(Last, record_bricks_assets.before(crate::common::core::bench::bench_finish_frame));
 }
 
 fn links_optimizer_system() {} // dummy hook for common optimization module

@@ -24,13 +24,20 @@ pub struct PhysicsAttached;
 const BRICK_LINEAR_DAMPING: f32 = 0.1;
 const BRICK_ANGULAR_DAMPING: f32 = 0.1;
 
-const SANITIZE_INTERVAL_STEPS: u32 = 10;
+const MAX_PHYSICS_POSITION: f32 = 100_000.0;
+const MAX_PHYSICS_VELOCITY: f32 = 5_000.0;
 
 pub struct PhysicsSimulationPlugin;
 
 impl Plugin for PhysicsSimulationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PhysicsPlugins::default())
+        app.insert_resource(PhysicsLengthUnit(0.28))
+            .insert_resource(avian3d::dynamics::solver::SolverConfig {
+                max_overlap_solve_speed: 16.0,
+                restitution_iterations: 2,
+                ..default()
+            })
+            .add_plugins(PhysicsPlugins::default())
             .insert_resource(Gravity(Vec3::new(0.0, -186.9 * 0.28, 0.0)))
             .init_resource::<PhysicsSimulationState>()
             .add_message::<PhysicsSimulationAction>()
@@ -41,38 +48,33 @@ impl Plugin for PhysicsSimulationPlugin {
             ))
             .add_systems(
                 PhysicsSchedule,
-                sanitize_physics_state.in_set(PhysicsStepSystems::Finalize),
+                (
+                    sanitize_physics_state.before(PhysicsStepSystems::First),
+                    sanitize_physics_state.in_set(PhysicsStepSystems::Finalize),
+                ),
             );
     }
 }
 
-const MAX_PHYSICS_POSITION: f32 = 100_000.0;
-const MAX_PHYSICS_VELOCITY: f32 = 5_000.0;
-
 fn sanitize_physics_state(
-    mut step_count: Local<u32>,
     mut bodies: Query<(
         &mut Position,
         &mut Rotation,
         &mut LinearVelocity,
         &mut AngularVelocity,
-        Option<&mut Transform>,
     ), Or<(With<SleepingDisabled>, With<GravityScale>)>>,
+    mut colliders: Query<&mut Transform, With<Collider>>,
 ) {
-    *step_count = step_count.wrapping_add(1);
-    if *step_count % SANITIZE_INTERVAL_STEPS != 0 {
-        return;
-    }
-
-    for (mut position, mut rotation, mut linear_velocity, mut angular_velocity, transform) in
-        &mut bodies
-    {
+    for (mut position, mut rotation, mut linear_velocity, mut angular_velocity) in &mut bodies {
         if !position.0.is_finite() {
             position.0 = Vec3::ZERO;
         } else {
-            position.0 = position
+            let clamped = position
                 .0
                 .clamp(Vec3::splat(-MAX_PHYSICS_POSITION), Vec3::splat(MAX_PHYSICS_POSITION));
+            if clamped != position.0 {
+                position.0 = clamped;
+            }
         }
 
         if !rotation.0.is_finite() {
@@ -82,27 +84,36 @@ fn sanitize_physics_state(
         if !linear_velocity.0.is_finite() {
             linear_velocity.0 = Vec3::ZERO;
         } else {
-            linear_velocity.0 = linear_velocity.0
+            let clamped = linear_velocity.0
                 .clamp(Vec3::splat(-MAX_PHYSICS_VELOCITY), Vec3::splat(MAX_PHYSICS_VELOCITY));
+            if clamped != linear_velocity.0 {
+                linear_velocity.0 = clamped;
+            }
         }
 
         if !angular_velocity.0.is_finite() {
             angular_velocity.0 = Vec3::ZERO;
         } else {
-            angular_velocity.0 = angular_velocity.0
+            let clamped = angular_velocity.0
                 .clamp(Vec3::splat(-MAX_PHYSICS_VELOCITY), Vec3::splat(MAX_PHYSICS_VELOCITY));
+            if clamped != angular_velocity.0 {
+                angular_velocity.0 = clamped;
+            }
         }
+    }
 
-        if let Some(mut transform) = transform {
-            if !transform.translation.is_finite() {
-                transform.translation = Vec3::ZERO;
-            }
-            let scale = transform.scale;
-            if !scale.is_finite() {
-                transform.scale = Vec3::ONE;
-            } else {
-                transform.scale = scale.max(Vec3::splat(0.01));
-            }
+    for mut transform in &mut colliders {
+        if !transform.translation.is_finite() {
+            transform.translation = Vec3::ZERO;
+        }
+        let scale = transform.scale;
+        let clamped_scale = if !scale.is_finite() {
+            Vec3::ONE
+        } else {
+            scale.max(Vec3::splat(0.01))
+        };
+        if clamped_scale != scale {
+            transform.scale = clamped_scale;
         }
     }
 }
@@ -123,17 +134,30 @@ fn setup_physics(
 fn attach_brick_physics(
     commands: &mut Commands,
     entity: Entity,
+    transform: &Transform,
+    client_mode: bool,
     shape_opt: Option<&crate::common::game::bricks::components::BrickShapeComponent>,
     phys_opt: Option<&crate::common::game::bricks::components::BrickPhysics>,
 ) {
+    let mut transform = *transform;
+    if !transform.translation.is_finite() {
+        transform.translation = Vec3::ZERO;
+    }
+    let scale = transform.scale;
+    if !scale.is_finite() {
+        transform.scale = Vec3::ONE;
+    } else {
+        transform.scale = scale.max(Vec3::splat(0.01));
+    }
+
     let (enabled, bounciness, player_can_collide, friction, gravity_scale, mass) = if let Some(phys) = phys_opt {
         (phys.enabled, phys.bounciness, phys.player_can_collide, phys.friction, phys.gravity_scale, phys.mass)
     } else {
-        (true, 0.3, true, 0.3, 1.0, 1.0)
+        (true, 0.0, true, 0.3, 1.0, 1.0)
     };
 
     let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
-    let collider = match shape {
+    let mut collider = match shape {
         crate::common::game::bricks::components::BrickShape::Block => {
             Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28)
         }
@@ -141,6 +165,7 @@ fn attach_brick_physics(
             Collider::sphere(1.0 * 0.28)
         }
     };
+    collider.set_scale(scale, 32);
 
     let layers = if player_can_collide {
         CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF)
@@ -148,7 +173,7 @@ fn attach_brick_physics(
         CollisionLayers::from_bits(0b0100, 0xFFFF_FFFD)
     };
 
-    let client_body_type = if std::env::var("VERTIGO_APP").unwrap_or_default() == "client" {
+    let client_body_type = if client_mode {
         RigidBody::Static
     } else {
         RigidBody::Dynamic
@@ -156,6 +181,7 @@ fn attach_brick_physics(
 
     if enabled {
         commands.entity(entity).insert((
+            transform,
             client_body_type,
             collider,
             Friction::new(friction),
@@ -164,11 +190,16 @@ fn attach_brick_physics(
             Mass(mass),
             LinearDamping(BRICK_LINEAR_DAMPING),
             AngularDamping(BRICK_ANGULAR_DAMPING),
+            SleepThreshold {
+                linear: 0.5,
+                angular: 0.5,
+            },
             layers,
             PhysicsAttached,
         ));
     } else {
         commands.entity(entity).insert((
+            transform,
             RigidBody::Static,
             collider,
             Friction::new(friction),
@@ -193,6 +224,7 @@ fn detach_brick_physics(commands: &mut Commands, entity: Entity) {
         LinearDamping,
         AngularDamping,
         SleepingDisabled,
+        SleepThreshold,
         PhysicsAttached,
     )>();
 }
@@ -202,6 +234,7 @@ fn handle_physics_simulation_actions(
     mut state: ResMut<PhysicsSimulationState>,
     mut time_physics: ResMut<Time<Physics>>,
     mut commands: Commands,
+    playtest: Option<Res<crate::client::PlaytestState>>,
     bricks_query: Query<(
         Entity,
         &Transform,
@@ -210,6 +243,7 @@ fn handle_physics_simulation_actions(
         Option<&TransformBackup>,
     ), With<crate::common::game::bricks::components::Brick>>,
 ) {
+    let client_mode = crate::client::is_playtesting(playtest);
     for action in actions.read() {
         match *action {
             PhysicsSimulationAction::Play => {
@@ -221,7 +255,7 @@ fn handle_physics_simulation_actions(
                         if backup.is_none() {
                             commands.entity(entity).insert(TransformBackup(*transform));
                         }
-                        attach_brick_physics(&mut commands, entity, shape_opt, phys_opt);
+                        attach_brick_physics(&mut commands, entity, transform, client_mode, shape_opt, phys_opt);
                     }
                 }
             }
@@ -252,7 +286,7 @@ fn handle_physics_simulation_actions(
                         commands.entity(entity).insert(TransformBackup(*transform));
                     }
                     detach_brick_physics(&mut commands, entity);
-                    attach_brick_physics(&mut commands, entity, shape_opt, phys_opt);
+                    attach_brick_physics(&mut commands, entity, transform, client_mode, shape_opt, phys_opt);
                 }
 
                 *state = PhysicsSimulationState::Running;
@@ -265,12 +299,44 @@ fn handle_physics_simulation_actions(
 fn handle_newly_spawned_bricks(
     mut commands: Commands,
     state: Res<PhysicsSimulationState>,
+    playtest: Option<Res<crate::client::PlaytestState>>,
     query: Query<(Entity, &Transform, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::bricks::components::BrickPhysics>), (With<crate::common::game::bricks::components::Brick>, Without<TransformBackup>, Without<PhysicsAttached>)>,
 ) {
     if *state == PhysicsSimulationState::Running {
+        let client_mode = crate::client::is_playtesting(playtest);
         for (entity, transform, shape_opt, phys_opt) in &query {
             commands.entity(entity).insert(TransformBackup(*transform));
-            attach_brick_physics(&mut commands, entity, shape_opt, phys_opt);
+            attach_brick_physics(&mut commands, entity, transform, client_mode, shape_opt, phys_opt);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn physics_schedule_initializes_without_ambiguity_errors() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, PhysicsSimulationPlugin));
+        app.finish();
+        app.world_mut().run_schedule(PhysicsSchedule);
+    }
+
+    #[test]
+    fn brick_collider_scale_matches_transform_scale() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, PhysicsSimulationPlugin));
+        let transform = Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(2.0, 1.0, 2.0));
+        let shape = crate::common::game::bricks::components::BrickShapeComponent {
+            shape: crate::common::game::bricks::components::BrickShape::Sphere,
+        };
+        let entity = app.world_mut().spawn((transform, shape)).id();
+        let mut commands = app.world_mut().commands();
+        attach_brick_physics(&mut commands, entity, &transform, false, Some(&shape), None);
+        app.world_mut().flush();
+
+        let collider = app.world_mut().query::<&Collider>().get(app.world(), entity).unwrap();
+        assert_eq!(collider.scale(), Vec3::new(2.0, 1.0, 2.0));
     }
 }

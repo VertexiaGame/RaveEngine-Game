@@ -45,6 +45,7 @@ pub struct AvatarAnimationsRetargeted {
 pub struct PlayerAnimationMarker {
     pub player_entity: Entity,
     pub current_index: Option<AnimationNodeIndex>,
+    pub walk_speed: f32,
 }
 
 #[derive(Component, Default)]
@@ -301,7 +302,7 @@ pub fn init_player_animations(
             commands.entity(player_entity).insert((
                 AnimationGraphHandle(graph_handle.clone()),
                 AnimationTransitions::default(),
-                PlayerAnimationMarker { player_entity: p_entity, current_index: None },
+                PlayerAnimationMarker { player_entity: p_entity, current_index: None, walk_speed: 1.0 },
             ));
             info!("PLAYER_LOG: Successfully linked unified AnimationPlayer {:?} to player {:?}.", player_entity, p_entity);
 
@@ -472,6 +473,7 @@ pub fn animate_player(
     mut anim_players: Query<(&mut AnimationPlayer, &mut AnimationTransitions, &mut PlayerAnimationMarker)>,
     players: Query<&PlayerVelocityTracker>,
     player_anims: Res<PlayerAnimationGraphLoaded>,
+    time: Res<Time>,
 ) {
     for (mut player, mut transitions, mut marker) in &mut anim_players {
         let Ok(tracker) = players.get(marker.player_entity) else {
@@ -516,6 +518,14 @@ pub fn animate_player(
             }
             marker.current_index = Some(active_index);
             info!("PLAYER_LOG: Animation state changed to NodeIndex {:?}", active_index);
+        }
+
+        if active_index == walk_index {
+            let target_walk_speed = (speed_xz / crate::common::game::movement::DEFAULT_WALK_SPEED).clamp(0.2, 1.5);
+            marker.walk_speed += (target_walk_speed - marker.walk_speed) * (8.0 * time.delta_secs()).min(1.0);
+            if let Some(anim) = player.animation_mut(walk_index) {
+                anim.set_speed(marker.walk_speed);
+            }
         }
     }
 }

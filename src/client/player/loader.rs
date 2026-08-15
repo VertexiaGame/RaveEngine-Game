@@ -128,14 +128,15 @@ pub fn spawn_player(
             Transform::from_xyz(0.0, 3.0, 0.0),
             GlobalTransform::default(),
             RigidBody::Dynamic,
-            Collider::capsule(1.0 * 0.28, 3.0 * 0.28),
+            Collider::cuboid(2.0 * 0.28, 5.0 * 0.28, 1.17 * 0.28),
             CollisionLayers::from_bits(0b0010, 0b0011),
             LockedAxes::ROTATION_LOCKED,
             Friction::new(0.0),
             Restitution::new(0.0),
-            GravityScale(1.0),
             CollidingEntities::default(),
             SleepingDisabled,
+            SweptCcd::default().with_velocity_threshold(2.0, 0.5),
+            SpeculativeMargin(0.0),
         ))
         .id();
 

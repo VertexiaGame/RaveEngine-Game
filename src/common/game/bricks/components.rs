@@ -33,7 +33,7 @@ impl Default for BrickPhysics {
     fn default() -> Self {
         Self {
             enabled: true,
-            bounciness: 0.3,
+            bounciness: 0.0,
             player_can_collide: true,
             friction: 0.3,
             gravity_scale: 1.0,

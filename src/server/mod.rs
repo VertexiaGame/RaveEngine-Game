@@ -39,10 +39,16 @@ impl Plugin for ServerPlugin {
         .add_systems(Startup, (setup_server, map::load_map))
         .add_systems(Update, (
             player::handle_player_inputs,
-            player::zero_stale_player_velocities,
             player::handle_hello_messages,
             player::sync_players_service_properties,
-        ))
+        ).chain())
+        .add_systems(
+            FixedPostUpdate,
+            (player::tick_player_movement, player::apply_player_movement)
+                .chain()
+                .in_set(PhysicsSystems::Prepare)
+                .after(avian3d::physics_transform::PhysicsTransformSystems::TransformToPosition),
+        )
         .add_systems(PostUpdate, player::sync_transforms_to_network)
         .add_observer(player::handle_new_client)
         .add_observer(player::handle_client_disconnect);

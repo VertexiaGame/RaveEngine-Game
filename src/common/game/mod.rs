@@ -1,4 +1,5 @@
 pub mod bricks;
+pub mod movement;
 pub mod physics;
 
 use bevy::prelude::*;

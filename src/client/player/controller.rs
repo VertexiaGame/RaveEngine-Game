@@ -88,7 +88,7 @@ pub fn player_movement(
                 Quat::from_rotation_y(angle).mul_vec3(move_direction)
             };
 
-            let step_check_offset = check_dir * 0.35;
+            let step_check_offset = check_dir * 0.22;
             let player_bottom_y = player_transform.translation.y - 2.5 * 0.28;
             let ray_start = player_transform.translation + step_check_offset;
             let ray_origin = Vec3::new(ray_start.x, player_bottom_y + 0.32, ray_start.z);

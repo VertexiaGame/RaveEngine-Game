@@ -402,7 +402,8 @@ impl LuaUserData for Instance {
                     if let LuaValue::UserData(ud) = value {
                         if let Ok(vec) = ud.borrow::<Vector3>() {
                             if let Some(mut transform) = world.get_mut::<Transform>(this.entity) {
-                                transform.translation = vec.0 * 0.28;
+                                let translation = vec.0 * 0.28;
+                                transform.translation = if translation.is_finite() { translation } else { Vec3::ZERO };
                             }
                         }
                     }
@@ -411,7 +412,7 @@ impl LuaUserData for Instance {
                     if let LuaValue::UserData(ud) = value {
                         if let Ok(vec) = ud.borrow::<Vector3>() {
                             if let Some(mut transform) = world.get_mut::<Transform>(this.entity) {
-                                transform.scale = vec.0;
+                                transform.scale = vec.0.max(Vec3::splat(0.01));
                             }
                         }
                     }
@@ -420,8 +421,13 @@ impl LuaUserData for Instance {
                     if let LuaValue::UserData(ud) = value {
                         if let Ok(cf) = ud.borrow::<CFrame>() {
                             if let Some(mut transform) = world.get_mut::<Transform>(this.entity) {
-                                transform.translation = cf.position * 0.28;
-                                transform.rotation = cf.rotation;
+                                let translation = cf.position * 0.28;
+                                transform.translation = if translation.is_finite() { translation } else { Vec3::ZERO };
+                                if !cf.rotation.is_finite() {
+                                    transform.rotation = Quat::IDENTITY;
+                                } else {
+                                    transform.rotation = cf.rotation;
+                                }
                             }
                         }
                     }
@@ -520,10 +526,12 @@ impl LuaUserData for Instance {
                 "Velocity" => {
                     if let LuaValue::UserData(ud) = value {
                         if let Ok(vec) = ud.borrow::<Vector3>() {
+                            let velocity = vec.0 * 0.28;
+                            let velocity = if velocity.is_finite() { velocity } else { Vec3::ZERO };
                             if let Some(mut vel) = world.get_mut::<LinearVelocity>(this.entity) {
-                                vel.0 = vec.0 * 0.28;
+                                vel.0 = velocity;
                             } else {
-                                world.entity_mut(this.entity).insert(LinearVelocity(vec.0 * 0.28));
+                                world.entity_mut(this.entity).insert(LinearVelocity(velocity));
                             }
                         }
                     }

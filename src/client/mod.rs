@@ -4,8 +4,7 @@ pub mod ui;
 use bevy::prelude::*;
 use bevy::pbr::ExtendedMaterial;
 use bevy::ecs::change_detection::DetectChanges;
-use avian3d::prelude::Physics;
-use avian3d::schedule::PhysicsTime;
+use avian3d::prelude::*;
 use lightyear::prelude::*;
 use crate::client::ui::chat_container::ChatContState;
 use crate::client::ui::{ChatboxState, chat_container};
@@ -90,11 +89,18 @@ impl Plugin for ClientPlugin {
                 initialize_client_physics,
                 sync_studio_playtest_physics,
             ))
+            .add_systems(
+                FixedPostUpdate,
+                (predict_local_player_transform, apply_local_player_movement)
+                    .chain()
+                    .in_set(PhysicsSystems::Prepare)
+                    .after(avian3d::physics_transform::PhysicsTransformSystems::TransformToPosition)
+                    .run_if(is_playtesting),
+            )
             .add_systems(Update, (
                 sync_network_transforms_to_client,
                 sync_predicted_interpolated_transforms,
-                predict_local_player_transform,
-                interpolate_remote_player_transforms,
+                interpolate_remote_player_transforms.after(sync_predicted_interpolated_transforms),
                 sync_brick_color_to_material,
                 send_player_inputs,
                 sync_local_player,
@@ -210,20 +216,39 @@ fn sync_network_transforms_to_client(
     }
 }
 
-const CLIENT_GRAVITY: f32 = -186.9 * 0.28;
-const LOCAL_ERR_SOFT_START: f32 = 0.12;
-const LOCAL_ERR_SOFT_END: f32 = 0.8;
+const LOCAL_ERR_CORRECTION_RATE: f32 = 10.0;
+const LOCAL_ERR_CORRECTION_MIN: f32 = 0.05;
+const LOCAL_ERR_CORRECTION_SNAP: f32 = 0.25;
 const REMOTE_INTERP_DELAY_SECS: f64 = 0.1;
 const REMOTE_INTERP_MAX_BUFFER_SECS: f64 = 0.3;
 const REMOTE_INTERP_MAX_AGE_SECS: f64 = 2.0;
 
 #[derive(Resource, Default)]
 struct LocalPredictionState {
-    initialized: bool,
-    vy: f32,
-    airborne: bool,
-    jump_anchor_y: f32,
-    last_server_y: f32,
+    movement: crate::common::game::movement::CharacterMoveState,
+}
+
+fn reconcile_prediction_error(
+    current: Vec3,
+    server: Vec3,
+    dt: f32,
+    output: &mut crate::common::game::movement::CharacterMoveOutput,
+) {
+    let error = server - current;
+    let error_xz = Vec2::new(error.x, error.z);
+    let y_error = current.y - server.y;
+    if y_error.abs() > 2.0 {
+        output.position_y = Some(current.y.lerp(server.y, (dt * 3.0).min(1.0)));
+    } else if error.length() > LOCAL_ERR_CORRECTION_SNAP {
+        output.position_xz = Some(Vec2::new(server.x, server.z));
+        output.position_y = Some(server.y);
+        output.velocity.x = 0.0;
+        output.velocity.z = 0.0;
+    } else if error_xz.length_squared() > LOCAL_ERR_CORRECTION_MIN * LOCAL_ERR_CORRECTION_MIN {
+        let correction = error_xz.clamp_length_max(LOCAL_ERR_CORRECTION_RATE * dt);
+        output.velocity.x += correction.x;
+        output.velocity.z += correction.y;
+    }
 }
 
 fn predict_local_player_transform(
@@ -232,13 +257,22 @@ fn predict_local_player_transform(
     mut contexts: EguiContexts,
     camera_query: Query<&player::CameraSettings, With<player::PlayerCamera>>,
     mut local_query: Query<(
+        Entity,
         &crate::common::net::components::Player,
         &NetworkTransform,
-        &mut Transform,
+        &Position,
+        &Rotation,
+        &LinearVelocity,
+        &mut crate::common::game::movement::PlayerMovementPlan,
     ), (With<LocalPlayer>, Without<Replicate>)>,
+    spatial_query: SpatialQuery,
     time: Res<Time>,
 ) {
-    let Some((player, net_transform, mut transform)) = local_query.iter_mut().next() else {
+    use crate::common::game::movement::*;
+
+    let Some((player_entity, player, net_transform, position, rotation, lin_vel, mut plan)) =
+        local_query.iter_mut().next()
+    else {
         return;
     };
     let Some(camera_settings) = camera_query.iter().next() else {
@@ -251,29 +285,18 @@ fn predict_local_player_transform(
         false
     };
 
-    let server_xz = Vec2::new(net_transform.translation.x, net_transform.translation.z);
-    let server_y = net_transform.translation.y;
-
-    if !prediction.initialized {
-        prediction.initialized = true;
-        prediction.last_server_y = server_y;
-        transform.translation = net_transform.translation;
-        transform.rotation = net_transform.rotation;
-        return;
-    }
-
     let dt = time.delta_secs().min(0.1);
-    let speed = player.speed;
+    let elapsed = time.elapsed_secs();
 
     let w = !wants_keyboard && keys.pressed(KeyCode::KeyW);
     let a = !wants_keyboard && keys.pressed(KeyCode::KeyA);
     let s = !wants_keyboard && keys.pressed(KeyCode::KeyS);
     let d = !wants_keyboard && keys.pressed(KeyCode::KeyD);
-    let jump = !wants_keyboard && keys.pressed(KeyCode::Space);
+    let jump_held = !wants_keyboard && keys.pressed(KeyCode::Space);
 
-    let rotation = Quat::from_rotation_y(camera_settings.yaw);
-    let forward = rotation * Vec3::NEG_Z;
-    let right = rotation * Vec3::X;
+    let rotation_y = Quat::from_rotation_y(camera_settings.yaw);
+    let forward = rotation_y * Vec3::NEG_Z;
+    let right = rotation_y * Vec3::X;
 
     let mut move_direction = Vec3::ZERO;
     if w {
@@ -294,61 +317,93 @@ fn predict_local_player_transform(
     } else {
         Vec3::ZERO
     };
+    let has_input = direction != Vec3::ZERO;
 
-    let velocity = direction * speed;
-    let current_xz = Vec2::new(transform.translation.x, transform.translation.z);
-    let predicted_xz = current_xz + Vec2::new(velocity.x, velocity.z) * dt;
-
-    if jump && !prediction.airborne {
-        prediction.vy = player.jump_power;
-        prediction.jump_anchor_y = prediction.last_server_y;
-        prediction.airborne = true;
-    }
-
-    let mut predicted_y = if prediction.airborne {
-        prediction.vy += CLIENT_GRAVITY * dt;
-        let prev_offset = transform.translation.y - prediction.jump_anchor_y;
-        let new_offset = prev_offset + prediction.vy * dt;
-        if new_offset <= 0.0 {
-            prediction.airborne = false;
-            prediction.vy = 0.0;
-            prediction.last_server_y
-        } else {
-            prediction.jump_anchor_y + new_offset
-        }
-    } else {
-        prediction.last_server_y
+    let filter = SpatialQueryFilter::default()
+        .with_excluded_entities([player_entity])
+        .with_mask(0b0011);
+    let mut cast = |probe, origin, rotation, direction: Vec3, max_distance| {
+        let Ok(direction) = Dir3::new(direction) else {
+            return None;
+        };
+        spatial_query
+            .cast_shape(
+                &probe_shape(probe),
+                origin,
+                rotation,
+                direction,
+                &ShapeCastConfig::from_max_distance(max_distance),
+                &filter,
+            )
+            .map(|hit| CastHit {
+                distance: hit.distance,
+                normal: hit.normal1,
+            })
     };
 
-    let error_xz = predicted_xz.distance(server_xz);
-    let blend = (error_xz - LOCAL_ERR_SOFT_START).max(0.0)
-        / (LOCAL_ERR_SOFT_END - LOCAL_ERR_SOFT_START).max(0.001)
-        * (dt * 3.0).min(1.0);
-    let blend = blend.clamp(0.0, 1.0);
-    let final_xz = predicted_xz.lerp(server_xz, blend);
+    let params = CharacterMoveParams {
+        wish_direction: Vec2::new(direction.x, direction.z),
+        jump_held,
+        speed: player.speed,
+        jump_power: player.jump_power,
+        dt,
+        elapsed,
+    };
+    let yaw = rotation.0.to_euler(EulerRot::YXZ).0;
+    let mut output = character_move(
+        position.0,
+        lin_vel.0,
+        yaw,
+        &mut prediction.movement,
+        &params,
+        &mut cast,
+    );
 
-    let y_error = predicted_y - server_y;
-    if y_error.abs() > 1.0 {
-        predicted_y = predicted_y.lerp(server_y, (dt * 3.0).min(1.0));
-        if y_error.abs() > 2.0 {
-            prediction.airborne = false;
-            prediction.vy = 0.0;
-        }
-    }
-
-    transform.translation.x = final_xz.x;
-    transform.translation.z = final_xz.y;
-    transform.translation.y = predicted_y;
+    reconcile_prediction_error(position.0, net_transform.translation, dt, &mut output);
 
     let in_first_person = camera_settings.distance <= 0.6;
-    if in_first_person {
-        transform.rotation = Quat::from_rotation_y(camera_settings.yaw);
-    } else if direction.length_squared() > 0.001 {
+    let rotation_out = if in_first_person {
+        Some(Quat::from_rotation_y(camera_settings.yaw))
+    } else if has_input {
         let target_angle = direction.z.atan2(direction.x);
-        transform.rotation = Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2);
-    }
+        let target_rotation = Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2);
+        let turn_factor = 1.0 - (-TURN_SPEED * dt).exp();
+        Some(rotation.0.slerp(target_rotation, turn_factor))
+    } else {
+        None
+    };
 
-    prediction.last_server_y = server_y;
+    let position_y = output.position_y;
+
+    plan.velocity = output.velocity;
+    plan.position_y = position_y;
+    plan.position_xz = output.position_xz;
+    plan.rotation = rotation_out;
+}
+
+fn apply_local_player_movement(
+    mut local_query: Query<(
+        &mut Position,
+        &mut Rotation,
+        &mut LinearVelocity,
+        &mut Transform,
+        &crate::common::game::movement::PlayerMovementPlan,
+    ), (With<LocalPlayer>, Without<Replicate>)>,
+) {
+    for (mut position, mut rotation, mut lin_vel, mut transform, plan) in &mut local_query {
+        lin_vel.0 = plan.velocity;
+        if let Some(xz) = plan.position_xz {
+            position.0.x = xz.x;
+            position.0.z = xz.y;
+        }
+        if let Some(y) = plan.position_y {
+            position.0.y = y;
+        }
+        if let Some(target_rotation) = plan.rotation {
+            transform.rotation = target_rotation;
+            rotation.0 = target_rotation;
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -489,16 +544,10 @@ fn send_player_inputs(
     };
 
     let now = std::time::Instant::now();
-    let any_input = w || a || s || d || jump;
     let send = match &*last_sent {
         Some((last, at)) => {
-            if *last != message {
-                true
-            } else if any_input {
-                now.duration_since(*at) >= std::time::Duration::from_millis(16)
-            } else {
-                false
-            }
+            *last != message
+                || now.duration_since(*at) >= std::time::Duration::from_millis(16)
         }
         None => true,
     };
@@ -618,6 +667,20 @@ fn sync_local_player(
         if player.client_id == local_client_id {
             debug!("Local player match verified! Inserting LocalPlayer and spawning camera on entity: {:?}", entity);
             commands.entity(entity).insert(LocalPlayer);
+            commands.entity(entity).insert((
+                RigidBody::Dynamic,
+                Collider::cuboid(2.0 * 0.28, 5.0 * 0.28, 1.17 * 0.28),
+                CollisionLayers::from_bits(0b0010, 0b0011),
+                LockedAxes::ROTATION_LOCKED,
+                Friction::new(0.0),
+                Restitution::new(0.0),
+                CollidingEntities::default(),
+                SleepingDisabled,
+                SweptCcd::default().with_velocity_threshold(2.0, 0.5),
+                SpeculativeMargin(0.0),
+                crate::common::game::movement::PlayerMovementPlan::default(),
+                TransformInterpolation,
+            ));
 
             for camera_entity in &startup_cameras {
                 commands.entity(camera_entity).despawn();
@@ -867,7 +930,7 @@ fn sync_studio_playtest_physics(
 }
 
 fn sync_predicted_interpolated_transforms(
-    mut predicted_interpolated_query: Query<(&crate::common::net::components::Player, &mut Transform), Or<(With<Predicted>, With<Interpolated>)>>,
+    mut predicted_interpolated_query: Query<(&crate::common::net::components::Player, &mut Transform), (Or<(With<Predicted>, With<Interpolated>)>, Without<LocalPlayer>)>,
     confirmed_query: Query<(&crate::common::net::components::Player, &Transform), (Without<Predicted>, Without<Interpolated>, Without<Replicate>)>,
     mut confirmed_transforms: Local<std::collections::HashMap<u64, Transform>>,
 ) {
@@ -1022,6 +1085,88 @@ mod tests {
         index_confirmed_transforms(&mut index, players.iter().zip(transforms.iter()));
 
         assert_eq!(index.get(&1), Some(&transforms[0]));
+    }
+
+    fn movement_output(
+        velocity: Vec3,
+        position_y: Option<f32>,
+        position_xz: Option<Vec2>,
+    ) -> crate::common::game::movement::CharacterMoveOutput {
+        crate::common::game::movement::CharacterMoveOutput {
+            velocity,
+            position_y,
+            position_xz,
+            grounded: false,
+        }
+    }
+
+    #[test]
+    fn snaps_position_when_step_up_desyncs_prediction() {
+        let mut output = movement_output(Vec3::ZERO, None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.7, -0.06),
+            Vec3::new(0.0, 0.98, -0.11),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, Some(Vec2::new(0.0, -0.11)));
+        assert_eq!(output.position_y, Some(0.98));
+        assert_eq!(output.velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn snaps_player_down_when_server_missed_the_step_up() {
+        let mut output = movement_output(Vec3::new(0.0, 0.0, -4.48), None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.98, -0.11),
+            Vec3::new(0.0, 0.7, -0.26),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, Some(Vec2::new(0.0, -0.26)));
+        assert_eq!(output.position_y, Some(0.7));
+        assert_eq!(output.velocity, Vec3::new(0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn soft_corrects_small_horizontal_error() {
+        let mut output = movement_output(Vec3::ZERO, None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.7, 0.0),
+            Vec3::new(0.0, 0.7, 0.1),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, None);
+        assert_eq!(output.position_y, None);
+        assert!((output.velocity.z - 0.1).abs() < 1e-6, "velocity: {:?}", output.velocity);
+    }
+
+    #[test]
+    fn leaves_position_alone_when_prediction_matches() {
+        let mut output = movement_output(Vec3::ZERO, None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 0.7, 0.0),
+            Vec3::new(0.0, 0.7, 0.0),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, None);
+        assert_eq!(output.position_y, None);
+        assert_eq!(output.velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn lerps_large_vertical_error() {
+        let mut output = movement_output(Vec3::ZERO, None, None);
+        reconcile_prediction_error(
+            Vec3::new(0.0, 3.2, 0.0),
+            Vec3::new(0.0, 0.7, 0.0),
+            1.0 / 60.0,
+            &mut output,
+        );
+        assert_eq!(output.position_xz, None);
+        assert!((output.position_y.unwrap() - 3.075).abs() < 1e-4);
     }
 
     #[test]
