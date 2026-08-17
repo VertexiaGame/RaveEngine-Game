@@ -11,11 +11,11 @@ impl LuaUserData for RunService {
             Ok(other.is::<RunService>())
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: mlua::LuaString| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &*world_ref.0 };
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "ClassName" => Ok(LuaValue::String(lua.create_string("RunService")?)),
                 "Name" => Ok(LuaValue::String(lua.create_string("RunService")?)),
                 "Heartbeat" => {

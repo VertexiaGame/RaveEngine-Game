@@ -496,6 +496,7 @@ pub fn optimize_brick_visibility(
         Entity,
         &GlobalTransform,
         &components::BrickColor,
+        &components::BrickShapeComponent,
         Option<&components::BrickStuds>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::StudsExtension>>>,
         Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, studs::ShadowOpacityExtension>>>,
@@ -527,13 +528,21 @@ pub fn optimize_brick_visibility(
     let moved = last_camera_position
         .map(|previous| previous.distance_squared(cam_pos) > LOD_CAMERA_MOVE_SQ)
         .unwrap_or(true);
-    *last_camera_position = Some(cam_pos);
     if !moved && !workspace_changed {
         return;
     }
+    if moved {
+        *last_camera_position = Some(cam_pos);
+    }
 
-    for (entity, transform, color, studs, studs_material, plain_material, not_shadow_caster, visibility) in &bricks_query {
-        let dist_sq = transform.translation().distance_squared(cam_pos);
+    for (entity, transform, color, shape_comp, studs, studs_material, plain_material, not_shadow_caster, visibility) in &bricks_query {
+        let brick_radius = match shape_comp.shape {
+            components::BrickShape::Block => (transform.scale() * Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28)).length(),
+            components::BrickShape::Sphere => transform.scale().max_element() * 1.0 * 0.28,
+        };
+        let dist_sq = (transform.translation().distance(cam_pos) - brick_radius)
+            .max(0.0)
+            .powi(2);
         let brick_wants_studs = studs.map(|s| s.enabled).unwrap_or(true);
         let want_studs = show_studs_globally && brick_wants_studs && dist_sq <= stud_lod_distance_sq;
 

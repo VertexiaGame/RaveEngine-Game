@@ -329,6 +329,10 @@ pub(crate) fn sync_lighting_system(
     clouds_config: Option<ResMut<CloudsConfig>>,
     mut fog_query: Query<&mut DistanceFog>,
 ) {
+    if !config.is_changed() {
+        return;
+    }
+
     let sun_direction = solar_direction(&config);
     let moon_direction = -sun_direction;
     let solar_elevation = sun_direction.y;

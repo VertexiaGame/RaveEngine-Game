@@ -18,11 +18,13 @@ pub struct PreviousCollisions(pub HashSet<(Entity, Entity)>);
 pub struct LuaTask {
     pub thread_key: mlua::RegistryKey,
     pub wake_time: Option<Instant>,
+    pub callback_key: Option<Arc<mlua::RegistryKey>>,
 }
 
 pub struct LuaScheduler {
     pub tasks: Vec<LuaTask>,
     pub deferred: VecDeque<mlua::RegistryKey>,
+    pub active_callbacks: HashSet<Arc<mlua::RegistryKey>>,
 }
 
 pub struct SchedulerRef(pub Arc<Mutex<LuaScheduler>>);
@@ -47,22 +49,32 @@ impl LuaScheduler {
         Self {
             tasks: Vec::new(),
             deferred: VecDeque::new(),
+            active_callbacks: HashSet::new(),
         }
     }
 
-    pub fn collect_ready(&mut self, now: Instant, out: &mut Vec<mlua::RegistryKey>) {
+    pub fn collect_ready(&mut self, now: Instant, out: &mut Vec<LuaTask>) {
         let mut i = 0;
         while i < self.tasks.len() {
             if self.tasks[i].wake_time.map_or(true, |wake| now >= wake) {
-                out.push(self.tasks.swap_remove(i).thread_key);
+                out.push(self.tasks.swap_remove(i));
             } else {
                 i += 1;
             }
         }
         while let Some(key) = self.deferred.pop_front() {
-            out.push(key);
+            out.push(LuaTask {
+                thread_key: key,
+                wake_time: None,
+                callback_key: None,
+            });
         }
     }
+}
+
+pub fn scheduler_has_work(scheduler: &Arc<Mutex<LuaScheduler>>) -> bool {
+    let sched = scheduler.lock().unwrap();
+    !sched.tasks.is_empty() || !sched.deferred.is_empty()
 }
 
 pub fn run_scheduler_tick(scheduler: &Arc<Mutex<LuaScheduler>>, lua: &Lua) {
@@ -70,31 +82,38 @@ pub fn run_scheduler_tick(scheduler: &Arc<Mutex<LuaScheduler>>, lua: &Lua) {
     let mut ready = Vec::new();
     {
         let mut sched = scheduler.lock().unwrap();
+        if sched.tasks.is_empty() && sched.deferred.is_empty() {
+            return;
+        }
         sched.collect_ready(now, &mut ready);
     }
 
     let mut requeue = Vec::new();
-    for key in ready {
-        match lua.registry_value::<LuaThread>(&key) {
+    for task in ready {
+        match lua.registry_value::<LuaThread>(&task.thread_key) {
             Ok(thread) => match thread.resume::<LuaValue>(()) {
                 Ok(yielded) => {
                     if thread.status() == LuaThreadStatus::Resumable {
                         requeue.push(LuaTask {
-                            thread_key: key,
+                            thread_key: task.thread_key,
                             wake_time: yielded_to_wake(yielded, now),
+                            callback_key: task.callback_key.clone(),
                         });
                     } else {
-                        let _ = lua.remove_registry_value(key);
+                        finish_callback_task(scheduler, &task);
+                        let _ = lua.remove_registry_value(task.thread_key);
                     }
                 }
                 Err(e) => {
                     error!("Luau scheduler execution error: {}", e);
                     crate::scripting::output::push_error("Scheduler", e.to_string());
-                    let _ = lua.remove_registry_value(key);
+                    finish_callback_task(scheduler, &task);
+                    let _ = lua.remove_registry_value(task.thread_key);
                 }
             },
             Err(_) => {
-                let _ = lua.remove_registry_value(key);
+                finish_callback_task(scheduler, &task);
+                let _ = lua.remove_registry_value(task.thread_key);
             }
         }
     }
@@ -102,6 +121,13 @@ pub fn run_scheduler_tick(scheduler: &Arc<Mutex<LuaScheduler>>, lua: &Lua) {
     if !requeue.is_empty() {
         let mut sched = scheduler.lock().unwrap();
         sched.tasks.append(&mut requeue);
+    }
+}
+
+fn finish_callback_task(scheduler: &Arc<Mutex<LuaScheduler>>, task: &LuaTask) {
+    if let Some(callback_key) = &task.callback_key {
+        let mut sched = scheduler.lock().unwrap();
+        sched.active_callbacks.remove(callback_key);
     }
 }
 
@@ -137,7 +163,7 @@ mod tests {
     use std::time::Duration;
 
     fn task(key: mlua::RegistryKey, wake: Option<Instant>) -> LuaTask {
-        LuaTask { thread_key: key, wake_time: wake }
+        LuaTask { thread_key: key, wake_time: wake, callback_key: None }
     }
 
     fn vm() -> Lua {
@@ -177,6 +203,7 @@ mod tests {
                 task(future_key, Some(now + Duration::from_secs(60))),
             ],
             deferred: VecDeque::from([deferred_key]),
+            active_callbacks: HashSet::new(),
         };
 
         let mut out = Vec::new();
@@ -197,6 +224,7 @@ mod tests {
         let scheduler = Arc::new(Mutex::new(LuaScheduler {
             tasks: vec![task(key, None)],
             deferred: VecDeque::new(),
+            active_callbacks: HashSet::new(),
         }));
 
         run_scheduler_tick(&scheduler, &lua);
@@ -218,6 +246,7 @@ mod tests {
         let scheduler = Arc::new(Mutex::new(LuaScheduler {
             tasks: vec![task(key, None)],
             deferred: VecDeque::new(),
+            active_callbacks: HashSet::new(),
         }));
 
         run_scheduler_tick(&scheduler, &lua);
@@ -249,12 +278,37 @@ mod tests {
         let scheduler = Arc::new(Mutex::new(LuaScheduler {
             tasks: vec![task(bad_key, None), task(good_key, None)],
             deferred: VecDeque::new(),
+            active_callbacks: HashSet::new(),
         }));
 
         run_scheduler_tick(&scheduler, &lua);
 
         assert!(lua.globals().get::<bool>("ok_ran").unwrap());
         assert!(scheduler.lock().unwrap().tasks.is_empty());
+    }
+
+    #[test]
+    fn run_scheduler_tick_clears_active_callbacks_on_completion() {
+        let lua = vm();
+        let func: LuaFunction = lua.load("_G.finished = true").into_function().unwrap();
+        let thread = lua.create_thread(func).unwrap();
+        let thread_key = lua.create_registry_value(thread).unwrap();
+        let callback_key = Arc::new(lua.create_registry_value("cb").unwrap());
+
+        let scheduler = Arc::new(Mutex::new(LuaScheduler {
+            tasks: vec![LuaTask {
+                thread_key,
+                wake_time: None,
+                callback_key: Some(callback_key.clone()),
+            }],
+            deferred: VecDeque::new(),
+            active_callbacks: HashSet::from([callback_key]),
+        }));
+
+        run_scheduler_tick(&scheduler, &lua);
+
+        assert!(lua.globals().get::<bool>("finished").unwrap());
+        assert!(scheduler.lock().unwrap().active_callbacks.is_empty());
     }
 
     #[test]
@@ -267,6 +321,7 @@ mod tests {
         let scheduler = Arc::new(Mutex::new(LuaScheduler {
             tasks: Vec::new(),
             deferred: VecDeque::from([key]),
+            active_callbacks: HashSet::new(),
         }));
 
         run_scheduler_tick(&scheduler, &lua);

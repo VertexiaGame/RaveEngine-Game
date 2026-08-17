@@ -1,4 +1,4 @@
-﻿use bevy::prelude::*;
+use bevy::prelude::*;
 use mlua::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,9 +47,9 @@ impl LuaUserData for Vector3 {
             })
         }
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: mlua::LuaString| {
             let this = *this;
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "X" | "x" => Ok(LuaValue::Number(this.0.x as f64)),
                 "Y" | "y" => Ok(LuaValue::Number(this.0.y as f64)),
                 "Z" | "z" => Ok(LuaValue::Number(this.0.z as f64)),

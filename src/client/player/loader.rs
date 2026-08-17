@@ -2,9 +2,7 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy::render::mesh::Indices;
 use bevy::asset::RenderAssetUsages;
-use avian3d::prelude::*;
 use tobj::LoadOptions;
-use super::{Player, PlayerController, CameraSettings, PlayerCamera};
 
 #[derive(Resource)]
 pub struct PlayerCharacterAssets {
@@ -111,58 +109,4 @@ pub fn load_obj_file(
     }
 
     parts
-}
-
-pub fn spawn_player(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    let player_id = commands
-        .spawn((
-            Name::new("Player"),
-            Player,
-            PlayerController {
-                move_speed: 16.0 * 0.28,
-                jump_power: 50.0 * 0.28,
-            },
-            Transform::from_xyz(0.0, 3.0, 0.0),
-            GlobalTransform::default(),
-            RigidBody::Dynamic,
-            Collider::cuboid(2.0 * 0.28, 5.0 * 0.28, 1.17 * 0.28),
-            CollisionLayers::from_bits(0b0010, 0b0011),
-            LockedAxes::ROTATION_LOCKED,
-            Friction::new(0.0),
-            Restitution::new(0.0),
-            CollidingEntities::default(),
-            SleepingDisabled,
-            SweptCcd::default().with_velocity_threshold(2.0, 0.5),
-            SpeculativeMargin(0.0),
-        ))
-        .id();
-
-    let avatar_scene = asset_server.load("content/game/character/Legacy/Av.glb#Scene0");
-
-    let child_id = commands
-        .spawn((
-            WorldAssetRoot(avatar_scene),
-            Transform::from_translation(Vec3::new(0.0, -0.7, 0.0))
-                .with_scale(Vec3::splat(0.28)),
-            GlobalTransform::default(),
-            Visibility::Inherited,
-        ))
-        .id();
-    commands.entity(player_id).add_child(child_id);
-
-    commands.spawn((
-        Camera3d::default(),
-        PlayerCamera,
-        CameraSettings {
-            yaw: 0.0,
-            pitch: -0.35,
-            distance: 4.5,
-            current_distance: 4.5,
-            target_offset: Vec3::new(0.0, 0.55, 0.0),
-        },
-        Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
 }

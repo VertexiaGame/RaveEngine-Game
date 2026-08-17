@@ -9,6 +9,7 @@ use bevy::{
 #[derive(Clone, Resource, ExtractResource, Reflect, ShaderType)]
 #[reflect(Resource, Default)]
 pub(crate) struct CloudsUniform {
+    pub clouds_enabled: u32,
     pub clouds_base_scale: f32,
     pub clouds_raymarch_steps_count: u32,
     pub clouds_bottom_height: f32,
@@ -45,6 +46,7 @@ pub(crate) struct CloudsUniform {
 impl Default for CloudsUniform {
     fn default() -> Self {
         Self {
+            clouds_enabled: 1,
             clouds_raymarch_steps_count: 0,
             clouds_shadow_raymarch_steps_count: 0,
             planet_radius: 0.0,

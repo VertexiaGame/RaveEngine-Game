@@ -10,3 +10,5 @@ pub mod output;
 pub mod testing;
 #[cfg(test)]
 mod example_scripts;
+#[cfg(test)]
+mod integration_tests;

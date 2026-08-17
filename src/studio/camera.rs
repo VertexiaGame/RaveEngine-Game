@@ -107,6 +107,12 @@ pub fn disable_camera_on_ui_interaction(
     ]);
     let camera_moving = right_mouse_held || movement_keys_held;
 
+    let ctrl_held = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let shortcut_keys_held = keys.any_pressed([
+        KeyCode::KeyW, KeyCode::KeyE, KeyCode::KeyR, KeyCode::KeyQ, KeyCode::KeyF,
+    ]);
+    let shortcuts_active = ctrl_held || shortcut_keys_held;
+
     let mut cursor_moved = false;
     if let Ok(window) = windows.single() {
         if let Some(cursor_pos) = window.cursor_position() {
@@ -132,7 +138,7 @@ pub fn disable_camera_on_ui_interaction(
     if let Ok(ctx) = contexts.ctx_mut() {
         let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui || onboarding_active || playtesting_active;
         for mut state in &mut camera_query {
-            state.enabled = !wants_input;
+            state.enabled = !wants_input && (right_mouse_held || !shortcuts_active);
         }
         picking_settings.is_enabled = !wants_input && !camera_moving && (cursor_moved || mouse_pressed);
     }

@@ -10,18 +10,6 @@ pub mod replicon {
     pub use bevy_replicon::prelude::*;
 }
 
-fn lerp_network_transform(
-    start: components::NetworkTransform,
-    end: components::NetworkTransform,
-    t: f32,
-) -> components::NetworkTransform {
-    components::NetworkTransform {
-        translation: start.translation.lerp(end.translation, t),
-        rotation: start.rotation.slerp(end.rotation, t),
-        scale: start.scale.lerp(end.scale, t),
-    }
-}
-
 pub struct NetPlugin;
 
 impl Plugin for NetPlugin {
@@ -65,9 +53,7 @@ pub fn register_protocol(app: &mut App) {
     .add_direction(lightyear::prelude::NetworkDirection::ClientToServer);
 
     app.component::<components::Player>().replicate();
-    app.component::<components::NetworkTransform>()
-        .replicate()
-        .add_interpolation_with(lerp_network_transform);
+    app.component::<components::NetworkTransform>().replicate();
     app.component::<components::PlayersServiceContainer>().replicate();
     app.component::<components::LightingServiceContainer>().replicate();
     app.component::<crate::common::game::bricks::components::Brick>().replicate();
@@ -78,7 +64,7 @@ pub fn register_protocol(app: &mut App) {
     app.component::<crate::scripting::ecs::LocalScript>().replicate();
     app.component::<crate::scripting::ecs::ModuleScript>().replicate();
 
-    app.register_message::<messages::PlayerInputMessage>()
+    app.register_message::<messages::PlayerMoveMessage>()
         .add_direction(lightyear::prelude::NetworkDirection::ClientToServer);
 
     app.register_message::<messages::HelloMessage>()

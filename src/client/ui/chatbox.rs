@@ -8,6 +8,8 @@ pub struct ChatboxState {
 
 #[derive(Default)]
 pub struct ChatboxTextures {
+    pub menu_handle: Option<Handle<Image>>,
+    pub chat_handle: Option<Handle<Image>>,
     pub menu_tex: Option<egui::TextureId>,
     pub chat_tex: Option<egui::TextureId>,
 }
@@ -20,8 +22,14 @@ pub fn draw_chatbox(
     mut images: ResMut<Assets<Image>>,
     mut textures: Local<ChatboxTextures>,
 ) {
-    let menu_handle = asset_server.load("content/game/ui/stuff/menu.png");
-    let chat_handle = asset_server.load("content/game/ui/stuff/chat.png");
+    let menu_handle = textures
+        .menu_handle
+        .get_or_insert_with(|| asset_server.load("content/game/ui/stuff/menu.png"))
+        .clone();
+    let chat_handle = textures
+        .chat_handle
+        .get_or_insert_with(|| asset_server.load("content/game/ui/stuff/chat.png"))
+        .clone();
 
     if let Some(mut menu_image) = images.get_mut(&menu_handle) {
         if !matches!(menu_image.sampler, bevy::image::ImageSampler::Descriptor(_)) {

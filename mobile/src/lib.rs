@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy::log::LogPlugin;
 use lightyear::prelude::*;
 use lightyear::prelude::client::*;
-use RaveEngineLib::client::ClientPlugin;
-use RaveEngineLib::common::CommonPlugin;
+use rave_engine_lib::client::ClientPlugin;
+use rave_engine_lib::common::CommonPlugin;
 
 #[derive(Resource)]
 struct ClientConnectSettings {
@@ -62,13 +62,13 @@ fn main() {
         ..default()
     }));
     app.insert_resource(ClientConnectSettings { ip, port });
-    app.insert_resource(RaveEngineLib::client::ClientUkey(ukey));
+    app.insert_resource(rave_engine_lib::client::ClientUkey(ukey));
     app.add_plugins(client::ClientPlugins {
         tick_duration: core::time::Duration::from_secs_f64(1.0 / 60.0),
     });
     app.add_plugins(CommonPlugin);
     app.add_plugins(ClientPlugin);
-    app.add_systems(Startup, setup_client.after(RaveEngineLib::client::setup_player_assets));
+    app.add_systems(Startup, setup_client.after(rave_engine_lib::client::setup_player_assets));
     app.add_systems(Update, trigger_delayed_connect);
     app.run();
 }
@@ -77,7 +77,7 @@ fn setup_client(mut commands: Commands, settings: Res<ClientConnectSettings>) {
     let server_addr = std::net::SocketAddr::new(settings.ip, settings.port);
     let client_id = rand::random::<u64>();
 
-    commands.insert_resource(RaveEngineLib::client::LocalClientId(client_id));
+    commands.insert_resource(rave_engine_lib::client::LocalClientId(client_id));
 
     let auth = Authentication::Manual {
         server_addr,

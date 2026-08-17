@@ -31,6 +31,7 @@ pub fn try_script(vm: &ServerScriptVM, code: &str) -> mlua::Result<()> {
                 vm.scheduler.lock().unwrap().tasks.push(LuaTask {
                     thread_key: key,
                     wake_time: yielded_to_wake(yielded, Instant::now()),
+                    callback_key: None,
                 });
             }
             Ok(())

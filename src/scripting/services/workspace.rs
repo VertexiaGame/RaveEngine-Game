@@ -10,11 +10,11 @@ impl LuaUserData for WorkspaceService {
             Ok(other.is::<WorkspaceService>())
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: mlua::LuaString| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &*world_ref.0 };
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "Gravity" => {
                     let g = world.get_resource::<avian3d::prelude::Gravity>().map(|g| -g.0.y / 0.28).unwrap_or(186.9);
                     let g = (g * 100.0).round() / 100.0;
@@ -36,11 +36,11 @@ impl LuaUserData for WorkspaceService {
             }
         });
 
-        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, _, (key, value): (String, LuaValue)| {
+        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, _, (key, value): (mlua::LuaString, LuaValue)| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &mut *world_ref.0 };
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "Gravity" => {
                     let opt_val = match value {
                         LuaValue::Number(n) => Some(n),

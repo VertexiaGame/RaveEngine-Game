@@ -50,9 +50,11 @@ fn prepare_uniforms_bind_group(
     render_device: Res<RenderDevice>,
     time: Res<Time>,
     mut previous_inverse_camera_view: Local<Mat4>,
+    mut cached_bind_group: Local<Option<BindGroup>>,
 ) {
     let buffer = clouds_uniform_buffer.buffer.get_mut();
 
+    buffer.clouds_enabled = clouds_config.enabled as u32;
     buffer.previous_inverse_camera_view = *previous_inverse_camera_view;
     buffer.clouds_raymarch_steps_count = clouds_config.clouds_raymarch_steps_count;
     buffer.planet_radius = clouds_config.planet_radius;
@@ -92,11 +94,18 @@ fn prepare_uniforms_bind_group(
         .buffer
         .write_buffer(&render_device, &render_queue);
 
-    let bind_group_uniforms = render_device.create_bind_group(
-        None,
-        &pipeline_cache.get_bind_group_layout(&pipeline.uniform_bind_group_layout),
-        &BindGroupEntries::single(clouds_uniform_buffer.buffer.binding().unwrap().clone()),
-    );
+    let bind_group_uniforms = match cached_bind_group.as_ref() {
+        Some(bind_group) => bind_group.clone(),
+        None => {
+            let bind_group = render_device.create_bind_group(
+                None,
+                &pipeline_cache.get_bind_group_layout(&pipeline.uniform_bind_group_layout),
+                &BindGroupEntries::single(clouds_uniform_buffer.buffer.binding().unwrap().clone()),
+            );
+            *cached_bind_group = Some(bind_group.clone());
+            bind_group
+        }
+    };
     commands.insert_resource(CloudsUniformBindGroup(bind_group_uniforms));
 }
 
@@ -109,10 +118,21 @@ fn prepare_textures_bind_group(
     render_device: Res<RenderDevice>,
     mut clouds_state: ResMut<CloudsState>,
     mut last_atlas_image: Local<Option<Handle<Image>>>,
+    mut cached_bind_group: Local<Option<(BindGroup, (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>))>>,
 ) {
     if last_atlas_image.as_ref() != Some(&clouds_image.cloud_atlas_image) {
         *clouds_state = CloudsState::Loading;
         *last_atlas_image = Some(clouds_image.cloud_atlas_image.clone());
+    }
+
+    let current_textures = (
+        clouds_image.cloud_render_image.clone(),
+        clouds_image.cloud_atlas_image.clone(),
+        clouds_image.cloud_worley_image.clone(),
+        clouds_image.sky_image.clone(),
+    );
+    if cached_bind_group.as_ref().is_some_and(|(_, handles)| *handles == current_textures) {
+        return;
     }
 
     let Some(cloud_render_view) = gpu_images.get(&clouds_image.cloud_render_image) else {
@@ -138,6 +158,7 @@ fn prepare_textures_bind_group(
             &sky_view.texture_view,
         )),
     );
+    *cached_bind_group = Some((bind_group.clone(), current_textures));
     commands.insert_resource(CloudsImageBindGroup(bind_group));
 }
 
@@ -213,7 +234,10 @@ fn run_clouds_compute_pass(
     texture_bind_group: Option<Res<CloudsImageBindGroup>>,
     uniform_bind_group: Option<Res<CloudsUniformBindGroup>>,
     clouds_config: Option<Res<CloudsConfig>>,
+    camera_matrices: Option<Res<CameraMatrices>>,
     mut render_context: RenderContext,
+    mut static_frames: Local<u32>,
+    mut last_camera_view: Local<Mat4>,
 ) {
     let Some(texture_bind_group) = texture_bind_group else {
         return;
@@ -224,9 +248,17 @@ fn run_clouds_compute_pass(
     let Some(clouds_config) = clouds_config else {
         return;
     };
-    if !clouds_config.enabled {
-        return;
-    }
+
+    let static_camera = camera_matrices.map_or(false, |camera| {
+        if *last_camera_view == camera.inverse_camera_view {
+            *static_frames += 1;
+            *static_frames > 30
+        } else {
+            *last_camera_view = camera.inverse_camera_view;
+            *static_frames = 0;
+            false
+        }
+    });
 
     let pipeline_to_run = match *state {
         CloudsState::Loading => {
@@ -257,7 +289,8 @@ fn run_clouds_compute_pass(
     let dispatch_groups = if pipeline_to_run == pipeline.init_pipeline {
         (IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE)
     } else {
-        let resolution = clouds_config.render_resolution;
+        let scale = if static_camera { 0.5 } else { 1.0 };
+        let resolution = clouds_config.render_resolution * scale;
         let groups_x = (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1);
         let groups_y = (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1);
         (groups_x, groups_y)

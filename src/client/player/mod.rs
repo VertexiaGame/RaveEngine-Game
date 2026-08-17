@@ -1,5 +1,4 @@
 pub mod play_camera;
-pub mod controller;
 pub mod loader;
 pub mod animation;
 pub mod model;
@@ -7,16 +6,7 @@ pub mod model;
 use bevy::prelude::*;
 
 #[derive(Component)]
-pub struct Player;
-
-#[derive(Component)]
 pub struct PlayerCamera;
-
-#[derive(Component)]
-pub struct PlayerController {
-    pub move_speed: f32,
-    pub jump_power: f32,
-}
 
 #[derive(Component)]
 pub struct CameraSettings {
@@ -40,14 +30,21 @@ impl Plugin for PlayerPlugin {
                     animation::build_avatar_animation_graph,
                     animation::retarget_avatar_clips,
                     animation::init_player_animations,
-                    animation::track_player_velocities,
-                    animation::animate_player,
+                    animation::track_remote_player_animation,
+                    animation::track_remote_player_grounded,
+                    animation::track_local_player_animation
+                        .after(animation::track_remote_player_animation),
+                    animation::animate_player.after(animation::track_local_player_animation),
                 ).run_if(crate::client::is_playtesting),
             )
             .add_systems(
                 PostUpdate,
-                crate::client::player::play_camera::update_camera
-                    .before(bevy::transform::TransformSystems::Propagate)
+                (
+                    crate::client::interpolate_local_player_transform
+                        .before(crate::client::player::play_camera::update_camera),
+                    crate::client::player::play_camera::update_camera
+                        .before(bevy::transform::TransformSystems::Propagate),
+                )
                     .run_if(crate::client::is_playtesting),
             );
     }

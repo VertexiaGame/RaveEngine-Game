@@ -41,9 +41,9 @@ impl LuaUserData for CFrame {
             Ok(format!("{}, {}, {}, {}, {}, {}", x, y, z, rx, ry, rz))
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: mlua::LuaString| {
             let this = *this;
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "Position" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.position))?))),
                 "LookVector" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.rotation.mul_vec3(Vec3::NEG_Z).normalize_or_zero()))?))),
                 "RightVector" => Ok(Some(LuaValue::UserData(lua.create_userdata(Vector3(this.rotation.mul_vec3(Vec3::X).normalize_or_zero()))?))),

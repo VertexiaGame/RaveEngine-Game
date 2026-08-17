@@ -24,11 +24,17 @@ pub fn poll_launch_details(
     mut commands: Commands,
     ukey_res: Option<Res<crate::client::ClientUkey>>,
     mut settings: Option<ResMut<ClientConnectSettings>>,
+    mut frame_counter: Local<u32>,
 ) {
     if let Some(ukey) = &ukey_res {
         if !ukey.0.is_empty() {
             return;
         }
+    }
+
+    *frame_counter += 1;
+    if *frame_counter % 10 != 0 {
+        return;
     }
 
     if let Ok(file_content) = std::fs::read_to_string("launch_info.json") {
@@ -90,6 +96,8 @@ pub fn initialize_client(
             0,
         )),
         PeerAddr(server_addr),
+        Transport::new(PriorityConfig::default())
+            .with_compression(CompressionConfig::LZ4),
     ));
 
     spawned.0 = true;

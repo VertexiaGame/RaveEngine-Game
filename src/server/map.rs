@@ -27,6 +27,7 @@ pub fn load_fallback_map(
             translation: Vec3::new(0.0, -0.14, 0.0),
             rotation: Quat::IDENTITY,
             scale: Vec3::new(25.0, 1.0, 50.0),
+            velocity: Vec3::ZERO,
         },
         Replicate::default(),
     ));
@@ -50,6 +51,7 @@ pub fn load_fallback_map(
             translation: Vec3::new(0.0, 0.14, 0.0),
             rotation: Quat::IDENTITY,
             scale: Vec3::ONE,
+            velocity: Vec3::ZERO,
         },
         Replicate::default(),
     ));
@@ -139,6 +141,7 @@ pub fn spawn_brick_entity(commands: &mut Commands, brick: crate::common::core::v
             translation: brick.transform.translation,
             rotation: brick.transform.rotation,
             scale: brick.transform.scale,
+            velocity: Vec3::ZERO,
         },
         Replicate::default(),
     )).id()

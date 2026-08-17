@@ -19,6 +19,7 @@ pub struct NetworkTransform {
     pub translation: Vec3,
     pub rotation: Quat,
     pub scale: Vec3,
+    pub velocity: Vec3,
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]

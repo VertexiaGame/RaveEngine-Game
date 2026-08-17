@@ -207,10 +207,7 @@ pub fn draw_top_bar(
                             file_dialog_state.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
                             let tx = file_dialog_state.tx.clone();
                             std::thread::spawn(move || {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Rave Project", &["vrtx"])
-                                    .set_directory(std::env::current_dir().unwrap_or_default())
-                                    .save_file() {
+                                if let Some(path) = crate::studio::ui::resources::save_file_dialog("Rave Project") {
                                     let _ = tx.send(crate::studio::ui::resources::FileDialogResult::SaveAs(path));
                                 } else {
                                     let _ = tx.send(crate::studio::ui::resources::FileDialogResult::Cancel);
@@ -222,10 +219,7 @@ pub fn draw_top_bar(
                             file_dialog_state.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
                             let tx = file_dialog_state.tx.clone();
                             std::thread::spawn(move || {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Rave Project", &["vrtx"])
-                                    .set_directory(std::env::current_dir().unwrap_or_default())
-                                    .pick_file() {
+                                if let Some(path) = crate::studio::ui::resources::pick_file_dialog("Rave Project") {
                                     let _ = tx.send(crate::studio::ui::resources::FileDialogResult::OpenFile(path));
                                 } else {
                                     let _ = tx.send(crate::studio::ui::resources::FileDialogResult::Cancel);
@@ -284,7 +278,9 @@ pub fn draw_top_bar(
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 
                     let is_move = *current_tool.get() == ToolState::Move;
-                    if ribbonbutton(ui, Some(move_tex), "Move", is_move).clicked() {
+                    if ribbonbutton(ui, Some(move_tex), "Move", is_move)
+                        .on_hover_text("Move tool (W)")
+                        .clicked() {
                         if is_move {
                             next_tool.set(ToolState::None);
                         } else {
@@ -293,7 +289,9 @@ pub fn draw_top_bar(
                     }
 
                     let is_rotate = *current_tool.get() == ToolState::Rotate;
-                    if ribbonbutton(ui, Some(rotate_tex), "Rotate", is_rotate).clicked() {
+                    if ribbonbutton(ui, Some(rotate_tex), "Rotate", is_rotate)
+                        .on_hover_text("Rotate tool (E)")
+                        .clicked() {
                         if is_rotate {
                             next_tool.set(ToolState::None);
                         } else {
@@ -302,7 +300,9 @@ pub fn draw_top_bar(
                     }
 
                     let is_scale = *current_tool.get() == ToolState::Size;
-                    if ribbonbutton(ui, Some(scale_tex), "Scale", is_scale).clicked() {
+                    if ribbonbutton(ui, Some(scale_tex), "Scale", is_scale)
+                        .on_hover_text("Scale tool (R)")
+                        .clicked() {
                         if is_scale {
                             next_tool.set(ToolState::None);
                         } else {
@@ -559,13 +559,13 @@ pub fn draw_top_bar(
 
                             if let Some(client_entity) = playtest_client_query.iter().next() {
                                 commands.trigger(lightyear::prelude::client::Disconnect { entity: client_entity });
-                                commands.entity(client_entity).despawn();
+                                commands.entity(client_entity).try_despawn();
                             }
 
                             for (entity, _, _name, _, _, brick_opt, _, _, _, _, _, _) in entities_query.iter() {
                                 let name_str = _name.as_str();
                                 if brick_opt.is_some() || name_str == "Player" || name_str == "LocalPlayer" || name_str.starts_with("Player_") {
-                                    commands.entity(entity).despawn();
+                                    commands.entity(entity).try_despawn();
                                 }
                             }
 

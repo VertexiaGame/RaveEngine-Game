@@ -66,6 +66,7 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
                         scheduler.tasks.push(LuaTask {
                             thread_key: key,
                             wake_time: yielded_to_wake(yielded, std::time::Instant::now()),
+                            callback_key: None,
                         });
                     }
                 }
@@ -97,6 +98,7 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
         scheduler.tasks.push(LuaTask {
             thread_key: key,
             wake_time: Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds as f64)),
+            callback_key: None,
         });
         Ok(())
     })?;

@@ -128,15 +128,15 @@ impl LuaUserData for Instance {
             Ok(name)
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: mlua::LuaString| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &mut *world_ref.0 };
 
-            if world.get_entity(this.entity).is_err() && key != "Destroy" {
+            if world.get_entity(this.entity).is_err() && key.to_str()?.as_ref() != "Destroy" {
                 return Err(mlua::Error::RuntimeError("Instance has been destroyed".to_string()));
             }
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "Name" => {
                     let name = world.get::<Name>(this.entity).map(|n| n.as_str().to_string()).unwrap_or_default();
                     Ok(LuaValue::String(lua.create_string(&name)?))
@@ -383,7 +383,7 @@ impl LuaUserData for Instance {
             }
         });
 
-        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, this, (key, value): (String, LuaValue)| {
+        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, this, (key, value): (mlua::LuaString, LuaValue)| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &mut *world_ref.0 };
 
@@ -391,7 +391,7 @@ impl LuaUserData for Instance {
                 return Err(mlua::Error::RuntimeError("Instance has been destroyed".to_string()));
             }
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "Name" => {
                     if let LuaValue::String(s) = value {
                         let s_str = s.to_str()?.to_string();

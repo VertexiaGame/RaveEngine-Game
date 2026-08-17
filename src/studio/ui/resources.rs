@@ -2,6 +2,33 @@ use bevy::prelude::*;
 
 use crate::studio::ui::panels::settings::SettingsTab;
 
+pub fn pick_file_dialog(filter_label: &str) -> Option<std::path::PathBuf> { //fixes the compilation issue on android: we dont care about rfd on android, just null
+    #[cfg(not(target_os = "android"))]
+    {
+        rfd::FileDialog::new()
+            .add_filter(filter_label, &["vrtx"])
+            .set_directory(std::env::current_dir().unwrap_or_default())
+            .pick_file()
+    }
+    #[cfg(target_os = "android")]
+    {
+        None
+    }
+}
+pub fn save_file_dialog(filter_label: &str) -> Option<std::path::PathBuf> { //fixes the compilation issue on android: we dont care about rfd on android, just null
+    #[cfg(not(target_os = "android"))]
+    {
+        rfd::FileDialog::new()
+            .add_filter(filter_label, &["vrtx"])
+            .set_directory(std::env::current_dir().unwrap_or_default())
+            .save_file()
+    }
+    #[cfg(target_os = "android")]
+    {
+        None
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct CopiedEntityBuffer {
     pub transform: Option<Transform>,

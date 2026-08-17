@@ -152,36 +152,32 @@ pub(crate) fn update_gizmos(
 
 pub fn sync_gizmos(
     mut gizmos: Query<(Entity, &mut Transform, &ToolGizmo)>,
-    bricks: Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), (With<Brick>, Without<ToolGizmo>)>,
+    bricks: Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
     camera_query: Query<&GlobalTransform, (With<Camera3d>, Without<ToolGizmo>, Without<Brick>)>,
+    selection: Res<Selection>,
     hover_state: Res<HoverState>,
     drag_state: Res<DragState>,
 ) {
     let camera_pos = camera_query.iter().next().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
 
     for (entity, mut transform, gizmo) in &mut gizmos {
-        if let Ok((brick_global, shape_opt)) = bricks.get(gizmo.target) {
-            let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
-            let base_extents = match shape {
-                crate::common::game::bricks::components::BrickShape::Block => Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28),
-                crate::common::game::bricks::components::BrickShape::Sphere => Vec3::splat(1.0 * 0.28),
+        if let Ok((brick_global, _)) = bricks.get(gizmo.target) {
+            let (group_center, group_half) = match selection_bounds(&selection.entities, &bricks) {
+                Some((min, max)) => ((min + max) * 0.5, (max - min) * 0.5),
+                None => (brick_global.translation(), Vec3::ZERO),
             };
-            let global_scale = brick_global.scale();
-            let scaled_extents = base_extents * global_scale;
-            let face_offset = gizmo.axis.abs().dot(scaled_extents);
-
-            let global_translation = brick_global.translation();
             let global_rotation = brick_global.rotation();
+            let face_offset = gizmo.axis.abs().dot(group_half);
 
-            let dist = camera_pos.distance(global_translation);
+            let dist = camera_pos.distance(group_center);
             let distance_scale = (dist / 17.32).min(2.5);
             let base_scale = distance_scale;
 
             if gizmo.tool == ToolState::Rotate {
-                transform.translation = global_translation;
+                transform.translation = group_center;
             } else {
                 let offset = face_offset + 0.6 * distance_scale;
-                transform.translation = global_translation + global_rotation.mul_vec3(gizmo.axis * offset);
+                transform.translation = group_center + global_rotation.mul_vec3(gizmo.axis * offset);
             }
 
             transform.rotation = global_rotation * Quat::from_rotation_arc(Vec3::Y, gizmo.axis);
@@ -295,6 +291,7 @@ pub fn draw_selection_outline(
     physics_state: Res<crate::common::game::physics::PhysicsSimulationState>,
     playtest: Option<Res<crate::client::PlaytestState>>,
     bricks: Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&Children>), With<Brick>>,
+    bounds_query: Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
     mut gizmos: Gizmos,
 ) {
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
@@ -306,5 +303,56 @@ pub fn draw_selection_outline(
     }
     for &selected_entity in &selection.entities {
         draw_outline_recursive(selected_entity, &bricks, &mut gizmos);
+    }
+    if selection.entities.len() > 1 {
+        if let Some((min, max)) = selection_bounds(&selection.entities, &bounds_query) {
+            let size = max - min;
+            if size.length_squared() > 1.0e-6 {
+                let transform = Transform {
+                    translation: (min + max) * 0.5,
+                    rotation: Quat::IDENTITY,
+                    scale: size,
+                };
+                gizmos.cube(transform, Color::srgb(0.20, 0.55, 1.0));
+            }
+        }
+    }
+}
+
+pub(crate) fn selection_bounds(
+    entities: &[Entity],
+    bricks: &Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+) -> Option<(Vec3, Vec3)> {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    let mut any = false;
+    for &entity in entities {
+        if let Ok((global, shape_opt)) = bricks.get(entity) {
+            let shape = shape_opt.map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+            let base_extents = match shape {
+                crate::common::game::bricks::components::BrickShape::Block => Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28),
+                crate::common::game::bricks::components::BrickShape::Sphere => Vec3::splat(1.0 * 0.28),
+            };
+            let pos = global.translation();
+            let rot = global.rotation();
+            let scale = global.scale();
+            let scaled = base_extents * scale;
+            let local_x = rot.mul_vec3(Vec3::X);
+            let local_y = rot.mul_vec3(Vec3::Y);
+            let local_z = rot.mul_vec3(Vec3::Z);
+            let half = Vec3::new(
+                local_x.x.abs() * scaled.x + local_y.x.abs() * scaled.y + local_z.x.abs() * scaled.z,
+                local_x.y.abs() * scaled.x + local_y.y.abs() * scaled.y + local_z.y.abs() * scaled.z,
+                local_x.z.abs() * scaled.x + local_y.z.abs() * scaled.y + local_z.z.abs() * scaled.z,
+            );
+            min = min.min(pos - half);
+            max = max.max(pos + half);
+            any = true;
+        }
+    }
+    if any {
+        Some((min, max))
+    } else {
+        None
     }
 }

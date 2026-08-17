@@ -33,24 +33,35 @@ pub struct Selection {
     pub lighting_selected: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DragStartData {
+    pub entity: Entity,
+    pub local_transform: Transform,
+    pub world_translation: Vec3,
+    pub world_rotation: Quat,
+    pub world_scale: Vec3,
+    pub world_half_extents: Vec3,
+    pub parent_global: Option<Transform>,
+}
+
 #[derive(Resource, Default)]
 pub struct DragState {
     pub active: bool,
     pub gizmo_entity: Option<Entity>,
     pub start_translation: Option<Vec3>,
     pub start_scale: Option<Vec3>,
-    pub start_transform: Option<Transform>,
     pub start_cursor: Option<Vec2>,
     pub start_rotation_angle: Option<f32>,
     pub accumulated_displacement: f32,
+    pub start_entities: Vec<DragStartData>,
 }
 
 #[derive(Resource, Default)]
 pub struct PartDragState {
     pub active: bool,
     pub dragged_entity: Option<Entity>,
-    pub start_transform: Option<Transform>,
     pub press_cursor: Option<Vec2>,
+    pub start_entities: Vec<DragStartData>,
 }
 
 const PART_DRAG_THRESHOLD_PX: f32 = 5.0;
@@ -213,8 +224,40 @@ pub static SHARED_PLAYERS_SERVICE: RwLock<PlayersService> = RwLock::new(PlayersS
 
 pub fn handle_keyboard_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut action_writer: MessageWriter<UndoRedoAction>,
+    mut next_tool: ResMut<NextState<ToolState>>,
+    current_tool: Res<State<ToolState>>,
+    mut selection: ResMut<Selection>,
+    mut commands: Commands,
+    mut history: ResMut<UndoRedoHistory>,
+    physics_state: Res<crate::common::game::physics::PhysicsSimulationState>,
+    playtest: Option<Res<crate::client::PlaytestState>>,
+    mut contexts: bevy_egui::EguiContexts,
+    entities_query: Query<(
+        Entity,
+        &mut Transform,
+        &Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+        Option<&mut crate::common::game::bricks::components::BrickPhysics>,
+    ), Without<Camera3d>>,
+    studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: Query<&mut crate::common::game::bricks::components::BrickColor>,
+    mut camera_query: Query<(&mut Transform, &mut bevy::camera_controller::free_camera::FreeCameraState), With<Camera3d>>,
+    bricks_global: Query<&GlobalTransform, With<Brick>>,
 ) {
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    if ctx.egui_wants_keyboard_input() {
+        return;
+    }
+
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
 
@@ -227,7 +270,113 @@ pub fn handle_keyboard_shortcuts(
             }
         } else if keys.just_pressed(KeyCode::KeyY) {
             action_writer.write(UndoRedoAction::Redo);
+        } else if keys.just_pressed(KeyCode::KeyD) {
+            duplicate_selection(
+                &mut commands,
+                &mut selection,
+                &mut history,
+                &entities_query,
+                &studs_query,
+                &brick_colors,
+            );
         }
+        return;
+    }
+
+    if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
+        return;
+    }
+    if playtest.map_or(false, |p| p.active) {
+        return;
+    }
+    if mouse_buttons.pressed(MouseButton::Right) {
+        return;
+    }
+
+    if keys.just_pressed(KeyCode::KeyW) {
+        next_tool.set(if *current_tool.get() == ToolState::Move { ToolState::None } else { ToolState::Move });
+    } else if keys.just_pressed(KeyCode::KeyE) {
+        next_tool.set(if *current_tool.get() == ToolState::Rotate { ToolState::None } else { ToolState::Rotate });
+    } else if keys.just_pressed(KeyCode::KeyR) {
+        next_tool.set(if *current_tool.get() == ToolState::Size { ToolState::None } else { ToolState::Size });
+    } else if keys.just_pressed(KeyCode::KeyQ) {
+        next_tool.set(if *current_tool.get() == ToolState::None { ToolState::Move } else { ToolState::None });
+    } else if keys.just_pressed(KeyCode::KeyF) {
+        focus_camera_on_selection(&selection, &bricks_global, &mut camera_query);
+    }
+}
+
+fn duplicate_selection(
+    commands: &mut Commands,
+    selection: &mut Selection,
+    history: &mut UndoRedoHistory,
+    entities_query: &Query<(
+        Entity,
+        &mut Transform,
+        &Name,
+        Option<&ChildOf>,
+        Option<&Children>,
+        Option<&Brick>,
+        Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
+        &GlobalTransform,
+        Option<&Mesh3d>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
+        Option<&MeshMaterial3d<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+        Option<&mut crate::common::game::bricks::components::BrickPhysics>,
+    ), Without<Camera3d>>,
+    studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
+    brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
+) {
+    let to_duplicate: Vec<Entity> = selection.entities.clone();
+    if to_duplicate.is_empty() {
+        return;
+    }
+    let mut new_entities = Vec::new();
+    for entity in to_duplicate {
+        if let Some(mut data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query, brick_colors) {
+            data.transform.translation += Vec3::new(2.0 * 0.28, 0.0, 2.0 * 0.28);
+            let new_entity = crate::common::game::bricks::data::spawn_from_data(commands, &data);
+            history.push_command(UndoCommand::Spawn { entity: new_entity, data });
+            new_entities.push(new_entity);
+        }
+    }
+    if !new_entities.is_empty() {
+        selection.entities = new_entities.clone();
+        selection.entity = Some(new_entities[0]);
+        selection.workspace_selected = false;
+        selection.players_selected = false;
+        selection.lighting_selected = false;
+    }
+}
+
+fn focus_camera_on_selection(
+    selection: &Selection,
+    bricks: &Query<&GlobalTransform, With<Brick>>,
+    camera_query: &mut Query<(&mut Transform, &mut bevy::camera_controller::free_camera::FreeCameraState), With<Camera3d>>,
+) {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    let mut count = 0usize;
+    for &entity in &selection.entities {
+        if let Ok(gt) = bricks.get(entity) {
+            let t = gt.translation();
+            min = min.min(t);
+            max = max.max(t);
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return;
+    }
+    let center = (min + max) * 0.5;
+    let radius = (max - min).length().max(2.0);
+    for (mut transform, mut state) in camera_query.iter_mut() {
+        let dir = transform.forward();
+        transform.translation = center - dir * (radius * 2.5 + 8.0);
+        transform.look_at(center, Vec3::Y);
+        let (yaw, pitch, _roll) = transform.rotation.to_euler(bevy::math::EulerRot::YXZ);
+        state.pitch = pitch;
+        state.yaw = yaw;
     }
 }
 
@@ -237,6 +386,8 @@ pub fn handle_delete_keys(
     mut commands: Commands,
     mut history: ResMut<UndoRedoHistory>,
     mut contexts: bevy_egui::EguiContexts,
+    physics_state: Res<crate::common::game::physics::PhysicsSimulationState>,
+    playtest: Option<Res<crate::client::PlaytestState>>,
     entities_query: Query<(
         Entity,
         &mut Transform,
@@ -255,6 +406,12 @@ pub fn handle_delete_keys(
     brick_colors: Query<&mut crate::common::game::bricks::components::BrickColor>,
 ) {
     if !keys.just_pressed(KeyCode::Delete) && !keys.just_pressed(KeyCode::Backspace) {
+        return;
+    }
+    if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
+        return;
+    }
+    if playtest.map_or(false, |p| p.active) {
         return;
     }
     if let Ok(ctx) = contexts.ctx_mut() {
@@ -399,11 +556,11 @@ fn world_to_local(
     world_translation: Vec3,
     world_rotation: Quat,
     world_scale: Vec3,
-    parent_global: Option<&GlobalTransform>,
+    parent_transform: Option<&Transform>,
 ) -> (Vec3, Quat, Vec3) {
-    if let Some(parent) = parent_global {
-        let parent_rotation = parent.rotation();
-        let parent_translation = parent.translation();
+    if let Some(parent) = parent_transform {
+        let parent_rotation = parent.rotation;
+        let parent_translation = parent.translation;
 
         let local_scale = world_scale;
         let local_rotation = parent_rotation.inverse() * world_rotation;
@@ -411,6 +568,73 @@ fn world_to_local(
         (local_translation, local_rotation, local_scale)
     } else {
         (world_translation, world_rotation, world_scale)
+    }
+}
+
+fn capture_drag_starts(
+    selection: &Selection,
+    gizmo_target: Entity,
+    bricks: &Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    parent_global_query: &Query<&GlobalTransform>,
+) -> Vec<DragStartData> {
+    let mut entities: Vec<Entity> = selection.entities.clone();
+    if !entities.contains(&gizmo_target) {
+        entities.push(gizmo_target);
+    }
+    let mut starts = Vec::new();
+    for entity in entities {
+        let Ok((local_transform, global_transform, child_of_opt, shape_opt)) = bricks.get(entity) else {
+            continue;
+        };
+        let parent_global = child_of_opt
+            .and_then(|co| parent_global_query.get(co.parent()).ok())
+            .map(|p| Transform {
+                translation: p.translation(),
+                rotation: p.rotation(),
+                scale: p.scale(),
+            });
+        let shape = shape_opt
+            .map(|s| s.shape)
+            .unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+        let base_extents = match shape {
+            crate::common::game::bricks::components::BrickShape::Block => Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28),
+            crate::common::game::bricks::components::BrickShape::Sphere => Vec3::splat(1.0 * 0.28),
+        };
+        let world_rotation = global_transform.rotation();
+        let world_scale = global_transform.scale();
+        let scaled = base_extents * world_scale;
+        let local_x = world_rotation.mul_vec3(Vec3::X);
+        let local_y = world_rotation.mul_vec3(Vec3::Y);
+        let local_z = world_rotation.mul_vec3(Vec3::Z);
+        let world_half_extents = Vec3::new(
+            local_x.x.abs() * scaled.x + local_y.x.abs() * scaled.y + local_z.x.abs() * scaled.z,
+            local_x.y.abs() * scaled.x + local_y.y.abs() * scaled.y + local_z.y.abs() * scaled.z,
+            local_x.z.abs() * scaled.x + local_y.z.abs() * scaled.y + local_z.z.abs() * scaled.z,
+        );
+        starts.push(DragStartData {
+            entity,
+            local_transform: *local_transform,
+            world_translation: global_transform.translation(),
+            world_rotation,
+            world_scale,
+            world_half_extents,
+            parent_global,
+        });
+    }
+    starts
+}
+
+fn group_center(starts: &[DragStartData]) -> Vec3 {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    for start in starts {
+        min = min.min(start.world_translation - start.world_half_extents);
+        max = max.max(start.world_translation + start.world_half_extents);
+    }
+    if starts.is_empty() {
+        Vec3::ZERO
+    } else {
+        (min + max) * 0.5
     }
 }
 
@@ -462,7 +686,7 @@ fn compute_resize(
     start_scale: Vec3,
     start_translation: Vec3,
     brick_rotation: Quat,
-    parent_global: Option<&GlobalTransform>,
+    parent_transform: Option<&Transform>,
     mirror: bool,
 ) -> (Vec3, Vec3) {
     let axis_abs = gizmo_axis.abs();
@@ -494,7 +718,7 @@ fn compute_resize(
         new_global_translation,
         brick_rotation,
         new_global_scale,
-        parent_global,
+        parent_transform,
     );
     (local_translation, local_scale)
 }
@@ -507,7 +731,12 @@ pub fn select_brick(
     mut selection: ResMut<Selection>,
     mut context_menu: ResMut<CanvasContextMenu>,
     mut contexts: bevy_egui::EguiContexts,
+    drag_state: Res<DragState>,
+    part_drag_state: Res<PartDragState>,
 ) {
+    if drag_state.active || part_drag_state.active {
+        return;
+    }
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() {
             return;
@@ -530,9 +759,11 @@ pub fn select_brick(
                     } else {
                         Some(selection.entities[0])
                     };
-                } else {
+                } else if !selection.entities.contains(&target) {
                     selection.entity = Some(target);
                     selection.entities = vec![target];
+                } else {
+                    selection.entity = Some(target);
                 }
                 selection.workspace_selected = false;
                 selection.players_selected = false;
@@ -554,7 +785,9 @@ pub fn handle_drag_start(
     mut drags: MessageReader<Pointer<DragStart>>,
     gizmos: Query<&ToolGizmo>,
     mut drag_state: ResMut<DragState>,
-    bricks: Query<&Transform, With<Brick>>,
+    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    parent_global_query: Query<&GlobalTransform>,
+    selection: Res<Selection>,
 ) {
     for drag in drags.read() {
         if drag.button != PointerButton::Primary {
@@ -564,12 +797,12 @@ pub fn handle_drag_start(
         if let Ok(gizmo) = gizmos.get(target) {
             drag_state.active = true;
             drag_state.gizmo_entity = Some(target);
-            drag_state.start_transform = bricks.get(gizmo.target).ok().copied();
             drag_state.start_translation = None;
             drag_state.start_scale = None;
             drag_state.start_cursor = None;
             drag_state.start_rotation_angle = None;
             drag_state.accumulated_displacement = 0.0;
+            drag_state.start_entities = capture_drag_starts(&selection, gizmo.target, &bricks, &parent_global_query);
         }
     }
 }
@@ -577,8 +810,7 @@ pub fn handle_drag_start(
 pub fn handle_drag(
     mut drags: MessageReader<Pointer<Drag>>,
     gizmos: Query<&ToolGizmo>,
-    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>), With<Brick>>,
-    parent_global_query: Query<&GlobalTransform>,
+    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
     mut drag_state: ResMut<DragState>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -588,6 +820,7 @@ pub fn handle_drag(
 ) {
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
         drag_state.active = false;
+        drag_state.start_entities.clear();
         return;
     }
     if !drag_state.active {
@@ -600,16 +833,20 @@ pub fn handle_drag(
         drag_state.gizmo_entity = None;
         drag_state.start_translation = None;
         drag_state.start_scale = None;
-        drag_state.start_transform = None;
+        drag_state.start_cursor = None;
+        drag_state.start_rotation_angle = None;
+        drag_state.start_entities.clear();
         drag_state.accumulated_displacement = 0.0;
         return;
     };
-    let Ok((mut brick_transform, brick_global, child_of_opt)) = bricks.get_mut(gizmo.target) else {
+    let Ok((_brick_transform, brick_global, _, _)) = bricks.get(gizmo.target) else {
         drag_state.active = false;
         drag_state.gizmo_entity = None;
         drag_state.start_translation = None;
         drag_state.start_scale = None;
-        drag_state.start_transform = None;
+        drag_state.start_cursor = None;
+        drag_state.start_rotation_angle = None;
+        drag_state.start_entities.clear();
         drag_state.accumulated_displacement = 0.0;
         return;
     };
@@ -617,12 +854,7 @@ pub fn handle_drag(
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
 
-    let parent_global = child_of_opt.and_then(|co| parent_global_query.get(co.parent()).ok());
-
-    let start_translation = *drag_state.start_translation.get_or_insert(brick_global.translation());
-    let start_scale = *drag_state.start_scale.get_or_insert(brick_global.scale());
-
-    let center_world = brick_global.translation();
+    let center_world = group_center(&drag_state.start_entities);
     let axis_world = brick_global.rotation().mul_vec3(gizmo.axis);
     let view_dir = camera_transform.translation() - center_world;
 
@@ -650,7 +882,12 @@ pub fn handle_drag(
                 drag_state.start_rotation_angle = Some(angle);
                 let alignment = axis_world.dot(view_dir);
                 let sign = if alignment >= 0.0 { 1.0 } else { -1.0 };
-                brick_transform.rotate_local(Quat::from_axis_angle(gizmo.axis, -angle_delta * sign));
+                let rot = Quat::from_axis_angle(gizmo.axis, -angle_delta * sign);
+                for start in &drag_state.start_entities {
+                    if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                        brick_transform.rotate_local(rot);
+                    }
+                }
                 return;
             }
         }
@@ -667,7 +904,11 @@ pub fn handle_drag(
                 camera_transform,
                 window,
             ) {
-                brick_transform.rotate_local(rot);
+                for start in &drag_state.start_entities {
+                    if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                        brick_transform.rotate_local(rot);
+                    }
+                }
             }
         }
         return;
@@ -706,28 +947,37 @@ pub fn handle_drag(
 
     match gizmo.tool {
         ToolState::Move => {
-            let new_global_translation = start_translation + axis_world * snapped_displacement;
-            let (local_translation, _local_rotation, _local_scale) = world_to_local(
-                new_global_translation,
-                brick_global.rotation(),
-                brick_global.scale(),
-                parent_global,
-            );
-            brick_transform.translation = local_translation;
+            let delta_world = axis_world * snapped_displacement;
+            for start in &drag_state.start_entities {
+                let new_global_translation = start.world_translation + delta_world;
+                let (local_translation, _local_rotation, _local_scale) = world_to_local(
+                    new_global_translation,
+                    start.world_rotation,
+                    start.world_scale,
+                    start.parent_global.as_ref(),
+                );
+                if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                    brick_transform.translation = local_translation;
+                }
+            }
         }
         ToolState::Size => {
             let mirror = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-            let (local_translation, local_scale) = compute_resize(
-                gizmo.axis,
-                snapped_displacement,
-                start_scale,
-                start_translation,
-                brick_global.rotation(),
-                parent_global,
-                mirror,
-            );
-            brick_transform.scale = local_scale;
-            brick_transform.translation = local_translation;
+            for start in &drag_state.start_entities {
+                let (local_translation, local_scale) = compute_resize(
+                    gizmo.axis,
+                    snapped_displacement,
+                    start.world_scale,
+                    start.world_translation,
+                    start.world_rotation,
+                    start.parent_global.as_ref(),
+                    mirror,
+                );
+                if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                    brick_transform.scale = local_scale;
+                    brick_transform.translation = local_translation;
+                }
+            }
         }
         _ => {}
     }
@@ -755,15 +1005,17 @@ pub fn handle_drag_end(
         return;
     }
 
-    if let (Some(gizmo_entity), Some(start_transform)) = (drag_state.gizmo_entity, drag_state.start_transform) {
-        if let Ok(gizmo) = gizmos.get(gizmo_entity) {
-            if let Ok(final_transform) = bricks.get(gizmo.target) {
-                if start_transform != *final_transform {
-                    history.push_command(UndoCommand::TransformChange {
-                        entity: gizmo.target,
-                        old_transform: start_transform,
-                        new_transform: *final_transform,
-                    });
+    if let Some(gizmo_entity) = drag_state.gizmo_entity {
+        if gizmos.get(gizmo_entity).is_ok() {
+            for start in &drag_state.start_entities {
+                if let Ok(final_transform) = bricks.get(start.entity) {
+                    if start.local_transform != *final_transform {
+                        history.push_command(UndoCommand::TransformChange {
+                            entity: start.entity,
+                            old_transform: start.local_transform,
+                            new_transform: *final_transform,
+                        });
+                    }
                 }
             }
         }
@@ -772,15 +1024,16 @@ pub fn handle_drag_end(
     drag_state.gizmo_entity = None;
     drag_state.start_translation = None;
     drag_state.start_scale = None;
-    drag_state.start_transform = None;
     drag_state.start_cursor = None;
     drag_state.start_rotation_angle = None;
+    drag_state.start_entities.clear();
     drag_state.accumulated_displacement = 0.0;
 }
 
 pub fn handle_part_drag_start(
     mut drags: MessageReader<Pointer<DragStart>>,
-    bricks: Query<&Transform, With<Brick>>,
+    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    parent_global_query: Query<&GlobalTransform>,
     gizmos: Query<&ToolGizmo>,
     mut selection: ResMut<Selection>,
     mut part_drag_state: ResMut<PartDragState>,
@@ -793,16 +1046,19 @@ pub fn handle_part_drag_start(
         if gizmos.get(target).is_ok() {
             continue;
         }
-        if let Ok(transform) = bricks.get(target) {
-            part_drag_state.active = true;
-            part_drag_state.dragged_entity = Some(target);
-            part_drag_state.start_transform = Some(*transform);
-            part_drag_state.press_cursor = Some(drag.pointer_location.position);
+        if bricks.get(target).is_err() {
+            continue;
+        }
+        if !selection.entities.contains(&target) {
             selection.entity = Some(target);
             selection.entities = vec![target];
             selection.workspace_selected = false;
             selection.players_selected = false;
         }
+        part_drag_state.active = true;
+        part_drag_state.dragged_entity = Some(target);
+        part_drag_state.press_cursor = Some(drag.pointer_location.position);
+        part_drag_state.start_entities = capture_drag_starts(&selection, target, &bricks, &parent_global_query);
     }
 }
 
@@ -825,10 +1081,9 @@ fn is_descendant_of(
 pub fn handle_part_drag(
     mut drags: MessageReader<Pointer<Drag>>,
     mut part_drag_state: ResMut<PartDragState>,
-    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>), With<Brick>>,
+    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
     parent_query: Query<&ChildOf>,
     name_query: Query<&Name>,
-    parent_global_query: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut raycast: MeshRayCast,
@@ -838,6 +1093,7 @@ pub fn handle_part_drag(
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
         part_drag_state.active = false;
         part_drag_state.press_cursor = None;
+        part_drag_state.start_entities.clear();
         return;
     }
     if !part_drag_state.active { return; }
@@ -858,18 +1114,16 @@ pub fn handle_part_drag(
 
     for _ in drags.read() {}
 
-    let (brick_rotation, brick_scale, child_of_parent) = {
-        let Ok((_, brick_global, child_of_opt)) = bricks.get(dragged_entity) else {
+    let (brick_rotation, brick_scale) = {
+        let Ok((_, brick_global, _, _)) = bricks.get(dragged_entity) else {
             part_drag_state.active = false;
             part_drag_state.dragged_entity = None;
-            part_drag_state.start_transform = None;
             part_drag_state.press_cursor = None;
+            part_drag_state.start_entities.clear();
             return;
         };
-        (brick_global.rotation(), brick_global.scale(), child_of_opt.map(|co| co.parent()))
+        (brick_global.rotation(), brick_global.scale())
     };
-
-    let parent_global = child_of_parent.and_then(|parent_entity| parent_global_query.get(parent_entity).ok());
 
     let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
     let scaled_half_extents = base_extents * brick_scale;
@@ -884,8 +1138,14 @@ pub fn handle_part_drag(
         local_x.z.abs() * scaled_half_extents.x + local_y.z.abs() * scaled_half_extents.y + local_z.z.abs() * scaled_half_extents.z,
     );
 
+    let dragged_set: std::collections::HashSet<Entity> = part_drag_state
+        .start_entities
+        .iter()
+        .map(|s| s.entity)
+        .collect();
+
     let filter_func = |entity: Entity| {
-        entity != dragged_entity 
+        !dragged_set.contains(&entity)
             && !is_descendant_of(entity, dragged_entity, &parent_query)
             && (bricks.contains(entity) || name_query.get(entity).map_or(false, |n| n.as_str() == "Baseplate"))
     };
@@ -932,14 +1192,30 @@ pub fn handle_part_drag(
         }
     }
 
-    if let Ok((mut brick_transform, _, _)) = bricks.get_mut(dragged_entity) {
+    let Some(dragged_start) = part_drag_state
+        .start_entities
+        .iter()
+        .find(|s| s.entity == dragged_entity)
+    else {
+        part_drag_state.active = false;
+        part_drag_state.dragged_entity = None;
+        part_drag_state.press_cursor = None;
+        part_drag_state.start_entities.clear();
+        return;
+    };
+
+    let delta = target_world_translation - dragged_start.world_translation;
+    for start in &part_drag_state.start_entities {
+        let new_world_translation = start.world_translation + delta;
         let (local_translation, _local_rotation, _local_scale) = world_to_local(
-            target_world_translation,
-            brick_rotation,
-            brick_scale,
-            parent_global,
+            new_world_translation,
+            start.world_rotation,
+            start.world_scale,
+            start.parent_global.as_ref(),
         );
-        brick_transform.translation = local_translation;
+        if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+            brick_transform.translation = local_translation;
+        }
     }
 }
 
@@ -964,12 +1240,12 @@ pub fn handle_part_drag_end(
         return;
     }
 
-    if let (Some(dragged_entity), Some(part_drag_state_start_transform)) = (part_drag_state.dragged_entity, part_drag_state.start_transform) {
-        if let Ok(final_transform) = bricks.get(dragged_entity) {
-            if part_drag_state_start_transform != *final_transform {
+    for start in &part_drag_state.start_entities {
+        if let Ok(final_transform) = bricks.get(start.entity) {
+            if start.local_transform != *final_transform {
                 history.push_command(UndoCommand::TransformChange {
-                    entity: dragged_entity,
-                    old_transform: part_drag_state_start_transform,
+                    entity: start.entity,
+                    old_transform: start.local_transform,
                     new_transform: *final_transform,
                 });
             }
@@ -977,8 +1253,8 @@ pub fn handle_part_drag_end(
     }
     part_drag_state.active = false;
     part_drag_state.dragged_entity = None;
-    part_drag_state.start_transform = None;
     part_drag_state.press_cursor = None;
+    part_drag_state.start_entities.clear();
 }
 
 pub fn handle_hover(

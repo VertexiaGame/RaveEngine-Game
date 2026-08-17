@@ -27,6 +27,7 @@ fn spawn_bench_players(mut commands: Commands) {
                 translation: Vec3::new(i as f32 * 2.0, 5.0 + i as f32 * 0.5, 0.0),
                 rotation: Quat::IDENTITY,
                 scale: Vec3::ONE,
+                velocity: Vec3::ZERO,
             },
             RigidBody::Dynamic,
             Collider::capsule(1.0 * 0.28, 3.0 * 0.28),

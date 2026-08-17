@@ -6,12 +6,10 @@ pub struct GameChannel;
 pub struct InputChannel;
 
 #[derive(Message, Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct PlayerInputMessage {
-    pub w: bool,
-    pub a: bool,
-    pub s: bool,
-    pub d: bool,
-    pub jump: bool,
+pub struct PlayerMoveMessage {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub grounded: bool,
     pub yaw: f32,
     pub in_first_person: bool,
 }

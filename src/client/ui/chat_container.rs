@@ -1,4 +1,4 @@
-use bevy::ecs::{resource::Resource, system::ResMut};
+use bevy::ecs::{resource::Resource, system::Res, system::ResMut};
 use bevy_egui::{EguiContexts, egui::{self}};
 
 struct MockMessage {
@@ -27,7 +27,7 @@ pub struct ChatContState {
 
 pub fn draw_chat_container(
     mut contexts: EguiContexts,
-    mut chat_cont_state: ResMut<ChatContState>
+    chat_cont_state: Res<ChatContState>
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
 
@@ -83,7 +83,7 @@ pub fn draw_chat_container(
                                     });
                                 });
                         }
-                        for msg in chat_cont_state.messages.clone() {
+                        for msg in chat_cont_state.messages.iter() {
                             let min_w = 138.0 * scale_factor;
 
                             egui::Frame::NONE

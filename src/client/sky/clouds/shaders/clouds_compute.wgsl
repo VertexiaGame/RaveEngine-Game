@@ -7,6 +7,7 @@ const IMAGE_SIZE_F32 = 1440.0;
 const ATLAS_REFERENCE_RESOLUTION = 810.0;
 
 struct Config {
+    clouds_enabled: u32,
     clouds_base_scale: f32,
     clouds_raymarch_steps_count: u32,
     clouds_bottom_height: f32,
@@ -428,7 +429,10 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>, @builtin(num_
 
     var ray_origin = get_ray_origin(config.time);
     var ray_dir = get_ray_direction(index);
-    var col = get_clouds_color(frag_coord, config.inverse_camera_view, ray_dir, ray_origin);
+    var col = vec4f(0.0, 0.0, 0.0, 1.0);
+    if (config.clouds_enabled == 1u) {
+        col = get_clouds_color(frag_coord, config.inverse_camera_view, ray_dir, ray_origin);
+    }
     let sky_color = vec4f(get_sky_color(ray_dir), 1.0);
 
     storageBarrier();

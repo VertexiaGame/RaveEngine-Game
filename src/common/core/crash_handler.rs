@@ -68,12 +68,19 @@ where
             }
         }
 
+        #[cfg(not(target_os = "android"))]
         rfd::MessageDialog::new()
             .set_title("VERTEXIA has crashed!")
             .set_description(&format!("VERTEXIA has crashed! Please report this to the developers:\n\n{}", stack_trace))
             .set_level(rfd::MessageLevel::Error)
             .show();
-        
+
+        #[cfg(target_os = "android")]
+        bevy::log::error!(
+            "VERTEXIA has crashed! Please report this to the developers:\n\n{}",
+            stack_trace
+        );
+
         break;
     }
 }

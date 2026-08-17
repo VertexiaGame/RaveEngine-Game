@@ -1,0 +1,35 @@
+[package]
+name = "raveengine-mobile"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "raveengine_mobile"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bevy = { version = "0.19.0", features = ["default", "android-native-activity"] }
+lightyear = { version = "0.28.0", default-features = false, features = [
+  "std",
+  "client",
+  "replication",
+  "prediction",
+  "interpolation",
+  "udp",
+  "netcode",
+  "input_native",
+  "compression_lz4"
+] }
+rand = "0.10.1"
+rave-engine-lib = { path = "..", package = "VERTIGO-ProjectRave" }
+
+[package.metadata.android]
+package = "com.raveengine.client"
+sdk = { min_sdk_version = 26, target_sdk_version = 35 }
+application = { label = "RaveEngine Client" }
+uses_permission = [{ name = "android.permission.INTERNET" }]
+assets = "../assets"
+
+[package.metadata.android.signing.release]
+path = "release.keystore"
+keystore_password = "UH0YkjNrQMbAmc1qpstx"

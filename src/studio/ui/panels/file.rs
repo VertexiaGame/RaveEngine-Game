@@ -26,10 +26,7 @@ pub fn draw_file_window(
                     file_dialog_state.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
                     let tx = file_dialog_state.tx.clone();
                     std::thread::spawn(move || {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Rave Project", &["vrtx"])
-                            .set_directory(std::env::current_dir().unwrap_or_default())
-                            .save_file() {
+                        if let Some(path) = crate::studio::ui::resources::save_file_dialog("Rave Project") {
                             let _ = tx.send(crate::studio::ui::resources::FileDialogResult::BrowseSavePath(path));
                         } else {
                             let _ = tx.send(crate::studio::ui::resources::FileDialogResult::Cancel);
@@ -53,10 +50,7 @@ pub fn draw_file_window(
                     file_dialog_state.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
                     let tx = file_dialog_state.tx.clone();
                     std::thread::spawn(move || {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Rave Project", &["vrtx"])
-                            .set_directory(std::env::current_dir().unwrap_or_default())
-                            .pick_file() {
+                        if let Some(path) = crate::studio::ui::resources::pick_file_dialog("Rave Project") {
                             let _ = tx.send(crate::studio::ui::resources::FileDialogResult::OpenFile(path));
                         } else {
                             let _ = tx.send(crate::studio::ui::resources::FileDialogResult::Cancel);

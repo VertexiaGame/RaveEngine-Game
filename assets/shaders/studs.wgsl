@@ -67,13 +67,13 @@ fn fragment(
     let local_normal = rot_t * in.world_normal;
 
     let dist = distance(in.world_position.xyz, view.world_position);
-    let fade = clamp((20.0 - dist) / 16.0, 0.0, 1.0);
+    let fade = clamp((16.0 - dist) / 12.0, 0.0, 1.0);
     let detail = fade * fade;
 
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);
     let local_view = rot_t * view_dir;
 
-    let num_layers = max(2u, u32(24.0 * detail + 0.5));
+    let num_layers = max(2u, u32(16.0 * detail + 0.5));
     let layer_height = 1.0 / f32(num_layers);
 
     if (local_normal.y > 0.85 && fade > 0.0005) {

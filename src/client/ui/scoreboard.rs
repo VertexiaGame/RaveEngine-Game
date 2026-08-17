@@ -1,10 +1,16 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use crate::common::net::components::Player;
+
+#[derive(Default)]
+pub struct ScoreboardCache {
+    names: Vec<String>,
+    count: usize,
+}
 
 pub fn draw_scoreboard(
     mut contexts: EguiContexts,
-    query_players: Query<&Player>,
+    query_players: Query<Ref<crate::common::net::components::Player>>,
+    mut cache: Local<ScoreboardCache>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return; };
 
@@ -31,21 +37,28 @@ pub fn draw_scoreboard(
     let item_spacing = 5.0 * scale_factor;
     let max_height = 250.0 * scale_factor;
 
-    let mut players_map = std::collections::HashMap::new();
+    let mut changed = false;
+    let mut count = 0;
     for player in &query_players {
-        let display_name = if player.username.is_empty() {
-            format!("Player_{}", player.client_id)
-        } else {
-            player.username.clone()
-        };
-        players_map.insert(player.client_id, display_name);
+        count += 1;
+        changed |= player.is_changed();
     }
-
-    let mut players_list: Vec<String> = players_map.into_values().collect();
-    if players_list.is_empty() {
-        players_list.push("LocalPlayer".to_string());
-    } else {
-        players_list.sort();
+    if changed || count != cache.count {
+        let mut players_map = std::collections::HashMap::new();
+        for player in &query_players {
+            let display_name = if player.username.is_empty() {
+                format!("Player_{}", player.client_id)
+            } else {
+                player.username.clone()
+            };
+            players_map.insert(player.client_id, display_name);
+        }
+        cache.names = players_map.into_values().collect();
+        cache.names.sort();
+        cache.count = count;
+        if cache.names.is_empty() {
+            cache.names.push("LocalPlayer".to_string());
+        }
     }
 
     let bg_color = egui::Color32::from_rgba_unmultiplied(61, 61, 61, 102);
@@ -93,7 +106,7 @@ pub fn draw_scoreboard(
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(0.0, item_spacing);
 
-                            for username in &players_list {
+                            for username in &cache.names {
                                 egui::Frame::NONE
                                     .fill(bg_color)
                                     .corner_radius(4.0 * scale_factor)

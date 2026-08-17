@@ -32,7 +32,14 @@ fn spawn_and_run_callback(
     scheduler: &Arc<Mutex<LuaScheduler>>,
     func: LuaFunction,
     arg: LuaValue,
+    callback_key: &Arc<mlua::RegistryKey>,
 ) {
+    {
+        let sched = scheduler.lock().unwrap();
+        if sched.active_callbacks.contains(callback_key) {
+            return;
+        }
+    }
     if let Ok(thread) = lua.create_thread(func) {
         match thread.resume::<LuaValue>(arg) {
             Ok(yielded_val) => {
@@ -40,9 +47,11 @@ fn spawn_and_run_callback(
                     let wake = yielded_to_wake(yielded_val, std::time::Instant::now());
                     let mut sched = scheduler.lock().unwrap();
                     if let Ok(key) = lua.create_registry_value(thread) {
+                        sched.active_callbacks.insert(callback_key.clone());
                         sched.tasks.push(LuaTask {
                             thread_key: key,
                             wake_time: wake,
+                            callback_key: Some(callback_key.clone()),
                         });
                     }
                 }
@@ -81,18 +90,19 @@ fn start_script(lua: &Lua, scheduler: &Arc<Mutex<LuaScheduler>>, entity: Entity,
             match lua.create_thread(func) {
                 Ok(thread) => {
                     match thread.resume::<LuaValue>(()) {
-                        Ok(yielded_val) => {
-                            if thread.status() == LuaThreadStatus::Resumable {
-                                let wake = yielded_to_wake(yielded_val, std::time::Instant::now());
-                                let mut sched = scheduler.lock().unwrap();
-                                if let Ok(key) = lua.create_registry_value(thread) {
-                                    sched.tasks.push(LuaTask {
-                                        thread_key: key,
-                                        wake_time: wake,
-                                    });
+                            Ok(yielded_val) => {
+                                if thread.status() == LuaThreadStatus::Resumable {
+                                    let wake = yielded_to_wake(yielded_val, std::time::Instant::now());
+                                    let mut sched = scheduler.lock().unwrap();
+                                    if let Ok(key) = lua.create_registry_value(thread) {
+                                        sched.tasks.push(LuaTask {
+                                            thread_key: key,
+                                            wake_time: wake,
+                                            callback_key: None,
+                                        });
+                                    }
                                 }
                             }
-                        }
                         Err(e) => {
                             error!("Luau {kind} runtime error: {}", e);
                             crate::scripting::output::push_error(&chunk_name, e.to_string());
@@ -114,7 +124,7 @@ fn start_script(lua: &Lua, scheduler: &Arc<Mutex<LuaScheduler>>, entity: Entity,
 
 pub fn discover_and_run_server_scripts(world: &mut World) {
     let mut scripts_to_run = Vec::new();
-    let mut query = world.query::<(Entity, &mut ServerScript)>();
+    let mut query = world.query_filtered::<(Entity, &mut ServerScript), Changed<ServerScript>>();
     for (entity, mut script) in query.iter_mut(world) {
         if script.code != script.running_code {
             script.started = false;
@@ -143,7 +153,7 @@ pub fn discover_and_run_server_scripts(world: &mut World) {
 
 pub fn discover_and_run_local_scripts(world: &mut World) {
     let mut scripts_to_run = Vec::new();
-    let mut query = world.query::<(Entity, &mut LocalScript)>();
+    let mut query = world.query_filtered::<(Entity, &mut LocalScript), Changed<LocalScript>>();
     for (entity, mut script) in query.iter_mut(world) {
         if script.code != script.running_code {
             script.started = false;
@@ -175,13 +185,13 @@ fn collect_signal_callbacks(
     registry: &crate::scripting::vm::scheduler::ScriptRegistry,
     key: (bevy::prelude::Entity, &'static str),
     make_arg: impl Fn(&Lua) -> mlua::Result<LuaValue>,
-    out: &mut Vec<(LuaFunction, LuaValue)>,
+    out: &mut Vec<(Arc<mlua::RegistryKey>, LuaFunction, LuaValue)>,
 ) {
     if let Some(keys) = registry.connections.get(&key) {
         for registry_key in keys {
             if let Ok(func) = lua.registry_value::<LuaFunction>(&**registry_key) {
                 if let Ok(arg) = make_arg(lua) {
-                    out.push((func, arg));
+                    out.push((registry_key.clone(), func, arg));
                 }
             }
         }
@@ -192,21 +202,39 @@ pub fn detect_touched_collisions(
     world: &mut World,
     mut current: Local<std::collections::HashSet<(Entity, Entity)>>,
 ) {
+    let removed: Vec<Entity> = world.removed::<CollidingEntities>().collect();
+    if !removed.is_empty() {
+        let mut history = world
+            .get_resource_mut::<PreviousCollisions>()
+            .expect("PreviousCollisions resource must exist");
+        for entity in removed {
+            history.0.retain(|&(a, b)| a != entity && b != entity);
+        }
+    }
+
     current.clear();
-    let mut query = world.query::<(Entity, &CollidingEntities)>();
+    let mut changed_entities: Vec<Entity> = Vec::new();
+    let mut query = world.query_filtered::<
+        (Entity, &CollidingEntities),
+        Or<(Changed<CollidingEntities>, Added<CollidingEntities>)>,
+    >();
     for (entity, colliding) in query.iter(world) {
         for other in colliding.iter() {
             let pair = if entity < *other { (entity, *other) } else { (*other, entity) };
             current.insert(pair);
         }
+        changed_entities.push(entity);
     }
 
     let began: Vec<(Entity, Entity)> = {
         let mut history = world
             .get_resource_mut::<PreviousCollisions>()
             .expect("PreviousCollisions resource must exist");
+        for entity in &changed_entities {
+            history.0.retain(|&(a, b)| a != *entity && b != *entity);
+        }
         let began = current.difference(&history.0).copied().collect();
-        std::mem::swap(&mut history.0, &mut current);
+        history.0.extend(current.drain());
         began
     };
 
@@ -232,8 +260,8 @@ pub fn detect_touched_collisions(
             }
         }
 
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg);
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
         }
 
         world.insert_resource(server_vm);
@@ -257,29 +285,23 @@ pub fn detect_touched_collisions(
             }
         }
 
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg);
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
         }
 
         world.insert_resource(client_vm);
     }
 }
 
-pub fn detect_player_added_events(
-    world: &mut World,
-    mut last_players: Local<std::collections::HashSet<Entity>>,
-) {
+pub fn detect_player_added_events(world: &mut World) {
     let mut joined = Vec::new();
     {
-        let mut query = world.query::<(Entity, &crate::common::net::components::Player)>();
+        let mut query = world.query_filtered::<
+            (Entity, &crate::common::net::components::Player),
+            Added<crate::common::net::components::Player>,
+        >();
         for (entity, _) in query.iter(world) {
-            if !last_players.contains(&entity) {
-                joined.push(entity);
-            }
-        }
-        last_players.clear();
-        for (entity, _) in query.iter(world) {
-            last_players.insert(entity);
+            joined.push(entity);
         }
     }
 
@@ -302,7 +324,7 @@ pub fn detect_player_added_events(
                             if let Ok(inst) = server_vm.lua.create_userdata(
                                 crate::scripting::userdata::instance::Instance { entity },
                             ) {
-                                callbacks.push((func.clone(), LuaValue::UserData(inst)));
+                                callbacks.push((key.clone(), func.clone(), LuaValue::UserData(inst)));
                             }
                         }
                     }
@@ -310,8 +332,8 @@ pub fn detect_player_added_events(
             }
         }
 
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg);
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
         }
 
         world.insert_resource(server_vm);
@@ -332,7 +354,7 @@ pub fn detect_player_added_events(
                             if let Ok(inst) = client_vm.lua.create_userdata(
                                 crate::scripting::userdata::instance::Instance { entity },
                             ) {
-                                callbacks.push((func.clone(), LuaValue::UserData(inst)));
+                                callbacks.push((key.clone(), func.clone(), LuaValue::UserData(inst)));
                             }
                         }
                     }
@@ -340,12 +362,30 @@ pub fn detect_player_added_events(
             }
         }
 
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg);
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
         }
 
         world.insert_resource(client_vm);
     }
+}
+
+fn has_run_service_connections(
+    registry: &crate::scripting::vm::scheduler::ScriptRegistry,
+    workspace_entity: Option<Entity>,
+) -> bool {
+    let Some(workspace_entity) = workspace_entity else {
+        return false;
+    };
+    registry.connections.contains_key(&(workspace_entity, "Heartbeat"))
+        || registry.connections.contains_key(&(workspace_entity, "Stepped"))
+}
+
+fn cached_workspace_entity(world: &World) -> Option<Entity> {
+    world
+        .get_resource::<ServiceEntities>()
+        .and_then(|cache| cache.workspace)
+        .or_else(|| crate::scripting::userdata::instance::find_service_entity(world, "Workspace"))
 }
 
 pub fn trigger_run_service_events(world: &mut World) {
@@ -354,58 +394,71 @@ pub fn trigger_run_service_events(world: &mut World) {
         time.delta_secs()
     };
 
-    if let Some(server_vm) = world.remove_resource::<ServerScriptVM>() {
-        server_vm.lua.set_app_data(WorldRef(world as *mut World));
+    let server_has_work = world.get_resource::<ServerScriptVM>().is_some_and(|vm| {
+        has_run_service_connections(&vm.registry.lock().unwrap(), cached_workspace_entity(world))
+            || crate::scripting::vm::scheduler::scheduler_has_work(&vm.scheduler)
+    });
+    let client_has_work = world.get_resource::<ClientScriptVM>().is_some_and(|vm| {
+        has_run_service_connections(&vm.registry.lock().unwrap(), cached_workspace_entity(world))
+            || crate::scripting::vm::scheduler::scheduler_has_work(&vm.scheduler)
+    });
 
-        let mut callbacks = Vec::new();
-        {
-            let registry = server_vm.registry.lock().unwrap();
-            let workspace_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace")
-                .unwrap_or(Entity::PLACEHOLDER);
+    if server_has_work {
+        if let Some(server_vm) = world.remove_resource::<ServerScriptVM>() {
+            server_vm.lua.set_app_data(WorldRef(world as *mut World));
 
-            let drain = |event: &'static str, out: &mut Vec<(LuaFunction, LuaValue)>| {
-                collect_signal_callbacks(&server_vm.lua, &registry, (workspace_entity, event), |_| {
-                    Ok(LuaValue::Number(delta_secs as f64))
-                }, out);
-            };
-            drain("Heartbeat", &mut callbacks);
-            drain("Stepped", &mut callbacks);
+            let mut callbacks = Vec::new();
+            {
+                let registry = server_vm.registry.lock().unwrap();
+                let workspace_entity = cached_workspace_entity(world)
+                    .unwrap_or(Entity::PLACEHOLDER);
+
+                let drain = |event: &'static str, out: &mut Vec<(Arc<mlua::RegistryKey>, LuaFunction, LuaValue)>| {
+                    collect_signal_callbacks(&server_vm.lua, &registry, (workspace_entity, event), |_| {
+                        Ok(LuaValue::Number(delta_secs as f64))
+                    }, out);
+                };
+                drain("Heartbeat", &mut callbacks);
+                drain("Stepped", &mut callbacks);
+            }
+
+            for (key, func, arg) in callbacks {
+                spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
+            }
+
+            crate::scripting::vm::scheduler::run_scheduler_tick(&server_vm.scheduler, &server_vm.lua);
+
+            world.insert_resource(server_vm);
         }
-
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg);
-        }
-
-        crate::scripting::vm::scheduler::run_scheduler_tick(&server_vm.scheduler, &server_vm.lua);
-
-        world.insert_resource(server_vm);
     }
 
-    if let Some(client_vm) = world.remove_resource::<ClientScriptVM>() {
-        client_vm.lua.set_app_data(WorldRef(world as *mut World));
+    if client_has_work {
+        if let Some(client_vm) = world.remove_resource::<ClientScriptVM>() {
+            client_vm.lua.set_app_data(WorldRef(world as *mut World));
 
-        let mut callbacks = Vec::new();
-        {
-            let registry = client_vm.registry.lock().unwrap();
-            let workspace_entity = crate::scripting::userdata::instance::find_service_entity(world, "Workspace")
-                .unwrap_or(Entity::PLACEHOLDER);
+            let mut callbacks = Vec::new();
+            {
+                let registry = client_vm.registry.lock().unwrap();
+                let workspace_entity = cached_workspace_entity(world)
+                    .unwrap_or(Entity::PLACEHOLDER);
 
-            let drain = |event: &'static str, out: &mut Vec<(LuaFunction, LuaValue)>| {
-                collect_signal_callbacks(&client_vm.lua, &registry, (workspace_entity, event), |_| {
-                    Ok(LuaValue::Number(delta_secs as f64))
-                }, out);
-            };
-            drain("Heartbeat", &mut callbacks);
-            drain("Stepped", &mut callbacks);
+                let drain = |event: &'static str, out: &mut Vec<(Arc<mlua::RegistryKey>, LuaFunction, LuaValue)>| {
+                    collect_signal_callbacks(&client_vm.lua, &registry, (workspace_entity, event), |_| {
+                        Ok(LuaValue::Number(delta_secs as f64))
+                    }, out);
+                };
+                drain("Heartbeat", &mut callbacks);
+                drain("Stepped", &mut callbacks);
+            }
+
+            for (key, func, arg) in callbacks {
+                spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
+            }
+
+            crate::scripting::vm::scheduler::run_scheduler_tick(&client_vm.scheduler, &client_vm.lua);
+
+            world.insert_resource(client_vm);
         }
-
-        for (func, arg) in callbacks {
-            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg);
-        }
-
-        crate::scripting::vm::scheduler::run_scheduler_tick(&client_vm.scheduler, &client_vm.lua);
-
-        world.insert_resource(client_vm);
     }
 }
 
@@ -444,13 +497,24 @@ fn cache_service_entities(
 }
 
 fn sweep_stale_connections(world: &mut World) {
-    if let Some(server_vm) = world.remove_resource::<ServerScriptVM>() {
-        crate::scripting::vm::scheduler::sweep_stale_connections(&server_vm.lua, &server_vm.registry, world);
-        world.insert_resource(server_vm);
+    let server_has_connections = world
+        .get_resource::<ServerScriptVM>()
+        .is_some_and(|vm| !vm.registry.lock().unwrap().connections.is_empty());
+    let client_has_connections = world
+        .get_resource::<ClientScriptVM>()
+        .is_some_and(|vm| !vm.registry.lock().unwrap().connections.is_empty());
+
+    if server_has_connections {
+        if let Some(server_vm) = world.remove_resource::<ServerScriptVM>() {
+            crate::scripting::vm::scheduler::sweep_stale_connections(&server_vm.lua, &server_vm.registry, world);
+            world.insert_resource(server_vm);
+        }
     }
-    if let Some(client_vm) = world.remove_resource::<ClientScriptVM>() {
-        crate::scripting::vm::scheduler::sweep_stale_connections(&client_vm.lua, &client_vm.registry, world);
-        world.insert_resource(client_vm);
+    if client_has_connections {
+        if let Some(client_vm) = world.remove_resource::<ClientScriptVM>() {
+            crate::scripting::vm::scheduler::sweep_stale_connections(&client_vm.lua, &client_vm.registry, world);
+            world.insert_resource(client_vm);
+        }
     }
 }
 

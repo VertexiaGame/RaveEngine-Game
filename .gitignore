@@ -22,3 +22,6 @@ target
 *.lock
 *.bat
 *.vrtx
+
+# Android signing keystores (never commit these)
+mobile/*.keystore

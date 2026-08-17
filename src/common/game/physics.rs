@@ -48,10 +48,7 @@ impl Plugin for PhysicsSimulationPlugin {
             ))
             .add_systems(
                 PhysicsSchedule,
-                (
-                    sanitize_physics_state.before(PhysicsStepSystems::First),
-                    sanitize_physics_state.in_set(PhysicsStepSystems::Finalize),
-                ),
+                sanitize_physics_state.in_set(PhysicsStepSystems::Finalize),
             );
     }
 }
@@ -63,7 +60,7 @@ fn sanitize_physics_state(
         &mut LinearVelocity,
         &mut AngularVelocity,
     ), Or<(With<SleepingDisabled>, With<GravityScale>)>>,
-    mut colliders: Query<&mut Transform, With<Collider>>,
+    mut colliders: Query<&mut Transform, (With<Collider>, Changed<Transform>)>,
 ) {
     for (mut position, mut rotation, mut linear_velocity, mut angular_velocity) in &mut bodies {
         if !position.0.is_finite() {

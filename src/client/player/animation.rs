@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy::animation::{AnimatedBy, AnimationTargetId};
+use bevy::ecs::change_detection::Ref;
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use crate::client::player::model::PlayerGltfHandle;
+use crate::client::LocalPlayer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LimbPart {
@@ -53,6 +55,10 @@ pub struct PlayerVelocityTracker {
     pub last_position: Vec3,
     pub velocity: Vec3,
     pub is_grounded: bool,
+    pub moving: bool,
+    pub jump_triggered: bool,
+    last_arrival: f64,
+    jump_latch_until: f64,
 }
 
 pub fn add_missing_animation_players(
@@ -154,6 +160,9 @@ pub fn retarget_avatar_clips(
     let Some(gltf) = gltf_assets.get(&handle.0) else {
         return;
     };
+    if retargeted.retargeted_clips.len() >= gltf.animations.len() {
+        return;
+    }
 
     let mut armature_root = None;
     for (entity, name) in &armatures {
@@ -424,14 +433,67 @@ fn grounded_for_animation(tracker: &PlayerVelocityTracker) -> bool {
     tracker.is_grounded || tracker.velocity.y.abs() < 0.2
 }
 
-pub fn track_player_velocities(
+pub fn track_remote_player_animation(
     mut commands: Commands,
-    mut query: Query<(Entity, &Transform, Option<&mut PlayerVelocityTracker>), With<crate::common::net::components::Player>>,
+    mut query: Query<(
+        Entity,
+        Ref<crate::common::net::components::NetworkTransform>,
+        Option<&mut PlayerVelocityTracker>,
+    ), (With<crate::common::net::components::Player>, Without<LocalPlayer>)>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    for (entity, net_transform, tracker_opt) in &mut query {
+        if !net_transform.is_changed() {
+            continue;
+        }
+        let new_position = net_transform.translation;
+        if let Some(mut tracker) = tracker_opt {
+            let dt = now - tracker.last_arrival;
+            let displacement = new_position - tracker.last_position;
+            if dt > 0.001 {
+                if displacement.length() < 2.0 {
+                    let raw_velocity = displacement / dt as f32;
+                    tracker.velocity = tracker.velocity.lerp(raw_velocity, 0.6);
+                }
+                if tracker.velocity.y > 2.0 {
+                    tracker.jump_triggered = true;
+                    tracker.jump_latch_until = now + 0.35;
+                }
+            }
+            tracker.last_position = new_position;
+            tracker.last_arrival = now;
+            tracker.moving = Vec2::new(tracker.velocity.x, tracker.velocity.z).length() > 0.5;
+            if tracker.jump_triggered && now > tracker.jump_latch_until {
+                tracker.jump_triggered = false;
+            }
+        } else {
+            commands.entity(entity).insert(PlayerVelocityTracker {
+                last_position: new_position,
+                velocity: Vec3::ZERO,
+                is_grounded: false,
+                moving: false,
+                jump_triggered: false,
+                last_arrival: now,
+                jump_latch_until: 0.0,
+            });
+        }
+    }
+}
+
+pub fn track_remote_player_grounded(
+    mut commands: Commands,
+    mut query: Query<(
+        Entity,
+        &crate::common::net::components::NetworkTransform,
+        Option<&mut PlayerVelocityTracker>,
+    ), (With<crate::common::net::components::Player>, Without<LocalPlayer>)>,
     spatial_query: SpatialQuery,
     time: Res<Time>,
     mut cached_players: Local<Vec<(Entity, Transform)>>,
     mut player_grid: Local<PlayerGrid>,
     mut last_tick: Local<f32>,
+    mut probe_offset: Local<usize>,
 ) {
     if !tracking_delta(time.delta_secs()).is_some() {
         return;
@@ -444,26 +506,88 @@ pub fn track_player_velocities(
     }
     *last_tick = now;
 
-    let smoothing = 1.0 - 0.9f32.powf(interval * 60.0);
-
     cached_players.clear();
-    cached_players.extend(query.iter().map(|(e, t, _)| (e, *t)));
+    cached_players.extend(query.iter().map(|(e, nt, _)| {
+        (
+            e,
+            Transform {
+                translation: nt.translation,
+                rotation: nt.rotation,
+                ..default()
+            },
+        )
+    }));
     rebuild_player_grid(&mut player_grid, cached_players.iter().copied());
 
-    for (entity, transform, tracker_opt) in &mut query {
-        let is_grounded = supported_by_world(entity, transform, &spatial_query)
-            || supported_by_player(entity, transform, &player_grid);
+    const PROBE_STRIDE: usize = 6;
+    let count = query.iter().count();
+    for (index, (entity, net_transform, tracker_opt)) in (&mut query).into_iter().enumerate() {
+        let transform = Transform {
+            translation: net_transform.translation,
+            rotation: net_transform.rotation,
+            ..default()
+        };
+        let needs_new_tracker = tracker_opt.is_none();
+        let cast_world_support = needs_new_tracker || index % PROBE_STRIDE == *probe_offset;
+        let is_grounded = if cast_world_support {
+            supported_by_world(entity, &transform, &spatial_query)
+                || supported_by_player(entity, &transform, &player_grid)
+        } else {
+            tracker_opt.as_ref().map_or(true, |tracker| tracker.is_grounded)
+        };
 
         if let Some(mut tracker) = tracker_opt {
-            let raw_velocity = (transform.translation - tracker.last_position) / interval;
-            tracker.velocity = tracker.velocity.lerp(raw_velocity, smoothing);
-            tracker.last_position = transform.translation;
             tracker.is_grounded = is_grounded;
         } else {
             commands.entity(entity).insert(PlayerVelocityTracker {
                 last_position: transform.translation,
                 velocity: Vec3::ZERO,
                 is_grounded,
+                moving: false,
+                jump_triggered: false,
+                last_arrival: time.elapsed_secs_f64(),
+                jump_latch_until: 0.0,
+            });
+        }
+    }
+    if count > 0 {
+        *probe_offset = (*probe_offset + 1) % PROBE_STRIDE;
+    }
+}
+
+pub fn track_local_player_animation(
+    mut commands: Commands,
+    mut query: Query<(
+        Entity,
+        &crate::common::game::movement::PlayerMovementPlan,
+        Option<&mut PlayerVelocityTracker>,
+    ), (With<LocalPlayer>, With<crate::common::net::components::Player>)>,
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    let jump_pressed = keys.just_pressed(KeyCode::Space);
+    for (entity, plan, tracker_opt) in &mut query {
+        if let Some(mut tracker) = tracker_opt {
+            tracker.velocity = plan.velocity;
+            tracker.is_grounded = plan.grounded;
+            tracker.moving = Vec2::new(plan.velocity.x, plan.velocity.z).length() > 0.5;
+            if jump_pressed || plan.velocity.y > 2.0 {
+                tracker.jump_triggered = true;
+                tracker.jump_latch_until = now + 0.35;
+            }
+            if tracker.jump_triggered && now > tracker.jump_latch_until {
+                tracker.jump_triggered = false;
+            }
+        } else {
+            commands.entity(entity).insert(PlayerVelocityTracker {
+                last_position: plan.velocity,
+                velocity: plan.velocity,
+                is_grounded: plan.grounded,
+                moving: plan.velocity.length() > 0.5,
+                jump_triggered: jump_pressed || plan.velocity.y > 2.0,
+                last_arrival: now,
+                jump_latch_until: if jump_pressed { now + 0.35 } else { 0.0 },
             });
         }
     }
@@ -494,13 +618,15 @@ pub fn animate_player(
 
         let is_jump_finished = player.animation(jump_index).map_or(false, |anim| anim.is_finished());
 
-        let mut active_index = if !grounded_for_animation(tracker) {
+        let mut active_index = if tracker.jump_triggered {
+            jump_index
+        } else if !grounded_for_animation(tracker) {
             if velocity.y > 0.0 {
                 jump_index
             } else {
                 fall_index
             }
-        } else if speed_xz > 0.5 {
+        } else if tracker.moving {
             walk_index
         } else {
             idle_index
@@ -647,6 +773,7 @@ mod tests {
             last_position: Vec3::ZERO,
             velocity: Vec3::ZERO,
             is_grounded: false,
+            ..default()
         };
 
         assert!(grounded_for_animation(&tracker));

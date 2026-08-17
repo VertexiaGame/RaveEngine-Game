@@ -7,8 +7,9 @@ use crate::scripting::userdata::vector3::Vector3;
 #[derive(Clone, Copy)]
 pub struct LightingService;
 
-fn config(world: &World) -> LightingConfig {
-    world.get_resource::<LightingConfig>().cloned().unwrap_or_default()
+fn config_ref(world: &World) -> &LightingConfig {
+    static DEFAULT: std::sync::LazyLock<LightingConfig> = std::sync::LazyLock::new(LightingConfig::default);
+    world.get_resource::<LightingConfig>().unwrap_or(&DEFAULT)
 }
 
 fn as_f64(value: &LuaValue) -> Option<f64> {
@@ -41,12 +42,12 @@ impl LuaUserData for LightingService {
             Ok(other.is::<LightingService>())
         });
 
-        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: String| {
+        methods.add_meta_method(LuaMetaMethod::Index, |lua, _, key: mlua::LuaString| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &*world_ref.0 };
-            let config = config(world);
+            let config = config_ref(world);
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "ClassName" => Ok(LuaValue::String(lua.create_string("Lighting")?)),
                 "Name" => Ok(LuaValue::String(lua.create_string("Lighting")?)),
                 "ClockTime" => Ok(LuaValue::Number(config.time_of_day as f64)),
@@ -98,11 +99,11 @@ impl LuaUserData for LightingService {
             }
         });
 
-        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, _, (key, value): (String, LuaValue)| {
+        methods.add_meta_method(LuaMetaMethod::NewIndex, |lua, _, (key, value): (mlua::LuaString, LuaValue)| {
             let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
             let world = unsafe { &mut *world_ref.0 };
 
-            match key.as_str() {
+            match key.to_str()?.as_ref() {
                 "ClockTime" => {
                     if let Some(val) = as_f64(&value) {
                         if let Some(mut cfg) = world.get_resource_mut::<LightingConfig>() {

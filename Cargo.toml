@@ -3,6 +3,10 @@ name = "VERTIGO-ProjectRave"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["mobile"]
+default-members = ["."]
+
 [lib]
 name = "RaveEngineLib"
 path = "src/lib.rs"
@@ -20,13 +24,12 @@ name = "RaveEngineServer"
 path = "src/bin/server.rs"
 
 [dependencies]
-bevy = { version = "0.19.0", features = ["default", "free_camera", "bevy_dev_tools"] }
+bevy = { version = "0.19.0", features = ["default", "free_camera", "bevy_dev_tools", "android-native-activity"] }
 bevy_egui = "0.40.1"
 egui_extras = { version = "0.34", features = ["syntect"] }
 rand = "0.10.1"
 avian3d = "0.7.0"
 tobj = "4.0.4"
-rfd = "0.17.2"
 lightyear = { version = "0.28.0", default-features = false, features = [
   "std",
   "client",
@@ -36,7 +39,8 @@ lightyear = { version = "0.28.0", default-features = false, features = [
   "interpolation",
   "udp",
   "netcode",
-  "input_native"
+  "input_native",
+  "compression_lz4"
 ] }
 
 serde = { version = "1.0", features = ["derive"] }
@@ -46,6 +50,11 @@ serde_json = "1.0"
 base64 = "0.22.1"
 flate2 = "1.0"
 mlua = { version = "0.12", features = ["luau", "luau-jit", "send", "serde", "macros"] }
+
+# rfd (native file dialogs) has no Android backend; it is only used by the
+# Studio and the crash dialog, neither of which exist on Android yet.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = "0.17.2"
 
 [features]
 bench = []

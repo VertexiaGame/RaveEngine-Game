@@ -16,6 +16,23 @@ pub struct ServerSettings {
 #[derive(Resource, Default)]
 pub struct ClientPlayerMap(pub std::collections::HashMap<u64, Entity>);
 
+#[derive(Resource, Default)]
+pub struct PendingAuths(
+    pub std::collections::HashMap<
+        u64,
+        (
+            Entity,
+            std::sync::Arc<
+                std::sync::Mutex<
+                    std::sync::mpsc::Receiver<
+                        Result<crate::common::net::auth::ValidateResponse, String>,
+                    >,
+                >,
+            >,
+        ),
+    >,
+);
+
 pub struct ServerPlugin {
     pub map_path: String,
     pub port: u16,
@@ -32,20 +49,21 @@ impl Plugin for ServerPlugin {
             Duration::from_secs_f64(1.0 / 30.0),
         ))
         .init_resource::<ClientPlayerMap>()
+        .init_resource::<PendingAuths>()
         .add_plugins(server::ServerPlugins {
             tick_duration: Duration::from_secs_f64(1.0 / 60.0),
         })
         .add_plugins(crate::common::net::ProtocolPlugin)
         .add_systems(Startup, (setup_server, map::load_map))
         .add_systems(Update, (
-            player::handle_player_inputs,
+            player::handle_player_moves,
             player::handle_hello_messages,
+            player::handle_auth_results,
             player::sync_players_service_properties,
         ).chain())
         .add_systems(
             FixedPostUpdate,
-            (player::tick_player_movement, player::apply_player_movement)
-                .chain()
+            player::apply_player_movement
                 .in_set(PhysicsSystems::Prepare)
                 .after(avian3d::physics_transform::PhysicsTransformSystems::TransformToPosition),
         )
@@ -74,6 +92,8 @@ fn setup_server(
         ServerUdpIo::default(),
         LocalAddr(bind_addr),
         NetcodeServer::new(netcode_config),
+        Transport::new(PriorityConfig::default())
+            .with_compression(CompressionConfig::LZ4),
     )).id();
 
     commands.trigger(Start { entity: server_entity });

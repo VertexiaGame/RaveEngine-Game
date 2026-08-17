@@ -240,54 +240,40 @@ pub fn studio_ui(
 
                                 for e in queries.playtest_client_query.iter() {
                                     ui_res.commands.trigger(lightyear::prelude::client::Disconnect { entity: e });
-                                    if let Ok(mut entity_cmd) = ui_res.commands.get_entity(e) {
-                                        entity_cmd.despawn();
-                                    }
+                                    ui_res.commands.entity(e).try_despawn();
                                 }
 
                                 for (entity, _, name, _, _, brick_opt, _, _, _, _, _, _) in queries.entities_query.iter() {
                                     let name_str = name.as_str();
                                     if brick_opt.is_some() || name_str == "Player" || name_str.starts_with("Player_") {
-                                        if let Ok(mut e) = ui_res.commands.get_entity(entity) {
-                                            e.despawn();
-                                        }
+                                        ui_res.commands.entity(entity).try_despawn();
                                     }
                                 }
 
                                 for camera_entity in queries.playtest_cameras.iter() {
-                                    if let Ok(mut e) = ui_res.commands.get_entity(camera_entity) {
-                                        e.despawn();
-                                    }
+                                    ui_res.commands.entity(camera_entity).try_despawn();
                                 }
 
                                 for visual_entity in queries.playtest_visuals.iter() {
-                                    if let Ok(mut e) = ui_res.commands.get_entity(visual_entity) {
-                                        e.despawn();
-                                    }
+                                    ui_res.commands.entity(visual_entity).try_despawn();
                                 }
 
                                 for player_entity in queries.playtest_players.iter() {
-                                    if let Ok(mut e) = ui_res.commands.get_entity(player_entity) {
-                                        e.despawn();
-                                    }
+                                    ui_res.commands.entity(player_entity).try_despawn();
                                 }
 
                                 for (entity, _, name, child_of_opt, _, brick_opt, _, _, _, _, _, _) in queries.entities_query.iter() {
                                     if child_of_opt.is_none() && brick_opt.is_none() {
                                         let n = name.as_str();
                                         if n.contains("Armature") || n == "LocalPlayer" || n.starts_with("Player_") {
-                                            if let Ok(mut e) = ui_res.commands.get_entity(entity) {
-                                                e.despawn();
-                                            }
+                                            ui_res.commands.entity(entity).try_despawn();
                                         }
                                     }
                                 }
 
                                 for (entity, _, _, _, _, s_opt, l_opt, m_opt) in queries.explorer_query.iter() {
                                     if s_opt.is_some() || l_opt.is_some() || m_opt.is_some() {
-                                        if let Ok(mut e) = ui_res.commands.get_entity(entity) {
-                                            e.despawn();
-                                        }
+                                        ui_res.commands.entity(entity).try_despawn();
                                     }
                                 }
 
