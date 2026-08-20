@@ -1,25 +1,26 @@
 use bevy::{
     asset::RenderAssetUsages,
+    image::ImageSampler,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
 };
 
 pub const IMAGE_SIZE: u32 = 1440;
 
-pub const RENDER_WIDTH: u32 = 1440;
-pub const RENDER_HEIGHT: u32 = 810;
+pub const RENDER_WIDTH: u32 = 1280;
+pub const RENDER_HEIGHT: u32 = 720;
 
 pub fn build_images(
     images: ResMut<Assets<Image>>,
-) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
+) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
     build_images_with_size(images, RENDER_WIDTH, RENDER_HEIGHT)
 }
 
 pub fn build_render_images_with_size(
-    mut images: ResMut<Assets<Image>>,
+    images: &mut Assets<Image>,
     width: u32,
     height: u32,
-) -> (Handle<Image>, Handle<Image>) {
+) -> (Handle<Image>, Handle<Image>, Handle<Image>) {
     let mut cloud_render_image = Image::new_fill(
         Extent3d {
             width,
@@ -31,7 +32,24 @@ pub fn build_render_images_with_size(
         TextureFormat::Rgba16Float,
         RenderAssetUsages::RENDER_WORLD,
     );
-    cloud_render_image.texture_descriptor.usage =
+    cloud_render_image.texture_descriptor.usage = TextureUsages::COPY_DST
+        | TextureUsages::COPY_SRC
+        | TextureUsages::STORAGE_BINDING
+        | TextureUsages::TEXTURE_BINDING;
+    cloud_render_image.sampler = ImageSampler::linear();
+
+    let mut cloud_render_previous_image = Image::new_fill(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0; 4 * 4 * 2],
+        TextureFormat::Rgba16Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    cloud_render_previous_image.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
 
     let mut sky_image = Image::new_fill(
@@ -47,29 +65,18 @@ pub fn build_render_images_with_size(
     );
     sky_image.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    sky_image.sampler = ImageSampler::linear();
 
-    (images.add(cloud_render_image), images.add(sky_image))
+    (images.add(cloud_render_image), images.add(cloud_render_previous_image), images.add(sky_image))
 }
 
 pub fn build_images_with_size(
     mut images: ResMut<Assets<Image>>,
     width: u32,
     height: u32,
-) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
-    let mut cloud_render_image = Image::new_fill(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0; 4 * 4 * 2],
-        TextureFormat::Rgba16Float,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    cloud_render_image.texture_descriptor.usage =
-        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-
+) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
+    let (cloud_render_image, cloud_render_previous_image, sky_image) =
+        build_render_images_with_size(&mut *images, width, height);
     let mut cloud_atlas_image = Image::new_fill(
         Extent3d {
             width: IMAGE_SIZE,
@@ -98,24 +105,11 @@ pub fn build_images_with_size(
     cloud_worley_image.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
 
-    let mut sky_image = Image::new_fill(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0; 4 * 4 * 2],
-        TextureFormat::Rgba16Float,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    sky_image.texture_descriptor.usage =
-        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-
     (
-        images.add(cloud_render_image),
+        cloud_render_image,
         images.add(cloud_atlas_image),
         images.add(cloud_worley_image),
-        images.add(sky_image),
+        cloud_render_previous_image,
+        sky_image,
     )
 }

@@ -33,6 +33,7 @@ fn spawn_and_run_callback(
     func: LuaFunction,
     arg: LuaValue,
     callback_key: &Arc<mlua::RegistryKey>,
+    source: String,
 ) {
     {
         let sched = scheduler.lock().unwrap();
@@ -40,7 +41,15 @@ fn spawn_and_run_callback(
             return;
         }
     }
+    {
+        let sched = scheduler.lock().unwrap();
+        if sched.tasks.len() >= crate::scripting::vm::sandbox::MAX_PENDING_TASKS {
+            return;
+        }
+    }
     if let Ok(thread) = lua.create_thread(func) {
+        crate::scripting::vm::sandbox::reset_tick_budgets(lua);
+        crate::scripting::vm::sandbox::set_caller_frame(lua, source.clone(), None);
         match thread.resume::<LuaValue>(arg) {
             Ok(yielded_val) => {
                 if thread.status() == LuaThreadStatus::Resumable {
@@ -52,6 +61,7 @@ fn spawn_and_run_callback(
                             thread_key: key,
                             wake_time: wake,
                             callback_key: Some(callback_key.clone()),
+                            source,
                         });
                     }
                 }
@@ -66,6 +76,13 @@ fn spawn_and_run_callback(
 
 fn start_script(lua: &Lua, scheduler: &Arc<Mutex<LuaScheduler>>, entity: Entity, code: String, kind: &str) {
     let chunk_name = format!("{kind}[{entity}]");
+    {
+        let sched = scheduler.lock().unwrap();
+        if sched.tasks.len() >= crate::scripting::vm::sandbox::MAX_PENDING_TASKS {
+            warn!("Luau {kind} rejected: pending task limit reached");
+            return;
+        }
+    }
     match crate::scripting::vm::compiler::compile_code(lua, &code, &chunk_name) {
         Ok(func) => {
             let script_env = match lua.create_table() {
@@ -87,6 +104,9 @@ fn start_script(lua: &Lua, scheduler: &Arc<Mutex<LuaScheduler>>, entity: Entity,
 
             crate::scripting::output::record_script_start();
 
+            crate::scripting::vm::sandbox::reset_tick_budgets(lua);
+            crate::scripting::vm::sandbox::set_caller_frame(lua, chunk_name.clone(), None);
+
             match lua.create_thread(func) {
                 Ok(thread) => {
                     match thread.resume::<LuaValue>(()) {
@@ -99,6 +119,7 @@ fn start_script(lua: &Lua, scheduler: &Arc<Mutex<LuaScheduler>>, entity: Entity,
                                             thread_key: key,
                                             wake_time: wake,
                                             callback_key: None,
+                                            source: chunk_name.clone(),
                                         });
                                     }
                                 }
@@ -261,7 +282,7 @@ pub fn detect_touched_collisions(
         }
 
         for (key, func, arg) in callbacks {
-            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
+            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key, "Touched".to_string());
         }
 
         world.insert_resource(server_vm);
@@ -286,7 +307,7 @@ pub fn detect_touched_collisions(
         }
 
         for (key, func, arg) in callbacks {
-            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
+            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key, "Touched".to_string());
         }
 
         world.insert_resource(client_vm);
@@ -333,7 +354,7 @@ pub fn detect_player_added_events(world: &mut World) {
         }
 
         for (key, func, arg) in callbacks {
-            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
+            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key, "PlayerAdded".to_string());
         }
 
         world.insert_resource(server_vm);
@@ -363,7 +384,7 @@ pub fn detect_player_added_events(world: &mut World) {
         }
 
         for (key, func, arg) in callbacks {
-            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
+            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key, "PlayerAdded".to_string());
         }
 
         world.insert_resource(client_vm);
@@ -422,9 +443,9 @@ pub fn trigger_run_service_events(world: &mut World) {
                 drain("Stepped", &mut callbacks);
             }
 
-            for (key, func, arg) in callbacks {
-                spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key);
-            }
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&server_vm.lua, &server_vm.scheduler, func, arg, &key, "RunService".to_string());
+        }
 
             crate::scripting::vm::scheduler::run_scheduler_tick(&server_vm.scheduler, &server_vm.lua);
 
@@ -451,9 +472,9 @@ pub fn trigger_run_service_events(world: &mut World) {
                 drain("Stepped", &mut callbacks);
             }
 
-            for (key, func, arg) in callbacks {
-                spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key);
-            }
+        for (key, func, arg) in callbacks {
+            spawn_and_run_callback(&client_vm.lua, &client_vm.scheduler, func, arg, &key, "RunService".to_string());
+        }
 
             crate::scripting::vm::scheduler::run_scheduler_tick(&client_vm.scheduler, &client_vm.lua);
 
@@ -481,8 +502,13 @@ fn cache_service_entities(
     }) {
         cache.lighting = None;
     }
+    if cache.asset_service.is_some_and(|entity| {
+        !matches!(query.get(entity), Ok((_, name)) if name.as_str() == "AssetService")
+    }) {
+        cache.asset_service = None;
+    }
 
-    if cache.workspace.is_some() && cache.players.is_some() && cache.lighting.is_some() {
+    if cache.workspace.is_some() && cache.players.is_some() && cache.lighting.is_some() && cache.asset_service.is_some() {
         return;
     }
 
@@ -491,6 +517,7 @@ fn cache_service_entities(
             "Workspace" if cache.workspace.is_none() => cache.workspace = Some(entity),
             "Players" if cache.players.is_none() => cache.players = Some(entity),
             "Lighting" if cache.lighting.is_none() => cache.lighting = Some(entity),
+            "AssetService" if cache.asset_service.is_none() => cache.asset_service = Some(entity),
             _ => {}
         }
     }

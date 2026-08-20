@@ -231,6 +231,39 @@ fn read_script(r: &mut impl Read, version: u32) -> std::io::Result<VrtxScript> {
     })
 }
 
+fn read_image(r: &mut impl Read) -> std::io::Result<VrtxImage> {
+    let name = read_string_u16(r)?;
+    let asset_id = read_u32(r)?;
+
+    let f_len = read_u16(r)? as usize;
+    let face = if f_len > 0 {
+        let mut f_bytes = vec![0u8; f_len];
+        r.read_exact(&mut f_bytes)?;
+        Some(String::from_utf8(f_bytes).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let p_len = read_u16(r)? as usize;
+    let parent_name = if p_len > 0 {
+        let mut p_bytes = vec![0u8; p_len];
+        r.read_exact(&mut p_bytes)?;
+        Some(String::from_utf8(p_bytes).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let transform = read_transform(r)?;
+
+    Ok(VrtxImage {
+        name,
+        asset_id,
+        face,
+        parent_name,
+        transform,
+    })
+}
+
 fn read_v1_header(r: &mut impl Read) -> std::io::Result<(Vec3, VrtxSettings, Transform, u32)> {
     let gravity = read_vec3(r)?;
     let mut settings_bytes = [0u8; 3];
@@ -310,10 +343,19 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
             VrtxLighting::default()
         };
 
+        let mut images = Vec::new();
+        if version >= 8 {
+            let image_count = read_u32(&mut reader)?;
+            for _ in 0..image_count {
+                images.push(read_image(&mut reader)?);
+            }
+        }
+
         debug!(
-            "load_from_file: Successfully parsed {} bricks and {} scripts from standard VRTX file",
+            "load_from_file: Successfully parsed {} bricks, {} scripts and {} images from standard VRTX file",
             bricks.len(),
-            scripts.len()
+            scripts.len(),
+            images.len()
         );
         Ok(VrtxFileState {
             version,
@@ -323,6 +365,7 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
             camera_transform,
             bricks,
             scripts,
+            images,
         })
     } else if data.len() >= 4 && &data[0..4] == b"GCPF" {
         debug!("load_from_file: Detected legacy GCPF (Godot) file format");

@@ -1,6 +1,8 @@
 pub mod components;
 pub mod messages;
 pub mod auth;
+pub mod api;
+pub mod netcode;
 
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -37,6 +39,7 @@ pub fn register_protocol(app: &mut App) {
     app.register_type::<components::NetworkTransform>();
     app.register_type::<components::PlayersServiceContainer>();
     app.register_type::<components::LightingServiceContainer>();
+    app.register_type::<components::AssetServiceContainer>();
 
     app.add_channel::<messages::GameChannel>(ChannelSettings {
         mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
@@ -56,6 +59,9 @@ pub fn register_protocol(app: &mut App) {
     app.component::<components::NetworkTransform>().replicate();
     app.component::<components::PlayersServiceContainer>().replicate();
     app.component::<components::LightingServiceContainer>().replicate();
+    app.component::<components::AssetServiceContainer>().replicate();
+    app.component::<crate::common::game::assets::components::Image>().replicate();
+    app.register_type::<crate::common::game::assets::components::ImageFace>();
     app.component::<crate::common::game::bricks::components::Brick>().replicate();
     app.component::<crate::common::game::bricks::components::BrickShapeComponent>().replicate();
     app.component::<crate::common::game::bricks::components::BrickPhysics>().replicate();

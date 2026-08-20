@@ -148,6 +148,25 @@ fn write_script(w: &mut impl Write, script: &VrtxScript, version: u32) -> std::i
     Ok(())
 }
 
+fn write_image(w: &mut impl Write, image: &VrtxImage) -> std::io::Result<()> {
+    write_string_u16(w, &image.name)?;
+    write_u32(w, image.asset_id)?;
+
+    if let Some(ref face) = image.face {
+        write_string_u16(w, face)?;
+    } else {
+        write_u16(w, 0)?;
+    }
+
+    if let Some(ref parent) = image.parent_name {
+        write_string_u16(w, parent)?;
+    } else {
+        write_u16(w, 0)?;
+    }
+
+    write_transform(w, &image.transform)
+}
+
 pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
@@ -174,6 +193,13 @@ pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
 
     if state.version >= 7 {
         write_lighting(&mut writer, &state.lighting)?;
+    }
+
+    if state.version >= 8 {
+        write_u32(&mut writer, state.images.len() as u32)?;
+        for image in &state.images {
+            write_image(&mut writer, image)?;
+        }
     }
 
     writer.flush()?;

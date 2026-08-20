@@ -535,6 +535,7 @@ pub(crate) fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileS
             camera_transform,
             bricks,
             scripts: Vec::new(),
+            images: Vec::new(),
         })
     } else {
         error!("Parsing failed: Root element is not a Godot dictionary");

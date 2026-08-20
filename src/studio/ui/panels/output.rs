@@ -49,6 +49,7 @@ type ExplorerQuery<'w, 's> = Query<
         Option<&'static ServerScript>,
         Option<&'static LocalScript>,
         Option<&'static ModuleScript>,
+        Option<&'static crate::common::game::assets::components::Image>,
     ),
     Without<Camera3d>,
 >;
@@ -337,7 +338,7 @@ fn draw_debugger_tab(ui: &mut egui::Ui, explorer_query: &ExplorerQuery) {
     ui.separator();
 
     let mut script_rows: Vec<(String, &'static str, bool, bool, usize)> = Vec::new();
-    for (_, name, _, _, _, server, local, module) in explorer_query.iter() {
+    for (_, name, _, _, _, server, local, module, _) in explorer_query.iter() {
         if let Some(s) = server {
             script_rows.push((name.to_string(), "Server", s.enabled, s.started, s.code.len()));
         } else if let Some(l) = local {

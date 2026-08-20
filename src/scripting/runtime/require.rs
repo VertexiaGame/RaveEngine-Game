@@ -76,12 +76,19 @@ pub fn register_require(lua: &Lua) -> Result<(), mlua::Error> {
             return Err(e);
         }
 
-        let res = match func.call::<LuaValue>(Instance { entity: instance.entity }) {
-            Ok(v) => v,
-            Err(e) => {
-                let mut cache = cache_ref.0.lock().unwrap();
-                cache.loading_modules.remove(&instance.entity);
-                return Err(e);
+        let res = {
+            crate::scripting::vm::sandbox::set_caller_frame(
+                lua,
+                format!("ModuleScript[{}]", instance.entity),
+                None,
+            );
+            match func.call::<LuaValue>(Instance { entity: instance.entity }) {
+                Ok(v) => v,
+                Err(e) => {
+                    let mut cache = cache_ref.0.lock().unwrap();
+                    cache.loading_modules.remove(&instance.entity);
+                    return Err(e);
+                }
             }
         };
 

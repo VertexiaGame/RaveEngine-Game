@@ -21,16 +21,14 @@
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var stud_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var stud_texture_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var inlet_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var inlet_texture_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var stud_ambient_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(105) var stud_ambient_texture_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(106) var stud_height_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(107) var stud_height_texture_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(108) var inlet_ambient_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(109) var inlet_ambient_texture_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(110) var inlet_height_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(111) var inlet_height_texture_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var stud_ambient_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var stud_ambient_texture_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(104) var stud_height_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(105) var stud_height_texture_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(106) var inlet_ambient_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(107) var inlet_ambient_texture_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(108) var inlet_height_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(109) var inlet_height_texture_sampler: sampler;
 
 @fragment
 fn fragment(
@@ -62,18 +60,18 @@ fn fragment(
     let stud_count = scale.xz * vec2<f32>(4.0, 2.0);
     let uv = world_size_coord.xz / 0.28 + stud_count * 0.5;
 
-    let height_lod = log2(max(max(length(dpdx(uv)), length(dpdy(uv))), 0.00001));
-
     let local_normal = rot_t * in.world_normal;
 
     let dist = distance(in.world_position.xyz, view.world_position);
     let fade = clamp((16.0 - dist) / 12.0, 0.0, 1.0);
     let detail = fade * fade;
 
+    let height_lod = log2(max((dist / 0.28) * 0.05, 0.00001));
+
     let view_dir = normalize(view.world_position.xyz - in.world_position.xyz);
     let local_view = rot_t * view_dir;
 
-    let num_layers = max(2u, u32(16.0 * detail + 0.5));
+    let num_layers = max(2u, u32(8.0 * detail + 0.5));
     let layer_height = 1.0 / f32(num_layers);
 
     if (local_normal.y > 0.85 && fade > 0.0005) {

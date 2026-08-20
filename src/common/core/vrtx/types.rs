@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-pub const FORMAT_VERSION: u32 = 7;
+pub const FORMAT_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VrtxBrick {
@@ -24,6 +24,15 @@ pub struct VrtxScript {
     pub code: String,
     pub parent_name: Option<String>,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VrtxImage {
+    pub name: String,
+    pub asset_id: u32,
+    pub face: Option<String>,
+    pub parent_name: Option<String>,
+    pub transform: Transform,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,8 +87,8 @@ impl Default for VrtxLighting {
             moon_angular_radius: 0.040,
             night_ambient: Color::srgb(0.12, 0.22, 0.48),
             star_density: 0.85,
-            sun_illuminance: 12_000.0,
-            moon_illuminance: 100.0,
+            sun_illuminance: 7_000.0,
+            moon_illuminance: 650.0,
             ambient_brightness: 1.0,
             fog_density: 1.0,
             volumetric_clouds: true,
@@ -117,4 +126,5 @@ pub struct VrtxFileState {
     pub camera_transform: Transform,
     pub bricks: Vec<VrtxBrick>,
     pub scripts: Vec<VrtxScript>,
+    pub images: Vec<VrtxImage>,
 }

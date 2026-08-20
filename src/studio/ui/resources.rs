@@ -97,6 +97,7 @@ pub struct PlayInClientProcesses {
 pub struct PlaytestBackup {
     pub bricks: Vec<crate::common::game::bricks::data::BrickData>,
     pub scripts: Vec<crate::common::core::vrtx::VrtxScript>,
+    pub images: Vec<crate::common::core::vrtx::VrtxImage>,
     pub gravity: Option<Vec3>,
     pub players_service: Option<crate::studio::tools::PlayersService>,
 }
@@ -162,8 +163,8 @@ pub fn handle_file_dialog_results(
     mut camera_transform_query: Query<&mut Transform, With<Camera3d>>,
     materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
     studs_materials: ResMut<Assets<bevy::pbr::ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
-    entities_query: Query<(Entity, Option<&crate::common::game::bricks::components::Brick>), Without<Camera3d>>,
-    explorer_query: Query<(Entity, Option<&crate::scripting::ecs::ServerScript>, Option<&crate::scripting::ecs::LocalScript>, Option<&crate::scripting::ecs::ModuleScript>), Without<Camera3d>>,
+    entities_query: Query<(Entity, Option<&crate::common::game::bricks::components::Brick>, Option<&crate::common::game::assets::components::Image>), Without<Camera3d>>,
+    explorer_query: Query<(Entity, Option<&crate::scripting::ecs::ServerScript>, Option<&crate::scripting::ecs::LocalScript>, Option<&crate::scripting::ecs::ModuleScript>, Option<&crate::common::game::assets::components::Image>), Without<Camera3d>>,
     save_query: Query<(
         Entity,
         &Transform,
@@ -187,6 +188,7 @@ pub fn handle_file_dialog_results(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
 ) {
@@ -205,12 +207,12 @@ pub fn handle_file_dialog_results(
                         onboarding_data.quick_open = false;
                         next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
                     }
-                    for (entity, brick_opt) in &entities_query {
-                        if brick_opt.is_some() {
+                    for (entity, brick_opt, image_opt) in &entities_query {
+                        if brick_opt.is_some() || image_opt.is_some() {
                             commands.entity(entity).try_despawn();
                         }
                     }
-                    for (entity, s_opt, l_opt, m_opt) in &explorer_query {
+                    for (entity, s_opt, l_opt, m_opt, _) in &explorer_query {
                         if s_opt.is_some() || l_opt.is_some() || m_opt.is_some() {
                             commands.entity(entity).try_despawn();
                         }
@@ -292,6 +294,27 @@ pub fn handle_file_dialog_results(
                             }
                         }
                     }
+                    for image in state.images {
+                        let face = image
+                            .face
+                            .as_deref()
+                            .and_then(crate::common::game::assets::components::ImageFace::from_str);
+                        let mut cmd = commands.spawn((
+                            image.transform,
+                            Name::new(image.name),
+                            crate::common::game::assets::components::Image {
+                                asset_id: image.asset_id,
+                                face,
+                            },
+                            Pickable::default(),
+                        ));
+                        let new_image_entity = cmd.id();
+                        if let Some(ref p_name) = image.parent_name {
+                            if let Some(&parent_entity) = named_entities.get(p_name) {
+                                commands.entity(parent_entity).add_child(new_image_entity);
+                            }
+                        }
+                    }
                 }
                 onboarding_data.quick_open = false;
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -336,7 +359,7 @@ pub fn handle_file_dialog_results(
                 }
 
                 let mut scripts_data = Vec::new();
-                for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt) in &save_explorer_query {
+                for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt, _) in &save_explorer_query {
                     let mut script_type_opt = None;
                     let mut code = String::new();
                     let mut enabled = true;
@@ -355,7 +378,7 @@ pub fn handle_file_dialog_results(
                     if let Some(script_type) = script_type_opt {
                         let mut parent_name = None;
                         if let Some(child_of) = child_of_opt {
-                            if let Ok((_, p_name, _, _, _, _, _, _)) = save_explorer_query.get(child_of.parent()) {
+                            if let Ok((_, p_name, _, _, _, _, _, _, _)) = save_explorer_query.get(child_of.parent()) {
                                 parent_name = Some(p_name.to_string());
                             }
                         }
@@ -365,6 +388,29 @@ pub fn handle_file_dialog_results(
                             code,
                             parent_name,
                             enabled,
+                        });
+                    }
+                }
+
+                let mut images_data = Vec::new();
+                for (_entity, name, child_of_opt, _, _, _, _, _, image_opt) in &save_explorer_query {
+                    if let Some(image) = image_opt {
+                        let mut parent_name = None;
+                        if let Some(child_of) = child_of_opt {
+                            if let Ok((_, p_name, _, _, _, _, _, _, _)) = save_explorer_query.get(child_of.parent()) {
+                                parent_name = Some(p_name.to_string());
+                            }
+                        }
+                        let transform = save_query
+                            .get(_entity)
+                            .map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t)
+                            .unwrap_or_default();
+                        images_data.push(crate::common::core::vrtx::VrtxImage {
+                            name: name.to_string(),
+                            asset_id: image.asset_id,
+                            face: image.face.as_ref().map(|f| f.as_str().to_string()),
+                            parent_name,
+                            transform,
                         });
                     }
                 }
@@ -408,6 +454,7 @@ pub fn handle_file_dialog_results(
                     camera_transform: cam_transform,
                     bricks: bricks_data,
                     scripts: scripts_data,
+                    images: images_data,
                 };
                 let _ = state.save_to_file(&save_path_str);
                 file_dialog_state.is_open.store(false, std::sync::atomic::Ordering::Relaxed);

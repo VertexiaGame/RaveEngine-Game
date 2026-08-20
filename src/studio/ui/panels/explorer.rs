@@ -14,6 +14,7 @@ const EXPLORER_ROW_HEIGHT: f32 = 20.0;
 #[derive(Clone, Copy, PartialEq)]
 enum RowIcon {
     Brick,
+    Image,
     Script,
     LocalScript,
     ModuleScript,
@@ -57,10 +58,11 @@ fn is_managed_entity(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
 ) -> bool {
-    if let Ok((_, name, _, _, brick_opt, s_opt, l_opt, m_opt)) = query.get(entity) {
-        name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some()
+    if let Ok((_, name, _, _, brick_opt, s_opt, l_opt, m_opt, image_opt)) = query.get(entity) {
+        name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some() || image_opt.is_some()
     } else {
         false
     }
@@ -78,11 +80,12 @@ fn is_descendant(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
 ) -> bool {
     let mut current = child;
     let mut depth = 0;
-    while let Ok((_, _, parent_opt, _, _, _, _, _)) = query.get(current) {
+    while let Ok((_, _, parent_opt, _, _, _, _, _, _)) = query.get(current) {
         if let Some(parent_comp) = parent_opt {
             let parent_entity = parent_comp.parent();
             if parent_entity == parent {
@@ -112,17 +115,18 @@ fn build_explorer_rows(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
 ) {
     rows.clear();
     let mut roots = Vec::new();
-    for (entity, name, parent_opt, _, brick_opt, s_opt, l_opt, m_opt) in explorer_query {
-        let is_managed = name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some();
+    for (entity, name, parent_opt, _, brick_opt, s_opt, l_opt, m_opt, image_opt) in explorer_query {
+        let is_managed = name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some() || image_opt.is_some();
         if is_managed {
             let is_root = if let Some(parent_comp) = parent_opt {
                 let parent = parent_comp.parent();
-                if let Ok((_, p_name, _, _, p_brick_opt, ps_opt, pl_opt, pm_opt)) = explorer_query.get(parent) {
-                    !(p_name.as_str() == "Baseplate" || p_brick_opt.is_some() || ps_opt.is_some() || pl_opt.is_some() || pm_opt.is_some())
+                if let Ok((_, p_name, _, _, p_brick_opt, ps_opt, pl_opt, pm_opt, p_image_opt)) = explorer_query.get(parent) {
+                    !(p_name.as_str() == "Baseplate" || p_brick_opt.is_some() || ps_opt.is_some() || pl_opt.is_some() || pm_opt.is_some() || p_image_opt.is_some())
                 } else {
                     true
                 }
@@ -162,11 +166,12 @@ fn push_node_recursive(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     rows: &mut Vec<FlatRow>,
     expanded: &HashSet<Entity>,
 ) {
-    let Ok((_, _, _, children_opt, _, s_opt, l_opt, m_opt)) = explorer_query.get(entity) else {
+    let Ok((_, _, _, children_opt, _, s_opt, l_opt, m_opt, image_opt)) = explorer_query.get(entity) else {
         return;
     };
     let mut children: Vec<Entity> = if let Some(children_comp) = children_opt {
@@ -178,12 +183,14 @@ fn push_node_recursive(
         Vec::new()
     };
     children.sort_by(|&a, &b| {
-        let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
-        let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+        let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+        let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
         name_a.cmp(name_b)
     });
 
-    let icon = if s_opt.is_some() {
+    let icon = if image_opt.is_some() {
+        RowIcon::Image
+    } else if s_opt.is_some() {
         RowIcon::Script
     } else if l_opt.is_some() {
         RowIcon::LocalScript
@@ -214,17 +221,18 @@ fn get_flat_ordered_entities(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
 ) -> Vec<Entity> {
     let mut flat = Vec::new();
     let mut roots = Vec::new();
-    for (entity, name, parent_opt, _, brick_opt, s_opt, l_opt, m_opt) in explorer_query {
-        let is_managed = name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some();
+    for (entity, name, parent_opt, _, brick_opt, s_opt, l_opt, m_opt, image_opt) in explorer_query {
+        let is_managed = name.as_str() == "Baseplate" || brick_opt.is_some() || s_opt.is_some() || l_opt.is_some() || m_opt.is_some() || image_opt.is_some();
         if is_managed {
             let is_root = if let Some(parent_comp) = parent_opt {
                 let parent = parent_comp.parent();
-                if let Ok((_, p_name, _, _, p_brick_opt, ps_opt, pl_opt, pm_opt)) = explorer_query.get(parent) {
-                    !(p_name.as_str() == "Baseplate" || p_brick_opt.is_some() || ps_opt.is_some() || pl_opt.is_some() || pm_opt.is_some())
+                if let Ok((_, p_name, _, _, p_brick_opt, ps_opt, pl_opt, pm_opt, p_image_opt)) = explorer_query.get(parent) {
+                    !(p_name.as_str() == "Baseplate" || p_brick_opt.is_some() || ps_opt.is_some() || pl_opt.is_some() || pm_opt.is_some() || p_image_opt.is_some())
                 } else {
                     true
                 }
@@ -264,18 +272,19 @@ fn traverse_node_recursive(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     flat: &mut Vec<Entity>,
 ) {
     flat.push(entity);
-    if let Ok((_, _, _, Some(children_comp), _, _, _, _)) = explorer_query.get(entity) {
+    if let Ok((_, _, _, Some(children_comp), _, _, _, _, _)) = explorer_query.get(entity) {
         let mut sorted_children: Vec<Entity> = children_comp
             .iter()
             .filter(|&child| is_managed_entity(child, explorer_query))
             .collect();
         sorted_children.sort_by(|&a, &b| {
-            let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
-            let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+            let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+            let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
             name_a.cmp(name_b)
         });
         for child in sorted_children {
@@ -334,6 +343,7 @@ fn render_flat_row(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     entities_query: &Query<(
         Entity,
@@ -359,8 +369,9 @@ fn render_flat_row(
     script_tex: egui::TextureId,
     localscript_tex: egui::TextureId,
     modulescript_tex: egui::TextureId,
-) {
-    let Ok((_, name, _, _, _, s_opt, l_opt, _m_opt)) = explorer_query.get(row.entity) else { return };
+    image_tex: egui::TextureId,
+) -> bool {
+    let Ok((_, name, _, _, _, s_opt, l_opt, _m_opt, _)) = explorer_query.get(row.entity) else { return false };
     let name_str = name.as_str().to_string();
 
     let is_selected = selection.entities.contains(&row.entity);
@@ -370,6 +381,7 @@ fn render_flat_row(
         RowIcon::LocalScript => localscript_tex,
         RowIcon::ModuleScript => modulescript_tex,
         RowIcon::Brick => brick_tex,
+        RowIcon::Image => image_tex,
     };
 
     let is_script_disabled = if let Some(ref s) = s_opt {
@@ -432,7 +444,23 @@ fn render_flat_row(
             ui.horizontal(|ui| {
                 ui.add_space(row.depth as f32 * 12.0);
                 if row.has_children {
-                    let arrow_res = ui.add(egui::Button::new(egui::RichText::new(if row.is_expanded { "▼" } else { "▶" }).size(9.0)).frame(false).min_size(egui::vec2(12.0, 12.0)));
+                    let (arrow_rect, arrow_res) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::click());
+                    let center = arrow_rect.center();
+                    let r = 3.5;
+                    let points = if row.is_expanded {
+                        vec![
+                            egui::pos2(center.x - r, center.y - r * 0.6),
+                            egui::pos2(center.x + r, center.y - r * 0.6),
+                            egui::pos2(center.x, center.y + r * 0.7),
+                        ]
+                    } else {
+                        vec![
+                            egui::pos2(center.x - r * 0.6, center.y - r),
+                            egui::pos2(center.x - r * 0.6, center.y + r),
+                            egui::pos2(center.x + r * 0.7, center.y),
+                        ]
+                    };
+                    ui.painter().add(egui::Shape::convex_polygon(points, egui::Color32::from_rgb(110, 110, 110), egui::Stroke::NONE));
                     if arrow_res.clicked() {
                         if row.is_expanded {
                             expanded.remove(&row.entity);
@@ -492,7 +520,7 @@ fn render_flat_row(
 
     if response.double_clicked() {
         let mut is_script = false;
-        if let Ok((_, _, _, _, _, s, l, m)) = explorer_query.get(row.entity) {
+        if let Ok((_, _, _, _, _, s, l, m, _)) = explorer_query.get(row.entity) {
             if s.is_some() || l.is_some() || m.is_some() {
                 is_script = true;
             }
@@ -536,7 +564,8 @@ fn render_flat_row(
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
             if ui.input(|i| i.pointer.any_released()) && response.hovered() {
-                if let (Ok((_, _, _, _, _, _, _, parent_global, _, _, _, _)), Ok((_, _, _, _, _, _, _, child_global, _, _, _, _))) = (
+                let old_parent = explorer_query.get(dragged).ok().and_then(|(_, _, child_of_opt, _, _, _, _, _, _)| child_of_opt.map(|co| co.parent()));
+                let (old_transform, new_transform) = if let (Ok((_, _, _, _, _, _, _, parent_global, _, _, _, _)), Ok((_, old_t, _, _, _, _, _, child_global, _, _, _, _))) = (
                     entities_query.get(row.entity),
                     entities_query.get(dragged)
                 ) {
@@ -551,37 +580,41 @@ fn render_flat_row(
                     let local_rotation = parent_rotation.inverse() * child_rotation;
                     let local_translation = parent_rotation.inverse().mul_vec3(child_translation - parent_translation);
 
-                    let old_parent = entities_query.get(dragged).ok().and_then(|(_, _, _, child_of_opt, _, _, _, _, _, _, _, _)| child_of_opt.map(|co| co.parent()));
-                    let old_transform = entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
+                    (
+                        *old_t,
+                        Transform {
+                            translation: local_translation,
+                            rotation: local_rotation,
+                            scale: local_scale,
+                        },
+                    )
+                } else {
+                    (Transform::IDENTITY, Transform::IDENTITY)
+                };
 
-                    let new_transform = Transform {
-                        translation: local_translation,
-                        rotation: local_rotation,
-                        scale: local_scale,
-                    };
-
-                    if let Ok(mut d_cmd) = commands.get_entity(dragged) {
+                if let Ok(mut d_cmd) = commands.get_entity(dragged) {
+                    if entities_query.get(dragged).is_ok() {
                         d_cmd.insert(new_transform);
-                        d_cmd.remove::<ChildOf>();
                     }
+                    d_cmd.remove::<ChildOf>();
+                }
+                if let Ok(mut p_cmd) = commands.get_entity(row.entity) {
+                    p_cmd.add_child(dragged);
+                }
 
-                    history.push_command(crate::studio::tools::UndoCommand::ParentChange {
-                        entity: dragged,
-                        old_parent,
-                        new_parent: Some(row.entity),
-                        old_transform,
-                        new_transform,
-                    });
-                }
-                if commands.get_entity(dragged).is_ok() {
-                    if let Ok(mut p_cmd) = commands.get_entity(row.entity) {
-                        p_cmd.add_child(dragged);
-                    }
-                }
+                history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                    entity: dragged,
+                    old_parent,
+                    new_parent: Some(row.entity),
+                    old_transform,
+                    new_transform,
+                });
                 dragged_entity.entity = None;
             }
         }
     }
+
+    response.hovered()
 }
 
 fn draw_player_node(
@@ -597,10 +630,11 @@ fn draw_player_node(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     players_tex: egui::TextureId,
 ) {
-    let Ok((_, name, _, _, _, _, _, _)) = explorer_query.get(entity) else { return };
+    let Ok((_, name, _, _, _, _, _, _, _)) = explorer_query.get(entity) else { return };
     let name_str = name.as_str().to_string();
     let is_selected = selection.entities.contains(&entity);
 
@@ -630,15 +664,15 @@ fn draw_player_node(
             }
         } else if shift_held {
             let mut sorted_players = Vec::new();
-            for (player_entity, name, _, _, _, _, _, _) in explorer_query {
+            for (player_entity, name, _, _, _, _, _, _, _) in explorer_query {
                 let name_str = name.as_str();
                 if name_str == "Player" || name_str.starts_with("Player_") {
                     sorted_players.push(player_entity);
                 }
             }
             sorted_players.sort_by(|&a, &b| {
-                let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
-                let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+                let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+                let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
                 name_a.cmp(name_b)
             });
             perform_range_selection(entity, &sorted_players, selection);
@@ -665,6 +699,7 @@ pub fn draw_explorer(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     entities_query: &Query<(
         Entity,
@@ -691,6 +726,7 @@ pub fn draw_explorer(
     script_tex: egui::TextureId,
     localscript_tex: egui::TextureId,
     modulescript_tex: egui::TextureId,
+    image_tex: egui::TextureId,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     explorer_cache: &mut ExplorerRowCache,
@@ -728,15 +764,15 @@ pub fn draw_explorer(
     }
 
     let mut sorted_players = Vec::new();
-    for (entity, name, _, _, _, _, _, _) in explorer_query {
+    for (entity, name, _, _, _, _, _, _, _) in explorer_query {
         let name_str = name.as_str();
         if name_str == "Player" || name_str.starts_with("Player_") {
             sorted_players.push(entity);
         }
     }
     sorted_players.sort_by(|&a, &b| {
-        let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
-        let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+        let name_a = explorer_query.get(a).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
+        let name_b = explorer_query.get(b).map(|(_, n, _, _, _, _, _, _, _)| n.as_str()).unwrap_or("");
         name_a.cmp(name_b)
     });
 
@@ -761,7 +797,7 @@ pub fn draw_explorer(
         let mut current = target;
         let mut expanded_any = false;
         for _ in 0..1000 {
-            let parent_entity = explorer_query.get(current).ok().and_then(|(_, _, parent_opt, _, _, _, _, _)| parent_opt.map(|co| co.parent()));
+            let parent_entity = explorer_query.get(current).ok().and_then(|(_, _, parent_opt, _, _, _, _, _, _)| parent_opt.map(|co| co.parent()));
             let Some(parent) = parent_entity else {
                 break;
             };
@@ -805,6 +841,7 @@ pub fn draw_explorer(
 
     let players_section_height = 28.0 + sorted_players.len() as f32 * EXPLORER_ROW_HEIGHT;
 
+    let mut row_hovered = false;
     let body_res = workspace_res.body(|ui| {
         if !explorer_cache.rows.is_empty() {
             let fixed_height = if players_state.is_open() { players_section_height } else { 28.0 } + 28.0 + 12.0;
@@ -828,7 +865,7 @@ pub fn draw_explorer(
                         }
                         for i in row_range {
                             let row = explorer_cache.rows[i];
-                            render_flat_row(
+                            row_hovered |= render_flat_row(
                                 ui,
                                 row,
                                 explorer_cache,
@@ -847,13 +884,14 @@ pub fn draw_explorer(
                                 script_tex,
                                 localscript_tex,
                                 modulescript_tex,
+                                image_tex,
                             );
                         }
                     });
             } else {
                 for i in 0..explorer_cache.rows.len() {
                     let row = explorer_cache.rows[i];
-                    render_flat_row(
+                    row_hovered |= render_flat_row(
                         ui,
                         row,
                         explorer_cache,
@@ -872,6 +910,7 @@ pub fn draw_explorer(
                         script_tex,
                         localscript_tex,
                         modulescript_tex,
+                        image_tex,
                     );
                 }
             }
@@ -880,36 +919,8 @@ pub fn draw_explorer(
 
     let header_res = body_res.0;
 
-    if let Some(dragged) = dragged_entity.entity {
-        if header_res.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
-        if ui.input(|i| i.pointer.any_released()) && header_res.hovered() {
-            if let Ok((_, _, _, child_of_opt, _, _, _, child_global, _, _, _, _)) = entities_query.get(dragged) {
-                let old_parent = child_of_opt.map(|co| co.parent());
-                let old_transform = entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
-
-                let new_transform = Transform {
-                    translation: child_global.translation(),
-                    rotation: child_global.rotation(),
-                    scale: child_global.scale(),
-                };
-
-                if let Ok(mut d_cmd) = commands.get_entity(dragged) {
-                    d_cmd.insert(new_transform);
-                    d_cmd.remove::<ChildOf>();
-                }
-
-                history.push_command(crate::studio::tools::UndoCommand::ParentChange {
-                    entity: dragged,
-                    old_parent,
-                    new_parent: None,
-                    old_transform,
-                    new_transform,
-                });
-            }
-            dragged_entity.entity = None;
-        }
+    if dragged_entity.entity.is_some() && header_res.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
 
     let players_res = players_state.show_header(ui, |ui| {
@@ -955,6 +966,38 @@ pub fn draw_explorer(
     lighting_res.body(|_| {});
 
     if ui.input(|i| i.pointer.any_released()) {
+        if let Some(dragged) = dragged_entity.entity {
+            let released_in_panel = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| ui.max_rect().contains(p));
+            if released_in_panel && !row_hovered {
+                let old_parent = explorer_query.get(dragged).ok().and_then(|(_, _, child_of_opt, _, _, _, _, _, _)| child_of_opt.map(|co| co.parent()));
+                let (old_transform, new_transform) = match entities_query.get(dragged) {
+                    Ok((_, old_t, _, _, _, _, _, child_global, _, _, _, _)) => (
+                        *old_t,
+                        Transform {
+                            translation: child_global.translation(),
+                            rotation: child_global.rotation(),
+                            scale: child_global.scale(),
+                        },
+                    ),
+                    Err(_) => (Transform::IDENTITY, Transform::IDENTITY),
+                };
+
+                if let Ok(mut d_cmd) = commands.get_entity(dragged) {
+                    if entities_query.get(dragged).is_ok() {
+                        d_cmd.insert(new_transform);
+                    }
+                    d_cmd.remove::<ChildOf>();
+                }
+
+                history.push_command(crate::studio::tools::UndoCommand::ParentChange {
+                    entity: dragged,
+                    old_parent,
+                    new_parent: None,
+                    old_transform,
+                    new_transform,
+                });
+            }
+        }
         dragged_entity.entity = None;
     }
 

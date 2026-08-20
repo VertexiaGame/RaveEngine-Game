@@ -32,4 +32,6 @@ assets = "../assets"
 
 [package.metadata.android.signing.release]
 path = "release.keystore"
-keystore_password = "UH0YkjNrQMbAmc1qpstx"
+#todo: create a script to compile the android ver automatically using the env var "CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
+#which, via cargo apk, sets the release keystore password, so wont be committed ever again !!
+#perhaps i should write scripts to compile everything "the correct way",maybe later

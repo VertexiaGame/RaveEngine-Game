@@ -111,6 +111,33 @@ pub fn load_map(
                 }
             }
         }
+        for image in state.images {
+            let face = image
+                .face
+                .as_deref()
+                .and_then(crate::common::game::assets::components::ImageFace::from_str);
+            let mut cmd = commands.spawn((
+                image.transform,
+                Name::new(image.name),
+                crate::common::game::assets::components::Image {
+                    asset_id: image.asset_id,
+                    face,
+                },
+                NetworkTransform {
+                    translation: image.transform.translation,
+                    rotation: image.transform.rotation,
+                    scale: image.transform.scale,
+                    velocity: Vec3::ZERO,
+                },
+                Replicate::default(),
+            ));
+            let new_image_entity = cmd.id();
+            if let Some(ref p_name) = image.parent_name {
+                if let Some(&parent_entity) = named_entities.get(p_name) {
+                    commands.entity(parent_entity).add_child(new_image_entity);
+                }
+            }
+        }
         loaded = true;
         info!("Map loaded successfully");
     }

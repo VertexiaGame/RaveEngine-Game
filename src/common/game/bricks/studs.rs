@@ -13,7 +13,6 @@ pub struct StudsAssets {
     pub stud: Handle<Image>,
     pub stud_ambient: Handle<Image>,
     pub stud_height: Handle<Image>,
-    pub inlet: Handle<Image>,
     pub inlet_ambient: Handle<Image>,
     pub inlet_height: Handle<Image>,
 }
@@ -25,18 +24,15 @@ pub struct StudsExtension {
     pub stud_texture: Handle<Image>,
     #[texture(102)]
     #[sampler(103)]
-    pub inlet_texture: Handle<Image>,
+    pub stud_ambient_texture: Handle<Image>,
     #[texture(104)]
     #[sampler(105)]
-    pub stud_ambient_texture: Handle<Image>,
+    pub stud_height_texture: Handle<Image>,
     #[texture(106)]
     #[sampler(107)]
-    pub stud_height_texture: Handle<Image>,
+    pub inlet_ambient_texture: Handle<Image>,
     #[texture(108)]
     #[sampler(109)]
-    pub inlet_ambient_texture: Handle<Image>,
-    #[texture(110)]
-    #[sampler(111)]
     pub inlet_height_texture: Handle<Image>,
 }
 
@@ -99,10 +95,9 @@ pub fn setup_studs(
     let stud = asset_server.load("content/game/studs/stud_normal.png");
     let stud_ambient = asset_server.load("content/game/studs/stud_ambient.png");
     let stud_height = asset_server.load("content/game/studs/stud_heightmap.png");
-    let inlet = asset_server.load("content/game/studs/inlet.png");
     let inlet_ambient = asset_server.load("content/game/studs/inlet_ambient2.png");
     let inlet_height = asset_server.load("content/game/studs/inlet_height.png");
-    commands.insert_resource(StudsAssets { stud, stud_ambient, stud_height, inlet, inlet_ambient, inlet_height });
+    commands.insert_resource(StudsAssets { stud, stud_ambient, stud_height, inlet_ambient, inlet_height });
 }
 
 pub fn configure_studs_samplers(
@@ -120,7 +115,6 @@ pub fn configure_studs_samplers(
     ready &= configure_studs_image(&assets.stud_height, &mut images);
     ready &= configure_studs_image(&assets.inlet_ambient, &mut images);
     ready &= configure_studs_image(&assets.inlet_height, &mut images);
-    ready &= configure_studs_image(&assets.inlet, &mut images);
     if ready {
         *configured = true;
     }

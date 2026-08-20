@@ -126,8 +126,29 @@ pub struct UiQueries<'w, 's> {
             Option<&'static crate::scripting::ecs::ServerScript>,
             Option<&'static crate::scripting::ecs::LocalScript>,
             Option<&'static crate::scripting::ecs::ModuleScript>,
+            Option<&'static crate::common::game::assets::components::Image>,
         ),
         Without<Camera3d>,
+    >,
+    pub image_entities_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Name,
+            Option<&'static ChildOf>,
+            Option<&'static crate::common::game::assets::components::Image>,
+        ),
+        Without<Camera3d>,
+    >,
+    pub replicated_images_query: Query<
+        'w,
+        's,
+        Entity,
+        (
+            With<crate::common::game::assets::components::Image>,
+            With<lightyear::prelude::Replicate>,
+        ),
     >,
     pub studs_query: Query<'w, 's, &'static crate::common::game::bricks::components::BrickStuds>,
     pub explorer_changes: Query<'w, 's, (), Or<(
@@ -141,10 +162,12 @@ pub struct UiQueries<'w, 's> {
         Added<crate::scripting::ecs::ServerScript>,
         Added<crate::scripting::ecs::LocalScript>,
         Added<crate::scripting::ecs::ModuleScript>,
+        Added<crate::common::game::assets::components::Image>,
     )>>,
     pub removed_children: RemovedComponents<'w, 's, Children>,
     pub removed_child_of: RemovedComponents<'w, 's, ChildOf>,
     pub removed_brick: RemovedComponents<'w, 's, Brick>,
+    pub removed_images: RemovedComponents<'w, 's, crate::common::game::assets::components::Image>,
     pub playtest_client_query: Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
     pub playtest_cameras: Query<'w, 's, Entity, With<crate::client::player::PlayerCamera>>,
@@ -207,6 +230,9 @@ pub fn studio_ui(
     });
     let modulescript_tex = *ui_state.texture_ids.modulescript_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.modulescript_icon.clone()))
+    });
+    let image_tex = *ui_state.texture_ids.image_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.image_icon.clone()))
     });
 
     let Ok(ctx) = contexts.ctx_mut() else { return; };
@@ -271,10 +297,14 @@ pub fn studio_ui(
                                     }
                                 }
 
-                                for (entity, _, _, _, _, s_opt, l_opt, m_opt) in queries.explorer_query.iter() {
+                                for (entity, _, _, _, _, s_opt, l_opt, m_opt, _) in queries.explorer_query.iter() {
                                     if s_opt.is_some() || l_opt.is_some() || m_opt.is_some() {
                                         ui_res.commands.entity(entity).try_despawn();
                                     }
+                                }
+
+                                for (entity, _, _, _) in queries.image_entities_query.iter() {
+                                    ui_res.commands.entity(entity).try_despawn();
                                 }
 
                                 let mut named_entities = std::collections::HashMap::new();
@@ -319,6 +349,26 @@ pub fn studio_ui(
                                     if let Some(ref p_name) = script_data.parent_name {
                                         if let Some(&parent_entity) = named_entities.get(p_name) {
                                             ui_res.commands.entity(parent_entity).add_child(new_script_entity);
+                                        }
+                                    }
+                                }
+
+                                for image_data in ui_state.playtest_backup.images.drain(..) {
+                                    let face = image_data.face.as_deref().and_then(crate::common::game::assets::components::ImageFace::from_str);
+                                    let mut cmd = ui_res.commands.spawn((
+                                        image_data.transform,
+                                        Name::new(image_data.name),
+                                        crate::common::game::assets::components::Image {
+                                            asset_id: image_data.asset_id,
+                                            face,
+                                        },
+                                        Pickable::default(),
+                                        Visibility::Visible,
+                                    ));
+                                    let new_image_entity = cmd.id();
+                                    if let Some(ref p_name) = image_data.parent_name {
+                                        if let Some(&parent_entity) = named_entities.get(p_name) {
+                                            ui_res.commands.entity(parent_entity).add_child(new_image_entity);
                                         }
                                     }
                                 }
@@ -370,6 +420,11 @@ pub fn studio_ui(
                 play_tex,
                 playc_tex,
                 stopp_tex,
+                image_tex,
+                brick_tex,
+                script_tex,
+                localscript_tex,
+                modulescript_tex,
                 &ui_state.diagnostics,
                 camera_transform_val.as_ref(),
                 &mut ui_res.action_writer,
@@ -395,6 +450,8 @@ pub fn studio_ui(
                 &queries.studs_query,
                 &ui_res.brick_colors,
                 &ui_res.workspace_studs,
+                &queries.image_entities_query,
+                &queries.replicated_images_query,
             );
         });
 
@@ -417,8 +474,11 @@ pub fn studio_ui(
 
                 let mut selected_scripts = Vec::new();
                 for &entity in &ui_state.selection.entities {
-                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt)) = queries.explorer_query.get(entity) {
+                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, image_opt)) = queries.explorer_query.get(entity) {
                         if server_opt.is_some() || local_opt.is_some() || module_opt.is_some() {
+                            selected_scripts.push(entity);
+                        }
+                        if image_opt.is_some() {
                             selected_scripts.push(entity);
                         }
                     }
@@ -439,7 +499,8 @@ pub fn studio_ui(
                         let explorer_changed = !queries.explorer_changes.is_empty()
                             || !queries.removed_children.is_empty()
                             || !queries.removed_child_of.is_empty()
-                            || !queries.removed_brick.is_empty();
+                            || !queries.removed_brick.is_empty()
+                            || !queries.removed_images.is_empty();
                         panels::draw_explorer(
                             ui,
                             &mut ui_res.commands,
@@ -457,6 +518,7 @@ pub fn studio_ui(
                             script_tex,
                             localscript_tex,
                             modulescript_tex,
+                            image_tex,
                             &queries.studs_query,
                             &ui_res.brick_colors,
                             &mut ui_res.explorer_cache,
@@ -621,35 +683,6 @@ pub fn studio_ui(
             });
         });
 
-    if let Some(dragged) = ui_state.dragged_entity.entity {
-        if panel_res.response.hovered() && ctx.input(|i| i.pointer.any_released()) {
-            if let Ok((_, _, _, child_of_opt, _, _, _, child_global, _, _, _, _)) = queries.entities_query.get(dragged) {
-                let old_parent = child_of_opt.map(|co| co.parent());
-                let old_transform = queries.entities_query.get(dragged).ok().map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t).unwrap_or(Transform::IDENTITY);
-
-                let new_transform = Transform {
-                    translation: child_global.translation(),
-                    rotation: child_global.rotation(),
-                    scale: child_global.scale(),
-                };
-
-                if let Ok(mut d_cmd) = ui_res.commands.get_entity(dragged) {
-                    d_cmd.insert(new_transform);
-                    d_cmd.remove::<ChildOf>();
-                }
-
-                ui_res.history.push_command(crate::studio::tools::UndoCommand::ParentChange {
-                    entity: dragged,
-                    old_parent,
-                    new_parent: None,
-                    old_transform,
-                    new_transform,
-                });
-            }
-            ui_state.dragged_entity.entity = None;
-        }
-    }
-
     let output_panel_res = if !onboarding_active {
         Some(
             egui::Panel::bottom("output_panel")
@@ -743,7 +776,7 @@ pub fn studio_ui(
             let mut script_found = false;
             let mut current_source = String::new();
 
-            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt)) = queries.explorer_query.get(active_entity) {
+            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
                 if let Some(ref script) = server_opt {
                     current_source = script.code.clone();
                     script_found = true;
@@ -838,18 +871,24 @@ pub fn studio_ui(
                                                         let open_script_name = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, name, _, _, _, _, _, _)| name.as_str().to_string())
+                                                            .map(|(_, name, _, _, _, _, _, _, _)| name.as_str().to_string())
                                                             .unwrap_or_else(|_| "Script".to_string());
 
-                                                        let is_local_tab = queries
+                                                        let (is_local_tab, is_module_tab) = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, _, _, _, _, _, local_opt, _)| {
-                                                                local_opt.is_some()
+                                                            .map(|(_, _, _, _, _, _, local_opt, module_opt, _)| {
+                                                                (local_opt.is_some(), module_opt.is_some())
                                                             })
-                                                            .unwrap_or(false);
+                                                            .unwrap_or((false, false));
 
-                                                        let tab_icon = if is_local_tab { localscript_tex } else { script_tex };
+                                                        let tab_icon = if is_module_tab {
+                                                            modulescript_tex
+                                                        } else if is_local_tab {
+                                                            localscript_tex
+                                                        } else {
+                                                            script_tex
+                                                        };
 
                                                         let tab_rect_id = ui.make_persistent_id(("tab_rect", open_entity));
                                                         let last_rect = ui.data_mut(|d| d.get_temp::<egui::Rect>(tab_rect_id));
@@ -1057,7 +1096,7 @@ pub fn studio_ui(
                 }
 
                 let mut source_changed = false;
-                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt)) = queries.explorer_query.get(active_entity) {
+                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
                     if let Some(ref script) = server_opt {
                         if script.code != current_source { source_changed = true; }
                     } else if let Some(ref script) = local_opt {
@@ -1068,7 +1107,7 @@ pub fn studio_ui(
                 }
 
                 if source_changed {
-                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt)) = queries.explorer_query.get(active_entity) {
+                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
                         if let Ok(mut e_cmd) = ui_res.commands.get_entity(active_entity) {
                             if let Some(server_script) = server_opt {
                                 e_cmd.insert(crate::scripting::ecs::ServerScript {
@@ -1166,6 +1205,46 @@ pub fn studio_ui(
                     );
                 }
             });
+    }
+
+    if let Some(dragged) = ui_state.dragged_entity.entity {
+        if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+            let (drag_name, drag_icon) = match queries.explorer_query.get(dragged) {
+                Ok((_, name, _, _, _brick_opt, s_opt, l_opt, m_opt, image_opt)) => {
+                    let icon = if image_opt.is_some() {
+                        image_tex
+                    } else if s_opt.is_some() {
+                        script_tex
+                    } else if l_opt.is_some() {
+                        localscript_tex
+                    } else if m_opt.is_some() {
+                        modulescript_tex
+                    } else {
+                        brick_tex
+                    };
+                    (name.as_str().to_string(), icon)
+                }
+                Err(_) => ("Item".to_string(), brick_tex),
+            };
+            egui::Area::new(egui::Id::new("hierarchy_drag_ghost"))
+                .order(egui::Order::Tooltip)
+                .interactable(false)
+                .fixed_pos(pos + egui::vec2(14.0, 10.0))
+                .show(ctx, |ui| {
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 235))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(153, 209, 255)))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                                ui.add(egui::Image::new((drag_icon, egui::vec2(16.0, 16.0))));
+                                ui.label(egui::RichText::new(&drag_name).size(13.0).color(egui::Color32::from_rgb(40, 40, 40)));
+                            });
+                        });
+                });
+        }
     }
 }
 

@@ -62,6 +62,8 @@ pub(crate) fn update_gizmos(
     physics_state: Res<crate::common::game::physics::PhysicsSimulationState>,
     playtest: Option<Res<crate::client::PlaytestState>>,
     gizmos: Query<Entity, With<ToolGizmo>>,
+    image_children: Query<Option<&ChildOf>, With<crate::common::game::assets::components::Image>>,
+    bricks: Query<(), With<Brick>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut gizmo_assets: Local<Option<GizmoAssets>>,
@@ -97,6 +99,12 @@ pub(crate) fn update_gizmos(
     let tool = *tool_state.get();
 
     if tool == ToolState::None { return; }
+
+    if let Ok(Some(child_of)) = image_children.get(selected_entity) {
+        if bricks.get(child_of.parent()).is_ok() {
+            return;
+        }
+    }
 
     let assets = ensure_gizmo_assets(&mut gizmo_assets, &mut meshes, &mut materials);
     let [mat_x, mat_y, mat_z] = &assets.materials;
@@ -153,6 +161,7 @@ pub(crate) fn update_gizmos(
 pub fn sync_gizmos(
     mut gizmos: Query<(Entity, &mut Transform, &ToolGizmo)>,
     bricks: Query<(&GlobalTransform, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    images: Query<(&GlobalTransform, Option<&ChildOf>), (With<crate::common::game::assets::components::Image>, Without<Brick>)>,
     camera_query: Query<&GlobalTransform, (With<Camera3d>, Without<ToolGizmo>, Without<Brick>)>,
     selection: Res<Selection>,
     hover_state: Res<HoverState>,
@@ -166,37 +175,90 @@ pub fn sync_gizmos(
                 Some((min, max)) => ((min + max) * 0.5, (max - min) * 0.5),
                 None => (brick_global.translation(), Vec3::ZERO),
             };
-            let global_rotation = brick_global.rotation();
-            let face_offset = gizmo.axis.abs().dot(group_half);
-
-            let dist = camera_pos.distance(group_center);
-            let distance_scale = (dist / 17.32).min(2.5);
-            let base_scale = distance_scale;
-
-            if gizmo.tool == ToolState::Rotate {
-                transform.translation = group_center;
-            } else {
-                let offset = face_offset + 0.6 * distance_scale;
-                transform.translation = group_center + global_rotation.mul_vec3(gizmo.axis * offset);
+            place_gizmo(
+                &mut transform,
+                gizmo,
+                group_center,
+                group_half,
+                brick_global.rotation(),
+                camera_pos,
+                entity,
+                &hover_state,
+                &drag_state,
+            );
+            continue;
+        }
+        if let Ok((image_global, image_child_of)) = images.get(gizmo.target) {
+            if image_child_of.is_some_and(|co| bricks.contains(co.parent())) {
+                continue;
             }
-
-            transform.rotation = global_rotation * Quat::from_rotation_arc(Vec3::Y, gizmo.axis);
-
-            let is_hovered = hover_state.hovered_gizmo == Some(entity);
-            let is_dragged = drag_state.active && drag_state.gizmo_entity == Some(entity);
-            let state_multiplier = if is_hovered || is_dragged {
-                if gizmo.tool == ToolState::Rotate {
-                    1.02
-                } else {
-                    1.3
-                }
-            } else {
-                1.0
-            };
-
-            transform.scale = Vec3::splat(base_scale * state_multiplier);
+            place_gizmo(
+                &mut transform,
+                gizmo,
+                image_global.translation(),
+                image_world_half_extents(image_global),
+                image_global.rotation(),
+                camera_pos,
+                entity,
+                &hover_state,
+                &drag_state,
+            );
         }
     }
+}
+
+fn place_gizmo(
+    transform: &mut Transform,
+    gizmo: &ToolGizmo,
+    group_center: Vec3,
+    group_half: Vec3,
+    global_rotation: Quat,
+    camera_pos: Vec3,
+    entity: Entity,
+    hover_state: &HoverState,
+    drag_state: &DragState,
+) {
+    let face_offset = gizmo.axis.abs().dot(group_half);
+
+    let dist = camera_pos.distance(group_center);
+    let distance_scale = (dist / 17.32).min(2.5);
+    let base_scale = distance_scale;
+
+    if gizmo.tool == ToolState::Rotate {
+        transform.translation = group_center;
+    } else {
+        let offset = face_offset + 0.6 * distance_scale;
+        transform.translation = group_center + global_rotation.mul_vec3(gizmo.axis * offset);
+    }
+
+    transform.rotation = global_rotation * Quat::from_rotation_arc(Vec3::Y, gizmo.axis);
+
+    let is_hovered = hover_state.hovered_gizmo == Some(entity);
+    let is_dragged = drag_state.active && drag_state.gizmo_entity == Some(entity);
+    let state_multiplier = if is_hovered || is_dragged {
+        if gizmo.tool == ToolState::Rotate {
+            1.02
+        } else {
+            1.3
+        }
+    } else {
+        1.0
+    };
+
+    transform.scale = Vec3::splat(base_scale * state_multiplier);
+}
+
+fn image_world_half_extents(global: &GlobalTransform) -> Vec3 {
+    let rotation = global.rotation();
+    let scaled = Vec3::splat(0.5) * global.scale();
+    let local_x = rotation.mul_vec3(Vec3::X);
+    let local_y = rotation.mul_vec3(Vec3::Y);
+    let local_z = rotation.mul_vec3(Vec3::Z);
+    Vec3::new(
+        local_x.x.abs() * scaled.x + local_y.x.abs() * scaled.y + local_z.x.abs() * scaled.z,
+        local_x.y.abs() * scaled.x + local_y.y.abs() * scaled.y + local_z.y.abs() * scaled.z,
+        local_x.z.abs() * scaled.x + local_y.z.abs() * scaled.y + local_z.z.abs() * scaled.z,
+    )
 }
 
 #[cfg(test)]

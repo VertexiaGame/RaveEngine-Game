@@ -24,6 +24,8 @@ pub fn run_script(vm: &ServerScriptVM, code: &str) {
 pub fn try_script(vm: &ServerScriptVM, code: &str) -> mlua::Result<()> {
     let func = crate::scripting::vm::compiler::compile_code(&vm.lua, code, "test")?;
     let thread = vm.lua.create_thread(func)?;
+    crate::scripting::vm::sandbox::reset_tick_budgets(&vm.lua);
+    crate::scripting::vm::sandbox::set_caller_frame(&vm.lua, "test".to_string(), None);
     match thread.resume::<LuaValue>(()) {
         Ok(yielded) => {
             if thread.status() == LuaThreadStatus::Resumable {
@@ -32,6 +34,7 @@ pub fn try_script(vm: &ServerScriptVM, code: &str) -> mlua::Result<()> {
                     thread_key: key,
                     wake_time: yielded_to_wake(yielded, Instant::now()),
                     callback_key: None,
+                    source: "test".to_string(),
                 });
             }
             Ok(())

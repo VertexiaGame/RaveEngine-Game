@@ -60,7 +60,7 @@ impl Default for CloudsConfig {
             sun_color: Vec4::new(1.0, 0.9, 0.85, 1.0) * 0.8,
             reprojection_strength: 0.95,
             ui_visible: false,
-            render_resolution: Vec2::new(1440.0, 810.0),
+            render_resolution: Vec2::new(1280.0, 720.0),
             render_scale: 1.0,
             wind_velocity: Vec3::new(-1.1, 0.0, 2.3),
             enabled: true,
@@ -130,7 +130,7 @@ pub fn adapt_clouds_quality(
     }
 
     let level_settings = CLOUDS_QUALITY_LEVELS[quality.level];
-    config.render_scale *= level_settings.render_scale;
+    config.render_scale = level_settings.render_scale;
     config.clouds_raymarch_steps_count =
         config.clouds_raymarch_steps_count.min(level_settings.raymarch_steps).max(1);
     config.clouds_shadow_raymarch_steps_count =

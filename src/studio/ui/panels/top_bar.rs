@@ -25,6 +25,11 @@ pub fn draw_top_bar(
     play_tex: egui::TextureId,
     playc_tex: egui::TextureId,
     stopp_tex: egui::TextureId,
+    image_tex: egui::TextureId,
+    brick_tex: egui::TextureId,
+    script_tex: egui::TextureId,
+    localscript_tex: egui::TextureId,
+    modulescript_tex: egui::TextureId,
     diagnostics: &Res<bevy::diagnostic::DiagnosticsStore>,
     camera_transform: Option<&Transform>,
     _action_writer: &mut MessageWriter<crate::studio::tools::UndoRedoAction>,
@@ -65,6 +70,7 @@ pub fn draw_top_bar(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     onboarding_active: bool,
     players_service: &mut Option<ResMut<crate::studio::tools::PlayersService>>,
@@ -72,6 +78,13 @@ pub fn draw_top_bar(
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     workspace_studs: &crate::common::game::bricks::WorkspaceShowStuds,
+    images_query: &Query<(
+        Entity,
+        &Name,
+        Option<&ChildOf>,
+        Option<&crate::common::game::assets::components::Image>,
+    ), Without<Camera3d>>,
+    replicated_images: &Query<Entity, (With<crate::common::game::assets::components::Image>, With<lightyear::prelude::Replicate>)>,
 ) {
     ui.style_mut().interaction.selectable_labels = false;
 
@@ -142,7 +155,7 @@ pub fn draw_top_bar(
                             }
 
                             let mut scripts_data = Vec::new();
-                            for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt) in explorer_query.iter() {
+                            for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt, _) in explorer_query.iter() {
                                 let mut script_type_opt = None;
                                 let mut code = String::new();
                                 let mut enabled = true;
@@ -161,7 +174,7 @@ pub fn draw_top_bar(
                                 if let Some(script_type) = script_type_opt {
                                     let mut parent_name = None;
                                     if let Some(child_of) = child_of_opt {
-                                        if let Ok((_, p_name, _, _, _, _, _, _)) = explorer_query.get(child_of.parent()) {
+                                        if let Ok((_, p_name, _, _, _, _, _, _, _)) = explorer_query.get(child_of.parent()) {
                                             parent_name = Some(p_name.to_string());
                                         }
                                     }
@@ -171,6 +184,29 @@ pub fn draw_top_bar(
                                         code,
                                         parent_name,
                                         enabled,
+                                    });
+                                }
+                            }
+
+                            let mut images_data = Vec::new();
+                            for (_entity, name, child_of_opt, image_opt) in images_query.iter() {
+                                if let Some(image) = image_opt {
+                                    let mut parent_name = None;
+                                    if let Some(child_of) = child_of_opt {
+                                        if let Ok((_, p_name, _, _)) = images_query.get(child_of.parent()) {
+                                            parent_name = Some(p_name.to_string());
+                                        }
+                                    }
+                                    let transform = entities_query
+                                        .get(_entity)
+                                        .map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t)
+                                        .unwrap_or_default();
+                                    images_data.push(crate::common::core::vrtx::VrtxImage {
+                                        name: name.to_string(),
+                                        asset_id: image.asset_id,
+                                        face: image.face.as_ref().map(|f| f.as_str().to_string()),
+                                        parent_name,
+                                        transform,
                                     });
                                 }
                             }
@@ -197,6 +233,7 @@ pub fn draw_top_bar(
                                 camera_transform: cam_transform,
                                 bricks: bricks_data,
                                 scripts: scripts_data,
+                                images: images_data,
                             };
                             let _ = state.save_to_file(&onboarding_data.save_path);
                             ui.close_menu();
@@ -366,7 +403,7 @@ pub fn draw_top_bar(
                             ui.visuals_mut().widgets.inactive.bg_fill = egui::Color32::from_rgb(255, 255, 255);
                             ui.visuals_mut().widgets.noninteractive.bg_fill = egui::Color32::from_rgb(255, 255, 255);
 
-                            ui.set_min_width(150.0);
+                            ui.set_min_width(160.0);
                             ui.horizontal(|ui| {
                                 ui.label("🔍"); 
                                 let text_edit_res = ui.text_edit_singleline(&mut search_query);
@@ -376,13 +413,19 @@ pub fn draw_top_bar(
                             });
                             ui.separator();
 
-                            let items = [
+                            let parts_items = [
                                 ("Block", crate::common::game::bricks::components::BrickShape::Block),
                                 ("Sphere", crate::common::game::bricks::components::BrickShape::Sphere),
                             ];
-                            for (item, shape) in items {
-                                if item.to_lowercase().contains(&search_query.to_lowercase()) {
-                                    if ui.button(item).clicked() {
+                            let parts_visible = parts_items.iter().any(|(item, _)| item.to_lowercase().contains(&search_query.to_lowercase()));
+                            if parts_visible {
+                                ui.label(egui::RichText::new("Parts").color(egui::Color32::from_rgb(120, 120, 120)).size(12.0).strong());
+                                for (item, shape) in parts_items {
+                                    if item.to_lowercase().contains(&search_query.to_lowercase()) {
+                                        if ui.add(egui::Button::image_and_text(
+                                            (brick_tex, egui::vec2(16.0, 16.0)),
+                                            item,
+                                        )).clicked() {
                                         let mut spawn_pos = Vec3::new(0.0, 0.14, 0.0);
                                         if let Some(cam_t) = camera_transform {
                                             let camera_pos = cam_t.translation;
@@ -449,7 +492,6 @@ pub fn draw_top_bar(
                                                 },
                                                 extension: crate::common::game::bricks::studs::StudsExtension {
                                                     stud_texture: studs_assets.stud.clone(),
-                                                    inlet_texture: studs_assets.inlet.clone(),
                                                     stud_ambient_texture: studs_assets.stud_ambient.clone(),
                                                     stud_height_texture: studs_assets.stud_height.clone(),
                                                     inlet_ambient_texture: studs_assets.inlet_ambient.clone(),
@@ -471,15 +513,28 @@ pub fn draw_top_bar(
                                     }
                                 }
                             }
+                            }
 
                             let script_items = [
                                 ("Script", 0),
                                 ("LocalScript", 1),
                                 ("ModuleScript", 2),
                             ];
-                            for (item, script_type) in script_items {
-                                if item.to_lowercase().contains(&search_query.to_lowercase()) {
-                                    if ui.button(item).clicked() {
+                            let scripts_visible = script_items.iter().any(|(item, _)| item.to_lowercase().contains(&search_query.to_lowercase()));
+                            if scripts_visible {
+                                ui.add_space(4.0);
+                                ui.label(egui::RichText::new("Scripts").color(egui::Color32::from_rgb(120, 120, 120)).size(12.0).strong());
+                                for (item, script_type) in script_items {
+                                    if item.to_lowercase().contains(&search_query.to_lowercase()) {
+                                        let script_icon = match script_type {
+                                            0 => script_tex,
+                                            1 => localscript_tex,
+                                            _ => modulescript_tex,
+                                        };
+                                        if ui.add(egui::Button::image_and_text(
+                                            (script_icon, egui::vec2(16.0, 16.0)),
+                                            item,
+                                        )).clicked() {
                                         let new_entity = match script_type {
                                             0 => commands.spawn((
                                                 Name::new(item),
@@ -515,6 +570,40 @@ pub fn draw_top_bar(
 
                                         ui.memory_mut(|mem| mem.close_popup(popup_id));
                                     }
+                                }
+                            }
+                            }
+
+                            if "image".contains(&search_query.to_lowercase()) {
+                                ui.add_space(4.0);
+                                ui.label(egui::RichText::new("Decals").color(egui::Color32::from_rgb(120, 120, 120)).size(12.0).strong());
+                                if ui.add(egui::Button::image_and_text(
+                                    (image_tex, egui::vec2(16.0, 16.0)),
+                                    "Image",
+                                )).clicked() {
+                                    let mut spawn_pos = Vec3::new(0.0, 1.0, 0.0);
+                                    let mut spawn_rotation = Quat::IDENTITY;
+                                    if let Some(cam_t) = camera_transform {
+                                        let camera_forward = cam_t.forward();
+                                        spawn_pos = cam_t.translation + camera_forward * (10.0 * 0.28);
+                                        let yaw = f32::atan2(camera_forward.x, camera_forward.z);
+                                        spawn_rotation = Quat::from_rotation_y(yaw);
+                                    }
+                                    let mut cmd = commands.spawn((
+                                        Transform::from_translation(spawn_pos)
+                                            .with_rotation(spawn_rotation)
+                                            .with_scale(Vec3::new(2.0 * 0.28, 2.0 * 0.28, 0.001)),
+                                        Name::new("Image"),
+                                        crate::common::game::assets::components::Image {
+                                            asset_id: 0,
+                                            face: None,
+                                        },
+                                    ));
+                                    let new_entity = cmd.id();
+                                    if let Some(parent) = selection.entity {
+                                        commands.entity(parent).add_child(new_entity);
+                                    }
+                                    ui.memory_mut(|mem| mem.close_popup(popup_id));
                                 }
                             }
                         },
@@ -569,6 +658,10 @@ pub fn draw_top_bar(
                                 }
                             }
 
+                            for entity in replicated_images {
+                                commands.entity(entity).try_despawn();
+                            }
+
                             let mut named_entities = std::collections::HashMap::new();
                             for brick_data in playtest_backup.bricks.drain(..) {
                                 let name = brick_data.name.clone();
@@ -611,6 +704,26 @@ pub fn draw_top_bar(
                                 if let Some(ref p_name) = script_data.parent_name {
                                     if let Some(&parent_entity) = named_entities.get(p_name) {
                                         commands.entity(parent_entity).add_child(new_script_entity);
+                                    }
+                                }
+                            }
+
+                            for image_data in playtest_backup.images.drain(..) {
+                                let face = image_data.face.as_deref().and_then(crate::common::game::assets::components::ImageFace::from_str);
+                                let mut cmd = commands.spawn((
+                                    image_data.transform,
+                                    Name::new(image_data.name),
+                                    crate::common::game::assets::components::Image {
+                                        asset_id: image_data.asset_id,
+                                        face,
+                                    },
+                                    Pickable::default(),
+                                    Visibility::Visible,
+                                ));
+                                let new_image_entity = cmd.id();
+                                if let Some(ref p_name) = image_data.parent_name {
+                                    if let Some(&parent_entity) = named_entities.get(p_name) {
+                                        commands.entity(parent_entity).add_child(new_image_entity);
                                     }
                                 }
                             }
@@ -661,7 +774,7 @@ pub fn draw_top_bar(
                             playtest_backup.bricks = backup_bricks;
 
                             let mut backup_scripts = Vec::new();
-                            for (_entity, _name, child_of_opt, _, _, s_opt, l_opt, m_opt) in explorer_query.iter() {
+                            for (_entity, _name, child_of_opt, _, _, s_opt, l_opt, m_opt, _) in explorer_query.iter() {
                                 let mut script_type_opt = None;
                                 let mut code = String::new();
                                 let mut enabled = true;
@@ -680,7 +793,7 @@ pub fn draw_top_bar(
                                 if let Some(script_type) = script_type_opt {
                                     let mut parent_name = None;
                                     if let Some(child_of) = child_of_opt {
-                                        if let Ok((_, p_name, _, _, _, _, _, _)) = explorer_query.get(child_of.parent()) {
+                                        if let Ok((_, p_name, _, _, _, _, _, _, _)) = explorer_query.get(child_of.parent()) {
                                             parent_name = Some(p_name.to_string());
                                         }
                                     }
@@ -695,6 +808,31 @@ pub fn draw_top_bar(
                                 }
                             }
                             playtest_backup.scripts = backup_scripts;
+
+                            let mut backup_images = Vec::new();
+                            for (_entity, _name, child_of_opt, image_opt) in images_query.iter() {
+                                if let Some(image) = image_opt {
+                                    let mut parent_name = None;
+                                    if let Some(child_of) = child_of_opt {
+                                        if let Ok((_, p_name, _, _)) = images_query.get(child_of.parent()) {
+                                            parent_name = Some(p_name.to_string());
+                                        }
+                                    }
+                                    let transform = entities_query
+                                        .get(_entity)
+                                        .map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t)
+                                        .unwrap_or_default();
+                                    backup_images.push(crate::common::core::vrtx::VrtxImage {
+                                        name: _name.to_string(),
+                                        asset_id: image.asset_id,
+                                        face: image.face.as_ref().map(|f| f.as_str().to_string()),
+                                        parent_name,
+                                        transform,
+                                    });
+                                    commands.entity(_entity).despawn();
+                                }
+                            }
+                            playtest_backup.images = backup_images;
 
                             let temp_map_path = "temp_play.vrtx".to_string();
                             let state = crate::common::core::vrtx::VrtxFileState {
@@ -738,15 +876,23 @@ pub fn draw_top_bar(
                                     }
                                 }).collect(),
                                 scripts: playtest_backup.scripts.clone(),
+                                images: playtest_backup.images.clone(),
                             };
 
                             if state.save_to_file(&temp_map_path).is_ok() {
                                 crate::app::server::bootstrap::SHUTDOWN_SERVER.store(false, std::sync::atomic::Ordering::Relaxed);
 
+                                let playtest_key: [u8; 32] = rand::random();
+                                let playtest_protocol_id: u64 = rand::random();
+
                                 let server_app = crate::app::server::bootstrap::RaveServerApp::new(
                                     crate::app::server::config::ServerAppConfig {
                                         port: 5000,
                                         map_path: temp_map_path,
+                                        bind_addr: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                                        netcode_key: playtest_key,
+                                        protocol_id: playtest_protocol_id,
+                                        allow_unauthenticated: true,
                                     }
                                 );
                                 std::thread::spawn(move || {
@@ -767,8 +913,8 @@ pub fn draw_top_bar(
                                 let auth = lightyear::prelude::Authentication::Manual {
                                     server_addr,
                                     client_id,
-                                    private_key: [0u8; 32],
-                                    protocol_id: 0,
+                                    private_key: playtest_key,
+                                    protocol_id: playtest_protocol_id,
                                 };
 
                                 let netcode_config = lightyear::prelude::client::NetcodeConfig {

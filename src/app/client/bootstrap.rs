@@ -34,6 +34,8 @@ impl RaveClientApp {
         app.insert_resource(ClientConnectSettings {
             ip: self.config.ip,
             port: self.config.port,
+            netcode_key: self.config.netcode_key,
+            protocol_id: self.config.protocol_id,
         });
         app.insert_resource(crate::client::ClientUkey(self.config.ukey));
         app.init_resource::<ClientSpawned>();

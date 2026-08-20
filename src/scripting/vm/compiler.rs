@@ -1,6 +1,12 @@
 ﻿use mlua::prelude::*;
+use crate::scripting::vm::sandbox::MAX_SCRIPT_CODE_BYTES;
 
 pub fn compile_code(lua: &Lua, code: &str, name: &str) -> Result<LuaFunction, mlua::Error> {
+    if code.len() > MAX_SCRIPT_CODE_BYTES {
+        return Err(mlua::Error::RuntimeError(format!(
+            "script '{name}' exceeds the size limit of {MAX_SCRIPT_CODE_BYTES} bytes"
+        )));
+    }
     lua.load(code).set_name(name).into_function()
 }
 

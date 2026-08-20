@@ -1,96 +1,87 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use bevy::log::{warn, debug, trace};
+use bevy::log::{warn, debug};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ValidateResponse {
     pub uid: i32,
     pub username: String,
 }
-
-pub fn validate_user_ukey(ukey: &str) -> Result<ValidateResponse, String> {
-    if ukey == "studio_play_local_key" || ukey.starts_with("offline_") {
+pub fn validate_user_ukey(ukey: &str, allow_unauthenticated: bool) -> Result<ValidateResponse, String> {
+    if allow_unauthenticated && (ukey == "studio_play_local_key" || ukey.starts_with("offline_")) {
+        //^^ we allow unathenticated responses if the user is running a playtest / defined with ukey "studio_play_local_key"
+        //maybe um to be rewritten later
         return Ok(ValidateResponse {
+            //set junk data
             uid: 1,
             username: "LocalPlayer".to_string(),
         });
     }
 
-    let domain = std::env::var("VERTIGO_API_DOMAIN").unwrap_or_else(|_| "localhost:3000".to_string());
-    let mut api_key = std::env::var("GAMESERVER_API_KEY").map_err(|_| "GAMESERVER_API_KEY environment variable is not configured".to_string())?;
+    let base = crate::common::net::api::api_base();
+    let api_key = crate::common::net::api::gameserver_api_key()?;
 
-    api_key = api_key.trim().trim_matches('"').to_string();
+    trace_api(&format!(
+        "Starting validation with domain={}, api_key_length={}",
+        base,
+        api_key.len()
+    ));
 
-    trace!("API_LOG: Starting validation with domain={}, api_key_length={}", domain, api_key.len());
+    let url = format!("{base}/api/v1/auth/validate");
 
-    let (host, port) = if let Some(pos) = domain.find(':') {
-        let (h, p) = domain.split_at(pos);
-        (h.to_string(), p[1..].to_string())
-    } else {
-        (domain.clone(), "80".to_string())
-    };
+    let client = crate::common::net::api::blocking_client(Duration::from_secs(5))?;
 
-    let address = format!("{}:{}", host, port);
-    let addr = match address.parse() {
-        Ok(ip) => ip,
-        Err(_) => {
-            use std::net::ToSocketAddrs;
-            match address.to_socket_addrs() {
-                Ok(addrs) => {
-                    let mut chosen_addr = None;
-                    for a in addrs {
-                        if a.is_ipv4() {
-                            chosen_addr = Some(a);
-                            break;
-                        }
-                    }
-                    let addr = match chosen_addr {
-                        Some(a) => a,
-                        None => {
-                            use std::net::ToSocketAddrs;
-                            match address.to_socket_addrs().ok().and_then(|mut iter| iter.next()) {
-                                Some(first) => first,
-                                None => return Err("DNS resolution returned no addresses".to_string()),
-                            }
-                        }
-                    };
-                    addr
-                }
-                Err(e) => return Err(format!("DNS resolution failed: {}", e)),
-            }
-        }
-    };
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .query(&[("ukey", ukey)])
+        .header("X-Gameserver-Key", api_key)
+        .send()
+        .map_err(|e| format!("auth request failed: {e}"))?;
 
-    stream.set_read_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body = resp.text().map_err(|e| format!("failed to read auth response: {e}"))?;
 
-    let path = format!("/api/v1/auth/validate?ukey={}", ukey);
-    let req_str = format!(
-        "GET {} HTTP/1.1\r\n\
-         Host: {}\r\n\
-         X-Gameserver-Key: {}\r\n\
-         Connection: close\r\n\r\n",
-        path, domain, api_key
-    );
-
-    stream.write_all(req_str.as_bytes()).map_err(|e| e.to_string())?;
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).map_err(|e| e.to_string())?;
-
-    let response_str = String::from_utf8_lossy(&response);
-    let mut parts = response_str.splitn(2, "\r\n\r\n");
-    let headers = parts.next().ok_or("No headers in response")?;
-    let body = parts.next().ok_or("No body in response")?;
-
-    if !headers.contains("HTTP/1.1 200") && !headers.contains("HTTP/1.0 200") {
-        warn!("API_LOG: Go backend returned !!non-200!! response headers: {}", headers);
-        return Err(format!("Server returned error: {}", headers));
+    if !status.is_success() {
+        warn!("API_LOG: Go backend returned non-200 status {status}: {body}");
+        return Err(format!("Server returned error: {status}"));
     }
 
-    let res_data: ValidateResponse = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    let res_data: ValidateResponse = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     debug!("API_LOG: Successfully validated client ukey uid={}, username={}", res_data.uid, res_data.username);
     Ok(res_data)
+}
+
+fn trace_api(msg: &str) {
+    bevy::log::trace!("API_LOG: {msg}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offline_keys_rejected_when_unauthenticated_is_disabled() {
+        for ukey in ["offline_test_user", "offline_another", "studio_play_local_key"] {
+            let result = validate_user_ukey(ukey, false);
+            assert!(result.is_err(), "ukey `{ukey}` must be rejected on public servers");
+        }
+    }
+
+    #[test]
+    fn offline_keys_accepted_when_unauthenticated_is_enabled() {
+        for ukey in ["offline_test_user", "studio_play_local_key"] {
+            let result = validate_user_ukey(ukey, true).expect("offline ukey accepted in studio mode");
+            assert_eq!(result.uid, 1);
+            assert_eq!(result.username, "LocalPlayer");
+        }
+    }
+
+    #[test]
+    fn unknown_keys_never_short_circuit() {
+        let result = validate_user_ukey("some_random_client_ukey", true);
+        assert!(
+            result.is_err(),
+            "a real-looking ukey must not bypass the backend (expects GAMESERVER_API_KEY)"
+        );
+    }
 }

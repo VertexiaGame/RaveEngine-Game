@@ -1,5 +1,6 @@
 use bevy::{
     asset::load_embedded_asset,
+    core_pipeline::core_3d::main_opaque_pass_3d,
     ecs::system::ResMut,
     prelude::*,
     render::{
@@ -8,8 +9,8 @@ use bevy::{
         render_resource::{
             binding_types::uniform_buffer, AsBindGroup, BindGroup, BindGroupEntries,
             BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedComputePipelineId,
-            CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
-            ShaderStages,
+            CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor, Extent3d,
+            Origin3d, PipelineCache, ShaderStages, TexelCopyTextureInfo, TextureAspect,
         },
         renderer::{RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue},
         texture::GpuImage,
@@ -118,7 +119,7 @@ fn prepare_textures_bind_group(
     render_device: Res<RenderDevice>,
     mut clouds_state: ResMut<CloudsState>,
     mut last_atlas_image: Local<Option<Handle<Image>>>,
-    mut cached_bind_group: Local<Option<(BindGroup, (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>))>>,
+    mut cached_bind_group: Local<Option<(BindGroup, (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>))>>,
 ) {
     if last_atlas_image.as_ref() != Some(&clouds_image.cloud_atlas_image) {
         *clouds_state = CloudsState::Loading;
@@ -127,6 +128,7 @@ fn prepare_textures_bind_group(
 
     let current_textures = (
         clouds_image.cloud_render_image.clone(),
+        clouds_image.cloud_render_previous_image.clone(),
         clouds_image.cloud_atlas_image.clone(),
         clouds_image.cloud_worley_image.clone(),
         clouds_image.sky_image.clone(),
@@ -136,6 +138,10 @@ fn prepare_textures_bind_group(
     }
 
     let Some(cloud_render_view) = gpu_images.get(&clouds_image.cloud_render_image) else {
+        return;
+    };
+    let Some(cloud_render_previous_view) = gpu_images.get(&clouds_image.cloud_render_previous_image)
+    else {
         return;
     };
     let Some(cloud_atlas_view) = gpu_images.get(&clouds_image.cloud_atlas_image) else {
@@ -153,6 +159,7 @@ fn prepare_textures_bind_group(
         &pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout),
         &BindGroupEntries::sequential((
             &cloud_render_view.texture_view,
+            &cloud_render_previous_view.texture_view,
             &cloud_atlas_view.texture_view,
             &cloud_worley_view.texture_view,
             &sky_view.texture_view,
@@ -234,10 +241,9 @@ fn run_clouds_compute_pass(
     texture_bind_group: Option<Res<CloudsImageBindGroup>>,
     uniform_bind_group: Option<Res<CloudsUniformBindGroup>>,
     clouds_config: Option<Res<CloudsConfig>>,
-    camera_matrices: Option<Res<CameraMatrices>>,
+    clouds_image: Option<Res<CloudsImage>>,
+    gpu_images: Option<Res<RenderAssets<GpuImage>>>,
     mut render_context: RenderContext,
-    mut static_frames: Local<u32>,
-    mut last_camera_view: Local<Mat4>,
 ) {
     let Some(texture_bind_group) = texture_bind_group else {
         return;
@@ -248,17 +254,6 @@ fn run_clouds_compute_pass(
     let Some(clouds_config) = clouds_config else {
         return;
     };
-
-    let static_camera = camera_matrices.map_or(false, |camera| {
-        if *last_camera_view == camera.inverse_camera_view {
-            *static_frames += 1;
-            *static_frames > 30
-        } else {
-            *last_camera_view = camera.inverse_camera_view;
-            *static_frames = 0;
-            false
-        }
-    });
 
     let pipeline_to_run = match *state {
         CloudsState::Loading => {
@@ -289,8 +284,7 @@ fn run_clouds_compute_pass(
     let dispatch_groups = if pipeline_to_run == pipeline.init_pipeline {
         (IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE)
     } else {
-        let scale = if static_camera { 0.5 } else { 1.0 };
-        let resolution = clouds_config.render_resolution * scale;
+        let resolution = clouds_config.render_resolution;
         let groups_x = (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1);
         let groups_y = (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1);
         (groups_x, groups_y)
@@ -303,6 +297,37 @@ fn run_clouds_compute_pass(
     pass.set_bind_group(1, &texture_bind_group.0, &[]);
     pass.set_pipeline(compute_pipeline);
     pass.dispatch_workgroups(dispatch_groups.0, dispatch_groups.1, 1);
+    drop(pass);
+
+    if pipeline_to_run == pipeline.update_pipeline {
+        if let (Some(clouds_image), Some(gpu_images)) = (clouds_image, gpu_images) {
+            if let (Some(current), Some(previous)) = (
+                gpu_images.get(&clouds_image.cloud_render_image),
+                gpu_images.get(&clouds_image.cloud_render_previous_image),
+            ) {
+                let size = current.texture.size();
+                render_context.command_encoder().copy_texture_to_texture(
+                    TexelCopyTextureInfo {
+                        texture: &current.texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: TextureAspect::All,
+                    },
+                    TexelCopyTextureInfo {
+                        texture: &previous.texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
+                        aspect: TextureAspect::All,
+                    },
+                    Extent3d {
+                        width: size.width,
+                        height: size.height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+    }
 }
 
 pub(crate) struct CloudsComputePlugin;
@@ -323,7 +348,9 @@ impl Plugin for CloudsComputePlugin {
         );
         render_app.add_systems(
             RenderGraph,
-            run_clouds_compute_pass.in_set(RenderGraphSystems::Render),
+            run_clouds_compute_pass
+                .in_set(RenderGraphSystems::Render)
+                .before(main_opaque_pass_3d),
         );
 
         render_app.add_systems(

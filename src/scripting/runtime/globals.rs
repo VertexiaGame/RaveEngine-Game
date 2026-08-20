@@ -4,6 +4,9 @@ use crate::scripting::userdata::cframe::CFrame;
 use crate::scripting::userdata::color3::Color3;
 use crate::scripting::userdata::vector3::Vector3;
 use crate::scripting::vm::scheduler::{SchedulerRef, LuaTask, yielded_to_wake};
+use crate::scripting::vm::sandbox::{
+    current_caller_frame, set_caller_frame, try_print, try_spawn_entity, MAX_PENDING_TASKS,
+};
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
     let h = h.rem_euclid(360.0) / 60.0;
@@ -35,14 +38,7 @@ fn lua_value_to_string(lua: &Lua, value: &LuaValue) -> String {
 }
 
 fn caller_source(lua: &Lua) -> (String, Option<u32>) {
-    match lua
-        .globals()
-        .get::<LuaFunction>("__vertigo_callerinfo")
-        .and_then(|f| f.call::<(Option<String>, Option<u32>)>(()))
-    {
-        Ok((Some(source), line)) => (source, line),
-        _ => ("Script".to_string(), None),
-    }
+    current_caller_frame(lua)
 }
 
 pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
@@ -57,6 +53,18 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
             LuaValue::Thread(t) => t,
             _ => return Err(mlua::Error::RuntimeError("task.spawn expects function or thread".to_string())),
         };
+        let (source, line) = current_caller_frame(lua);
+        {
+            let scheduler_ref = lua.app_data_ref::<SchedulerRef>().unwrap();
+            let scheduler = scheduler_ref.0.lock().unwrap();
+            if scheduler.tasks.len() >= MAX_PENDING_TASKS {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "too many pending tasks (limit {MAX_PENDING_TASKS})"
+                )));
+            }
+        }
+        crate::scripting::vm::sandbox::reset_tick_budgets(lua);
+        set_caller_frame(lua, source.clone(), line);
         match thread.resume::<LuaValue>(()) {
             Ok(yielded) => {
                 if thread.status() == LuaThreadStatus::Resumable {
@@ -67,6 +75,7 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
                             thread_key: key,
                             wake_time: yielded_to_wake(yielded, std::time::Instant::now()),
                             callback_key: None,
+                            source,
                         });
                     }
                 }
@@ -81,24 +90,37 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     task_table.set("spawn", spawn_fn.clone())?;
 
     let defer_fn = lua.create_function(|lua, f: LuaFunction| {
+        let (source, _) = current_caller_frame(lua);
         let scheduler_ref = lua.app_data_ref::<SchedulerRef>().unwrap();
         let mut scheduler = scheduler_ref.0.lock().unwrap();
+        if scheduler.tasks.len() + scheduler.deferred.len() >= MAX_PENDING_TASKS {
+            return Err(mlua::Error::RuntimeError(format!(
+                "too many pending tasks (limit {MAX_PENDING_TASKS})"
+            )));
+        }
         let thread = lua.create_thread(f)?;
         let key = lua.create_registry_value(thread)?;
-        scheduler.deferred.push_back(key);
+        scheduler.deferred.push_back((key, source));
         Ok(())
     })?;
     task_table.set("defer", defer_fn)?;
 
     let delay_fn = lua.create_function(|lua, (seconds, f): (f32, LuaFunction)| {
+        let (source, _) = current_caller_frame(lua);
         let scheduler_ref = lua.app_data_ref::<SchedulerRef>().unwrap();
         let mut scheduler = scheduler_ref.0.lock().unwrap();
+        if scheduler.tasks.len() >= MAX_PENDING_TASKS {
+            return Err(mlua::Error::RuntimeError(format!(
+                "too many pending tasks (limit {MAX_PENDING_TASKS})"
+            )));
+        }
         let thread = lua.create_thread(f)?;
         let key = lua.create_registry_value(thread)?;
         scheduler.tasks.push(LuaTask {
             thread_key: key,
             wake_time: Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds as f64)),
             callback_key: None,
+            source,
         });
         Ok(())
     })?;
@@ -114,6 +136,9 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     lua.globals().set("delay", delay_global)?;
 
     let print_fn = lua.create_function(|lua, args: LuaMultiValue| {
+        if !try_print(lua) {
+            return Ok(());
+        }
         let parts: Vec<String> = args.iter().map(|v| lua_value_to_string(lua, v)).collect();
         let message = parts.join("\t");
         info!("LUA_PRINT: {}", message);
@@ -130,6 +155,9 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     lua.globals().set("print", print_fn)?;
 
     let warn_fn = lua.create_function(|lua, args: LuaMultiValue| {
+        if !try_print(lua) {
+            return Ok(());
+        }
         let parts: Vec<String> = args.iter().map(|v| lua_value_to_string(lua, v)).collect();
         let message = parts.join("\t");
         warn!("LUA_WARN: {}", message);
@@ -231,6 +259,8 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
         use crate::common::game::bricks::components::{Brick, BrickColor, BrickPhysics, BrickShapeComponent};
         use crate::scripting::userdata::instance::Instance;
 
+        try_spawn_entity(lua)?;
+
         let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
         let world = unsafe { &mut *world_ref.0 };
         let id = match class_name.as_str() {
@@ -251,9 +281,19 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
             "Folder" => {
                 world.spawn((Name::new(class_name),)).id()
             }
+            "Image" => {
+                world
+                    .spawn((
+                        Name::new(class_name),
+                        Transform::default(),
+                        crate::common::game::assets::components::Image::default(),
+                        lightyear::prelude::Replicate::default(),
+                    ))
+                    .id()
+            }
             _ => {
                 return Err(mlua::Error::RuntimeError(format!(
-                    "Instance.new: unsupported class '{}' (supported: Part, Folder)",
+                    "Instance.new: unsupported class '{}' (supported: Part, Folder, Image)",
                     class_name
                 )))
             }
@@ -261,23 +301,6 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
         lua.create_userdata(Instance { entity: id }).map(LuaValue::UserData)
     })?)?;
     lua.globals().set("Instance", instance_class)?;
-
-    let caller_info: LuaFunction = lua.load(
-        "return function()
-            for level = 1, 6 do
-                local source, line = debug.info(level, 'sl')
-                if source
-                    and source ~= '[C]'
-                    and source ~= '=[C]'
-                    and not source:find('globals.rs', 1, true)
-                    and not source:find('__vertigo', 1, true) then
-                    return source, line
-                end
-            end
-            return 'Script', nil
-        end",
-    ).eval()?;
-    lua.globals().set("__vertigo_callerinfo", caller_info)?;
 
     let wait_for_child_impl: LuaFunction = lua.load(
         "return function(self, name, timeout)

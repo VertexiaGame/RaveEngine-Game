@@ -41,10 +41,15 @@ pub fn handle_new_client(
     let _client_id = remote_id.0.to_bits();
 }
 
+const MAX_PENDING_AUTHS: usize = 64;
+
 pub fn handle_hello_messages(
     mut pending: ResMut<crate::server::PendingAuths>,
+    mut auth_pool: ResMut<crate::server::AuthWorkerPool>,
+    settings: Res<crate::server::ServerSettings>,
     mut receivers: Query<(Entity, &RemoteId, &mut MessageReceiver<crate::common::net::messages::HelloMessage>, Option<&ReplicationSender>)>,
 ) {
+    auth_pool.ensure_started(settings.allow_unauthenticated);
     for (client_entity, remote_id, mut receiver, rep_sender) in receivers.iter_mut() {
         if rep_sender.is_some() {
             continue;
@@ -54,15 +59,16 @@ pub fn handle_hello_messages(
             if pending.0.contains_key(&client_id) {
                 continue;
             }
-            debug!("Received HelloMessage from client {}, starting async auth", client_id);
-
-            let ukey = hello.ukey.clone();
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let result = crate::common::net::auth::validate_user_ukey(&ukey);
-                let _ = tx.send(result);
-            });
-            pending.0.insert(client_id, (client_entity, std::sync::Arc::new(std::sync::Mutex::new(rx))));
+            if pending.0.len() >= MAX_PENDING_AUTHS {
+                warn!("Pending auth queue full; dropping hello from client {}", client_id);
+                break;
+            }
+            if !auth_pool.submit(client_id, hello.ukey.clone()) {
+                warn!("Auth worker queue full; dropping hello from client {}", client_id);
+                continue;
+            }
+            debug!("Received HelloMessage from client {}, queued async auth", client_id);
+            pending.0.insert(client_id, client_entity);
         }
     }
 }
@@ -71,27 +77,16 @@ pub fn handle_auth_results(
     mut commands: Commands,
     mut player_map: ResMut<crate::server::ClientPlayerMap>,
     mut pending: ResMut<crate::server::PendingAuths>,
+    auth_pool: Res<crate::server::AuthWorkerPool>,
     mut sender_query: Query<&mut MessageSender<crate::common::net::messages::KickMessage>>,
     mut success_sender_query: Query<&mut MessageSender<crate::common::net::messages::AuthSuccessMessage>>,
 ) {
-    let mut completed: Vec<(
-        u64,
-        Entity,
-        Result<crate::common::net::auth::ValidateResponse, String>,
-    )> = Vec::new();
+    let results = auth_pool.drain_results();
 
-    for (&client_id, &(client_entity, ref rx)) in pending.0.iter() {
-        let result = match rx.lock().unwrap().try_recv() {
-            Ok(result) => result,
-            Err(std::sync::mpsc::TryRecvError::Empty) => continue,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                Err("auth worker thread exited unexpectedly".to_string())
-            }
+    for (client_id, result) in results {
+        let Some(&client_entity) = pending.0.get(&client_id) else {
+            continue;
         };
-        completed.push((client_id, client_entity, result));
-    }
-
-    for (client_id, client_entity, result) in completed {
         pending.0.remove(&client_id);
         match result {
             Ok(response) => {
@@ -345,6 +340,7 @@ pub fn handle_client_disconnect(
     trigger: On<Remove, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut player_map: ResMut<ClientPlayerMap>,
+    mut pending: ResMut<crate::server::PendingAuths>,
     players_query: Query<(Entity, &Player)>,
     mut commands: Commands,
 ) {
@@ -352,6 +348,7 @@ pub fn handle_client_disconnect(
     let client_id = remote_id.0.to_bits();
     info!("Client disconnected: {}", client_id);
     player_map.0.remove(&client_id);
+    pending.0.remove(&client_id);
     for (player_entity, player) in &players_query {
         if player.client_id == client_id {
             commands.entity(player_entity).despawn();

@@ -20,6 +20,7 @@ pub struct StudioUiAssets {
     pub script_icon: Handle<Image>,
     pub localscript_icon: Handle<Image>,
     pub modulescript_icon: Handle<Image>,
+    pub image_icon: Handle<Image>,
 }
 
 #[derive(Resource, Default)]
@@ -40,6 +41,7 @@ pub struct StudioUiTextureIds {
     pub script_tex: Option<bevy_egui::egui::TextureId>,
     pub localscript_tex: Option<bevy_egui::egui::TextureId>,
     pub modulescript_tex: Option<bevy_egui::egui::TextureId>,
+    pub image_tex: Option<bevy_egui::egui::TextureId>,
 }
 
 fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
@@ -120,6 +122,7 @@ pub fn setup_ui_assets(
     if modulescript_icon == Handle::default() {
         modulescript_icon = script_icon.clone();
     }
+    let image_icon = load_icon_image("content/studio/icons/Items/image.png", &mut images);
 
     commands.insert_resource(StudioUiAssets {
         move_icon,
@@ -138,5 +141,6 @@ pub fn setup_ui_assets(
         script_icon,
         localscript_icon,
         modulescript_icon,
+        image_icon,
     });
 }

@@ -54,7 +54,7 @@ fn clouds_setup(
     meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CloudsMaterial>>,
 ) {
-    let (cloud_render_image, cloud_atlas_image, cloud_worley_image, sky_image) =
+    let (cloud_render_image, cloud_atlas_image, cloud_worley_image, cloud_render_previous_image, sky_image) =
         build_images(images);
 
     let material = materials.add(CloudsMaterial {
@@ -71,6 +71,7 @@ fn clouds_setup(
     );
     commands.insert_resource(CloudsImage {
         cloud_render_image,
+        cloud_render_previous_image,
         cloud_atlas_image,
         cloud_worley_image,
         sky_image,
@@ -84,7 +85,7 @@ fn clouds_setup(
 
 fn update_clouds_resolution(
     mut commands: Commands,
-    images: ResMut<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<CloudsMaterial>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut config: ResMut<CloudsConfig>,
@@ -120,11 +121,12 @@ fn update_clouds_resolution(
         return;
     };
 
-    let (cloud_render_image, sky_image) =
-        build_render_images_with_size(images, target_width, target_height);
+    let (cloud_render_image, cloud_render_previous_image, sky_image) =
+        build_render_images_with_size(&mut *images, target_width, target_height);
 
     commands.insert_resource(CloudsImage {
         cloud_render_image: cloud_render_image.clone(),
+        cloud_render_previous_image,
         cloud_atlas_image: clouds_image.cloud_atlas_image.clone(),
         cloud_worley_image: clouds_image.cloud_worley_image.clone(),
         sky_image: sky_image.clone(),
@@ -142,12 +144,22 @@ fn update_camera_matrices(
     cam_query: Query<(&GlobalTransform, &Camera), With<Camera3d>>,
     mut config: ResMut<CameraMatrices>,
 ) {
+    let mut fallback = None;
     for (camera_transform, camera) in &cam_query {
-        if camera.is_active {
+        if !camera.is_active {
+            continue;
+        }
+        if camera.order == 0 {
             config.translation = camera_transform.translation();
             config.inverse_camera_view = camera_transform.to_matrix();
             config.inverse_camera_projection = camera.computed.clip_from_view.inverse();
-            break;
+            return;
         }
+        fallback.get_or_insert((camera_transform.translation(), camera_transform.to_matrix(), camera.computed.clip_from_view.inverse()));
+    }
+    if let Some((translation, inverse_camera_view, inverse_camera_projection)) = fallback {
+        config.translation = translation;
+        config.inverse_camera_view = inverse_camera_view;
+        config.inverse_camera_projection = inverse_camera_projection;
     }
 }

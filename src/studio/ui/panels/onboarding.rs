@@ -296,6 +296,7 @@ pub fn draw_onboarding(
                                 camera_transform: Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
                                 bricks,
                                 scripts: Vec::new(),
+                                images: Vec::new(),
                             };
 
                             let _ = state.save_to_file(&onboarding_data.save_path);

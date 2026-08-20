@@ -8,6 +8,8 @@ use std::net::{IpAddr, SocketAddr, Ipv4Addr};
 pub struct ClientConnectSettings {
     pub ip: IpAddr,
     pub port: u16,
+    pub netcode_key: Option<[u8; 32]>,
+    pub protocol_id: Option<u64>,
 }
 
 #[derive(Resource, Default)]
@@ -18,6 +20,10 @@ pub struct LaunchInfo {
     pub ip: String,
     pub port: u16,
     pub ukey: String,
+    #[serde(default)]
+    pub netcode_key: Option<String>,
+    #[serde(default)]
+    pub protocol_id: Option<u64>,
 }
 
 pub fn poll_launch_details(
@@ -40,12 +46,23 @@ pub fn poll_launch_details(
     if let Ok(file_content) = std::fs::read_to_string("launch_info.json") {
         if let Ok(info) = serde_json::from_str::<LaunchInfo>(&file_content) {
             if let Ok(parsed_ip) = info.ip.parse::<IpAddr>() {
+                let netcode_key = info
+                    .netcode_key
+                    .as_deref()
+                    .and_then(crate::common::net::netcode::parse_hex_key);
                 commands.insert_resource(crate::client::ClientUkey(info.ukey));
                 if let Some(ref mut s) = settings {
                     s.ip = parsed_ip;
                     s.port = info.port;
+                    s.netcode_key = netcode_key;
+                    s.protocol_id = info.protocol_id;
                 } else {
-                    commands.insert_resource(ClientConnectSettings { ip: parsed_ip, port: info.port });
+                    commands.insert_resource(ClientConnectSettings {
+                        ip: parsed_ip,
+                        port: info.port,
+                        netcode_key,
+                        protocol_id: info.protocol_id,
+                    });
                 }
                 info!("CLIENT_CONNECT: Successfully loaded connection details from launch_info.json");
                 let _ = std::fs::remove_file("launch_info.json");
@@ -75,11 +92,20 @@ pub fn initialize_client(
 
     commands.insert_resource(crate::client::LocalClientId(client_id));
 
+    let netcode_key_env = std::env::var("NETCODE_PRIVATE_KEY").ok();
+    let private_key = settings
+        .netcode_key
+        .or_else(|| netcode_key_env.as_deref().and_then(crate::common::net::netcode::parse_hex_key))
+        .unwrap_or_else(|| crate::common::net::netcode::netcode_private_key(None));
+    let protocol_id = settings
+        .protocol_id
+        .unwrap_or_else(|| crate::common::net::netcode::netcode_protocol_id(None));
+
     let auth = Authentication::Manual {
         server_addr,
         client_id,
-        private_key: [0u8; 32],
-        protocol_id: 0,
+        private_key,
+        protocol_id,
     };
 
     let netcode_config = NetcodeConfig {

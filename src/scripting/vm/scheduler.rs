@@ -10,6 +10,7 @@ pub struct ServiceEntities {
     pub workspace: Option<Entity>,
     pub players: Option<Entity>,
     pub lighting: Option<Entity>,
+    pub asset_service: Option<Entity>,
 }
 
 #[derive(Resource, Default)]
@@ -19,11 +20,12 @@ pub struct LuaTask {
     pub thread_key: mlua::RegistryKey,
     pub wake_time: Option<Instant>,
     pub callback_key: Option<Arc<mlua::RegistryKey>>,
+    pub source: String,
 }
 
 pub struct LuaScheduler {
     pub tasks: Vec<LuaTask>,
-    pub deferred: VecDeque<mlua::RegistryKey>,
+    pub deferred: VecDeque<(mlua::RegistryKey, String)>,
     pub active_callbacks: HashSet<Arc<mlua::RegistryKey>>,
 }
 
@@ -62,11 +64,12 @@ impl LuaScheduler {
                 i += 1;
             }
         }
-        while let Some(key) = self.deferred.pop_front() {
+        while let Some((key, source)) = self.deferred.pop_front() {
             out.push(LuaTask {
                 thread_key: key,
                 wake_time: None,
                 callback_key: None,
+                source,
             });
         }
     }
@@ -90,6 +93,8 @@ pub fn run_scheduler_tick(scheduler: &Arc<Mutex<LuaScheduler>>, lua: &Lua) {
 
     let mut requeue = Vec::new();
     for task in ready {
+        crate::scripting::vm::sandbox::reset_tick_budgets(lua);
+        crate::scripting::vm::sandbox::set_caller_frame(lua, task.source.clone(), None);
         match lua.registry_value::<LuaThread>(&task.thread_key) {
             Ok(thread) => match thread.resume::<LuaValue>(()) {
                 Ok(yielded) => {
@@ -98,6 +103,7 @@ pub fn run_scheduler_tick(scheduler: &Arc<Mutex<LuaScheduler>>, lua: &Lua) {
                             thread_key: task.thread_key,
                             wake_time: yielded_to_wake(yielded, now),
                             callback_key: task.callback_key.clone(),
+                            source: task.source.clone(),
                         });
                     } else {
                         finish_callback_task(scheduler, &task);
@@ -163,7 +169,7 @@ mod tests {
     use std::time::Duration;
 
     fn task(key: mlua::RegistryKey, wake: Option<Instant>) -> LuaTask {
-        LuaTask { thread_key: key, wake_time: wake, callback_key: None }
+        LuaTask { thread_key: key, wake_time: wake, callback_key: None, source: "test".to_string() }
     }
 
     fn vm() -> Lua {
@@ -202,7 +208,7 @@ mod tests {
                 task(past_key, Some(now - Duration::from_secs(1))),
                 task(future_key, Some(now + Duration::from_secs(60))),
             ],
-            deferred: VecDeque::from([deferred_key]),
+            deferred: VecDeque::from([(deferred_key, "test".to_string())]),
             active_callbacks: HashSet::new(),
         };
 
@@ -300,6 +306,7 @@ mod tests {
                 thread_key,
                 wake_time: None,
                 callback_key: Some(callback_key.clone()),
+                source: "test".to_string(),
             }],
             deferred: VecDeque::new(),
             active_callbacks: HashSet::from([callback_key]),
@@ -320,7 +327,7 @@ mod tests {
 
         let scheduler = Arc::new(Mutex::new(LuaScheduler {
             tasks: Vec::new(),
-            deferred: VecDeque::from([key]),
+            deferred: VecDeque::from([(key, "test".to_string())]),
             active_callbacks: HashSet::new(),
         }));
 

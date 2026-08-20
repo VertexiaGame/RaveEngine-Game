@@ -15,7 +15,6 @@ use crate::common::game::bricks::studs::{StudsAssets, StudsExtension};
 use crate::common::net::components::NetworkTransform;
 use crate::common::game::physics::PhysicsSimulationState;
 use bevy_egui::{EguiContexts, egui};
-use bevy::camera::Hdr;
 
 #[derive(Resource)]
 pub struct ClientUkey(pub String);
@@ -117,6 +116,7 @@ impl Plugin for ClientPlugin {
                 attach_character_visuals.after(sync_local_player),
                 update_local_player_transparency,
                 hide_confirmed_player_visuals.after(update_local_player_transparency),
+                update_avatar_visual_lod,
                 send_hello_message,
                 handle_kick_message,
                 handle_auth_success,
@@ -1176,6 +1176,36 @@ fn hide_confirmed_player_visuals(
             if *visibility != Visibility::Inherited {
                 *visibility = Visibility::Inherited;
             }
+        }
+    }
+}
+
+const REMOTE_AVATAR_HIDE_DISTANCE: f32 = 160.0;
+
+fn update_avatar_visual_lod(
+    camera_query: Query<&GlobalTransform, With<player::PlayerCamera>>,
+    local_player_query: Query<(), (With<LocalPlayer>, With<crate::common::net::components::Player>)>,
+    player_query: Query<&GlobalTransform, With<crate::common::net::components::Player>>,
+    mut visual_query: Query<(&PlayerVisualChild, &mut Visibility), Without<UniqueLocalMaterial>>,
+) {
+    let Some(camera_transform) = camera_query.iter().next() else {
+        return;
+    };
+    for (visual_child, mut visibility) in &mut visual_query {
+        if local_player_query.get(visual_child.parent).is_ok() {
+            continue;
+        }
+        let Ok(player_transform) = player_query.get(visual_child.parent) else {
+            continue;
+        };
+        let distance = camera_transform.translation().distance(player_transform.translation());
+        let target = if distance > REMOTE_AVATAR_HIDE_DISTANCE {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if *visibility != target {
+            *visibility = target;
         }
     }
 }

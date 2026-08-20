@@ -9,6 +9,8 @@ use RaveEngineLib::common::CommonPlugin;
 struct ClientConnectSettings {
     ip: std::net::IpAddr,
     port: u16,
+    netcode_key: [u8; 32],
+    protocol_id: u64,
 }
 
 #[bevy_main]
@@ -29,6 +31,8 @@ fn main() {
     let mut ip = std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
     let mut port = 5000;
     let mut ukey = "".to_string();
+    let mut netcode_key_cli: Option<String> = None;
+    let mut protocol_id_cli: Option<u64> = None;
 
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
@@ -45,7 +49,18 @@ fn main() {
         if args[i] == "--ukey" && i + 1 < args.len() {
             ukey = args[i + 1].clone();
         }
+        if args[i] == "--netcode-key" && i + 1 < args.len() {
+            netcode_key_cli = Some(args[i + 1].clone());
+        }
+        if args[i] == "--protocol-id" && i + 1 < args.len() {
+            if let Ok(id) = args[i + 1].parse::<u64>() {
+                protocol_id_cli = Some(id);
+            }
+        }
     }
+
+    let netcode_key = RaveEngineLib::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref());
+    let protocol_id = RaveEngineLib::common::net::netcode::netcode_protocol_id(protocol_id_cli);
 
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(LogPlugin {
@@ -61,7 +76,7 @@ fn main() {
         )),
         ..default()
     }));
-    app.insert_resource(ClientConnectSettings { ip, port });
+    app.insert_resource(ClientConnectSettings { ip, port, netcode_key, protocol_id });
     app.insert_resource(RaveEngineLib::client::ClientUkey(ukey));
     app.add_plugins(client::ClientPlugins {
         tick_duration: core::time::Duration::from_secs_f64(1.0 / 60.0),
@@ -79,11 +94,14 @@ fn setup_client(mut commands: Commands, settings: Res<ClientConnectSettings>) {
 
     commands.insert_resource(RaveEngineLib::client::LocalClientId(client_id));
 
+    let private_key = settings.netcode_key;
+    let protocol_id = settings.protocol_id;
+
     let auth = Authentication::Manual {
         server_addr,
         client_id,
-        private_key: [0u8; 32],
-        protocol_id: 0,
+        private_key,
+        protocol_id,
     };
 
     let netcode_config = NetcodeConfig {

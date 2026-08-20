@@ -30,6 +30,12 @@ pub fn class_name_of(world: &World, entity: Entity) -> &'static str {
     if world.get::<crate::common::net::components::LightingServiceContainer>(entity).is_some() {
         return "Lighting";
     }
+    if world.get::<crate::common::net::components::AssetServiceContainer>(entity).is_some() {
+        return "AssetService";
+    }
+    if world.get::<crate::common::game::assets::components::Image>(entity).is_some() {
+        return "Image";
+    }
     if world.get::<crate::common::net::components::Player>(entity).is_some() {
         return "Player";
     }
@@ -57,6 +63,7 @@ fn is_managed(world: &World, entity: Entity) -> bool {
         || world.get::<ServerScript>(entity).is_some()
         || world.get::<LocalScript>(entity).is_some()
         || world.get::<ModuleScript>(entity).is_some()
+        || world.get::<crate::common::game::assets::components::Image>(entity).is_some()
 }
 
 fn direct_children(world: &World, entity: Entity) -> Vec<Entity> {
@@ -225,6 +232,33 @@ impl LuaUserData for Instance {
                         Ok(LuaValue::Nil)
                     }
                 }
+                "AssetService" => {
+                    if let Some(asset_entity) = find_service_entity(world, "AssetService") {
+                        lua.create_userdata(Instance { entity: asset_entity }).map(LuaValue::UserData)
+                    } else {
+                        Ok(LuaValue::Nil)
+                    }
+                }
+                "ID" => {
+                    let asset_id = world
+                        .get::<crate::common::game::assets::components::Image>(this.entity)
+                        .map(|img| img.asset_id)
+                        .unwrap_or(0);
+                    Ok(LuaValue::String(lua.create_string(format!("image/{asset_id}"))?))
+                }
+                "Face" => {
+                    let parent_is_brick = world.get::<ChildOf>(this.entity).map(|co| co.parent()).is_some_and(|parent| {
+                        world.get::<crate::common::game::bricks::components::Brick>(parent).is_some()
+                    });
+                    if !parent_is_brick {
+                        return Ok(LuaValue::Nil);
+                    }
+                    let face = world
+                        .get::<crate::common::game::assets::components::Image>(this.entity)
+                        .and_then(|img| img.face)
+                        .unwrap_or(crate::common::game::assets::components::ImageFace::Front);
+                    Ok(LuaValue::String(lua.create_string(face.as_str())?))
+                }
                 "GetChildren" => {
                     let entity = this.entity;
                     Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
@@ -323,12 +357,13 @@ impl LuaUserData for Instance {
                 "Clone" => {
                     let entity = this.entity;
                     Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
+                        crate::scripting::vm::sandbox::try_spawn_entity(lua)?;
                         let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
                         let world = unsafe { &mut *world_ref.0 };
                         if world.get_entity(entity).is_err() {
                             return Err(mlua::Error::RuntimeError("Instance to clone has been destroyed".to_string()));
                         }
-                        let (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code) = {
+                        let (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code, image) = {
                             let transform = world.get::<Transform>(entity).cloned().unwrap_or_default();
                             let name = world.get::<Name>(entity).cloned().unwrap_or_else(|| Name::new("Clone"));
                             let shape = world.get::<BrickShapeComponent>(entity).cloned();
@@ -342,7 +377,8 @@ impl LuaUserData for Instance {
                             let server_code = world.get::<ServerScript>(entity).map(|s| s.code.clone());
                             let local_code = world.get::<LocalScript>(entity).map(|s| s.code.clone());
                             let module_code = world.get::<ModuleScript>(entity).map(|s| s.code.clone());
-                            (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code)
+                            let image = world.get::<crate::common::game::assets::components::Image>(entity).cloned();
+                            (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code, image)
                         };
                         let mut new_entity = world.spawn((transform, name));
                         if is_brick { new_entity.insert(Brick); }
@@ -358,6 +394,9 @@ impl LuaUserData for Instance {
                         }
                         if let Some(code) = module_code {
                             new_entity.insert(ModuleScript { code });
+                        }
+                        if let Some(img) = image {
+                            new_entity.insert(img);
                         }
                         new_entity.insert(lightyear::prelude::Replicate::default());
                         let new_id = new_entity.id();
@@ -536,6 +575,67 @@ impl LuaUserData for Instance {
                         }
                     }
                 }
+                "ID" => {
+                    let parsed: Option<u32> = match value {
+                        LuaValue::Number(n) => u32::try_from(n as u64).ok(),
+                        LuaValue::Integer(i) => u32::try_from(i).ok(),
+                        LuaValue::String(s) => {
+                            let s = s.to_string_lossy();
+                            let stripped = s.strip_prefix("image/").unwrap_or(&s);
+                            stripped.parse::<u32>().ok()
+                        }
+                        _ => None,
+                    };
+                    let Some(asset_id) = parsed else {
+                        return Err(mlua::Error::RuntimeError(
+                            "Image.ID must be a number or a content id like \"image/123\"".to_string(),
+                        ));
+                    };
+                    if let Some(mut image) = world.get_mut::<crate::common::game::assets::components::Image>(this.entity) {
+                        image.asset_id = asset_id;
+                    } else {
+                        world.entity_mut(this.entity).insert(crate::common::game::assets::components::Image {
+                            asset_id,
+                            face: None,
+                        });
+                    }
+                }
+                "Face" => {
+                    let parent_is_brick = world.get::<ChildOf>(this.entity).map(|co| co.parent()).is_some_and(|parent| {
+                        world.get::<crate::common::game::bricks::components::Brick>(parent).is_some()
+                    });
+                    if !parent_is_brick {
+                        return Err(mlua::Error::RuntimeError(
+                            "Image.Face can only be set when the Image is parented to a Part".to_string(),
+                        ));
+                    }
+                    let face = match value {
+                        LuaValue::Nil => None,
+                        LuaValue::String(s) => {
+                            let s_lower = s.to_string_lossy().to_lowercase();
+                            let Some(face) = crate::common::game::assets::components::ImageFace::from_str(&s_lower) else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Invalid face '{}' (expected top, bottom, left, right, front or back)",
+                                    s.to_string_lossy()
+                                )));
+                            };
+                            Some(face)
+                        }
+                        _ => {
+                            return Err(mlua::Error::RuntimeError(
+                                "Image.Face must be a string face name".to_string(),
+                            ))
+                        }
+                    };
+                    if let Some(mut image) = world.get_mut::<crate::common::game::assets::components::Image>(this.entity) {
+                        image.face = face;
+                    } else {
+                        world.entity_mut(this.entity).insert(crate::common::game::assets::components::Image {
+                            asset_id: 0,
+                            face,
+                        });
+                    }
+                }
                 "Gravity" => {
                     let opt_val = match value {
                         LuaValue::Number(n) => Some(n),
@@ -561,6 +661,7 @@ pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> 
             "Workspace" => cache.workspace,
             "Players" => cache.players,
             "Lighting" => cache.lighting,
+            "AssetService" => cache.asset_service,
             _ => None,
         };
         if let Some(entity) = cached {
@@ -590,10 +691,16 @@ impl LuaUserData for RBXScriptSignal {
         methods.add_method("Connect", |lua, this, callback: LuaFunction| {
             let registry_ref = lua.app_data_ref::<ScriptRegistryRef>().unwrap();
             let mut registry = registry_ref.0.lock().unwrap();
+            let connections = registry.connections.entry((this.entity, this.name)).or_default();
+            if connections.len() >= crate::scripting::vm::sandbox::MAX_CONNECTIONS_PER_ENTITY {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "too many {} connections on this instance (limit {})",
+                    this.name,
+                    crate::scripting::vm::sandbox::MAX_CONNECTIONS_PER_ENTITY
+                )));
+            }
             let key = Arc::new(lua.create_registry_value(callback)?);
-            registry.connections.entry((this.entity, this.name))
-                .or_default()
-                .push(key.clone());
+            connections.push(key.clone());
 
             let conn_table = lua.create_table()?;
             let entity = this.entity;
@@ -659,22 +766,29 @@ mod tests {
         let workspace = world.spawn(Name::new("Workspace")).id();
         let players = world.spawn(PlayersServiceContainer).id();
         let lighting = world.spawn(LightingServiceContainer).id();
+        let asset_service = world.spawn(crate::common::net::components::AssetServiceContainer).id();
         let player = world.spawn(Player::default()).id();
         let brick = spawn_brick(&mut world, "Brick");
         let server_script = world.spawn((Name::new("S"), ServerScript::default())).id();
         let local_script = world.spawn((Name::new("L"), LocalScript::default())).id();
         let module = world.spawn((Name::new("M"), ModuleScript::default())).id();
+        let image = world.spawn((
+            Name::new("Image"),
+            crate::common::game::assets::components::Image::default(),
+        )).id();
         let folder = world.spawn(Name::new("Folder")).id();
 
         let cases = [
             (workspace, "Workspace"),
             (players, "Players"),
             (lighting, "Lighting"),
+            (asset_service, "AssetService"),
             (player, "Player"),
             (brick, "Part"),
             (server_script, "Script"),
             (local_script, "LocalScript"),
             (module, "ModuleScript"),
+            (image, "Image"),
             (folder, "Folder"),
         ];
         for (i, (entity, expected)) in cases.into_iter().enumerate() {
@@ -1086,17 +1200,19 @@ mod tests {
         world.spawn(Name::new("Workspace"));
         world.spawn(PlayersServiceContainer);
         world.spawn(LightingServiceContainer);
+        world.spawn(crate::common::net::components::AssetServiceContainer);
         run_script(&vm, "_G.p = Instance.new('Part')");
 
-        let (ws, pl, lg): (String, String, String) = eval(
+        let (ws, pl, lg, asvc): (String, String, String, String) = eval(
             &vm,
             r#"
-                return _G.p.Workspace.ClassName, _G.p.Players.ClassName, _G.p.Lighting.ClassName
+                return _G.p.Workspace.ClassName, _G.p.Players.ClassName, _G.p.Lighting.ClassName, _G.p.AssetService.ClassName
             "#,
         );
         assert_eq!(ws, "Workspace");
         assert_eq!(pl, "Players");
         assert_eq!(lg, "Lighting");
+        assert_eq!(asvc, "AssetService");
     }
 
     #[test]
@@ -1135,5 +1251,109 @@ mod tests {
 
         world.resource_mut::<crate::scripting::vm::scheduler::ServiceEntities>().workspace = Some(Entity::PLACEHOLDER);
         assert_eq!(find_service_entity(&world, "Workspace"), Some(entity));
+    }
+
+    #[test]
+    fn image_id_always_carries_content_prefix() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(&vm, r#"
+            _G.img = Instance.new("Image")
+            _G.img.ID = 123
+        "#);
+        let entity = entity_of(&vm, "img");
+        let id: String = eval(&vm, "return _G.img.ID");
+        assert_eq!(id, "image/123");
+        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 123);
+
+        run_script(&vm, r#"
+            _G.img.ID = "image/456"
+        "#);
+        let id: String = eval(&vm, "return _G.img.ID");
+        assert_eq!(id, "image/456");
+        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 456);
+
+        let ok: bool = eval(&vm, r#"return pcall(function() _G.img.ID = "nope" end)"#);
+        assert!(!ok, "non-content strings must be rejected");
+        let ok: bool = eval(&vm, r#"return pcall(function() _G.img.ID = -3 end)"#);
+        assert!(!ok, "negative ids must be rejected");
+        let class: String = eval(&vm, "return _G.img.ClassName");
+        assert_eq!(class, "Image");
+    }
+
+    #[test]
+    fn image_face_exists_only_when_parented_to_a_part() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        let brick = spawn_brick(&mut world, "Brick");
+        expose(&vm, "b", brick);
+        run_script(&vm, r#"
+            _G.img = Instance.new("Image")
+        "#);
+
+        let is_nil: bool = eval(&vm, "return _G.img.Face == nil");
+        assert!(is_nil, "standalone images have no Face property");
+        let ok: bool = eval(&vm, r#"return pcall(function() _G.img.Face = "top" end)"#);
+        assert!(!ok, "setting Face on a standalone image must error");
+
+        run_script(&vm, "_G.img.Parent = _G.b");
+        let default_face: String = eval(&vm, "return _G.img.Face");
+        assert_eq!(default_face, "front");
+
+        run_script(&vm, r#"_G.img.Face = "top""#);
+        let face: String = eval(&vm, "return _G.img.Face");
+        assert_eq!(face, "top");
+        let image = entity_of(&vm, "img");
+        assert_eq!(
+            world.get::<crate::common::game::assets::components::Image>(image).unwrap().face,
+            Some(crate::common::game::assets::components::ImageFace::Top)
+        );
+
+        for valid in ["bottom", "left", "right", "back", "Front", "BACK"] {
+            run_script(&vm, &format!("_G.img.Face = {:?}", valid));
+            assert_eq!(
+                eval::<String>(&vm, "return _G.img.Face"),
+                valid.to_lowercase(),
+                "face {valid} must round-trip"
+            );
+        }
+
+        let ok: bool = eval(&vm, r#"return pcall(function() _G.img.Face = "inside" end)"#);
+        assert!(!ok, "invalid face names must be rejected");
+
+        run_script(&vm, "_G.img.Face = nil");
+        let face: String = eval(&vm, "return _G.img.Face");
+        assert_eq!(face, "front", "clearing Face falls back to the default");
+    }
+
+    #[test]
+    fn clone_copies_image_asset() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(&vm, r#"
+            _G.img = Instance.new("Image")
+            _G.img.ID = 77
+            _G.copy = _G.img:Clone()
+        "#);
+        let copy = entity_of(&vm, "copy");
+        let image = world.get::<crate::common::game::assets::components::Image>(copy).unwrap();
+        assert_eq!(image.asset_id, 77);
+        let id: String = eval(&vm, "return _G.copy.ID");
+        assert_eq!(id, "image/77");
+    }
+
+    #[test]
+    fn asset_service_get_asset_creates_image_instance() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(&vm, r#"
+            _G.img = game:GetService("AssetService"):GetAsset(42)
+        "#);
+        let class: String = eval(&vm, "return _G.img.ClassName");
+        assert_eq!(class, "Image");
+        let id: String = eval(&vm, "return _G.img.ID");
+        assert_eq!(id, "image/42");
+        let entity = entity_of(&vm, "img");
+        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 42);
     }
 }

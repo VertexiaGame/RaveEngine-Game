@@ -66,6 +66,10 @@ fn build_server_app(port: u16) -> App {
     app.add_plugins(RaveEngineLib::server::ServerPlugin {
         map_path: "assets/maps/does_not_exist.vrtx".to_string(),
         port,
+        bind_addr: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        netcode_key: [0u8; 32],
+        protocol_id: 0,
+        allow_unauthenticated: true,
     });
     app.init_resource::<PingSnapshot>();
     app.add_systems(Update, sample_pings);

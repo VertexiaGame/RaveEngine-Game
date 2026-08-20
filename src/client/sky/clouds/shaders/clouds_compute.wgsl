@@ -44,9 +44,10 @@ struct Config {
 @group(0) @binding(0) var<uniform> config: Config;
 
 @group(1) @binding(0) var clouds_render_texture: texture_storage_2d<rgba16float, read_write>;
-@group(1) @binding(1) var clouds_atlas_texture: texture_storage_2d<rgba8unorm, read_write>;
-@group(1) @binding(2) var clouds_worley_texture: texture_storage_3d<rgba8unorm, read_write>;
-@group(1) @binding(3) var sky_texture: texture_storage_2d<rgba16float, read_write>;
+@group(1) @binding(1) var clouds_render_previous_texture: texture_storage_2d<rgba16float, read>;
+@group(1) @binding(2) var clouds_atlas_texture: texture_storage_2d<rgba8unorm, read_write>;
+@group(1) @binding(3) var clouds_worley_texture: texture_storage_3d<rgba8unorm, read_write>;
+@group(1) @binding(4) var sky_texture: texture_storage_2d<rgba16float, write>;
 
 struct Ray {
     step_distance: f32,
@@ -359,22 +360,26 @@ fn get_clouds_color(frag_coord: vec2f, camera: mat4x4f, ray_dir: vec3f, ray_orig
     );
 
     let old_cam = config.previous_inverse_camera_view;
-    let camera_moved = (
-        length(old_cam[0].xyz - camera[0].xyz) > 1.0e-4 ||
-        length(old_cam[1].xyz - camera[1].xyz) > 1.0e-4 ||
-        length(old_cam[2].xyz - camera[2].xyz) > 1.0e-4 ||
-        length(old_cam[3].xyz - camera[3].xyz) > 0.1
+    let rotation_motion = max(
+        length(old_cam[0].xyz - camera[0].xyz),
+        max(length(old_cam[1].xyz - camera[1].xyz), length(old_cam[2].xyz - camera[2].xyz))
     );
-    if camera_moved {
+    let translation_motion = length(old_cam[3].xyz - camera[3].xyz);
+    let reprojection_blend = config.reprojection_strength * clamp(
+        1.0 - max(rotation_motion / 1.0e-3, translation_motion / 0.5),
+        0.0,
+        1.0
+    );
+    if (reprojection_blend <= 0.0) {
         return col;
     }
 
     let original_color = textureLoad(
-        clouds_render_texture,
+        clouds_render_previous_texture,
         vec2u(u32(frag_coord.x),
         u32(config.render_resolution.y - 1.0) - u32(frag_coord.y))
     );
-    return mix(col, original_color, config.reprojection_strength);
+    return mix(col, original_color, reprojection_blend);
 }
 
 fn get_ray_origin(time: f32) -> vec3f {

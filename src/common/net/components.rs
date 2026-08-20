@@ -29,3 +29,7 @@ pub struct PlayersServiceContainer;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct LightingServiceContainer;
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct AssetServiceContainer;

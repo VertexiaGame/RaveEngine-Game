@@ -72,7 +72,7 @@ impl Default for CloudsUniform {
             camera_translation: Vec3::ZERO,
             time: 0.0,
             reprojection_strength: 0.95,
-            render_resolution: Vec2::new(1440.0, 810.0),
+            render_resolution: Vec2::new(1280.0, 720.0),
             inverse_camera_view: Mat4::IDENTITY,
             previous_inverse_camera_view: Mat4::IDENTITY,
             inverse_camera_projection: Mat4::IDENTITY,
@@ -92,12 +92,15 @@ pub(crate) struct CloudsImage {
     #[storage_texture(0, image_format = Rgba16Float, access = ReadWrite)]
     pub cloud_render_image: Handle<Image>,
 
-    #[storage_texture(1, image_format = Rgba8Unorm, access = ReadWrite)]
+    #[storage_texture(1, image_format = Rgba16Float, access = ReadOnly)]
+    pub cloud_render_previous_image: Handle<Image>,
+
+    #[storage_texture(2, image_format = Rgba8Unorm, access = ReadWrite)]
     pub cloud_atlas_image: Handle<Image>,
 
-    #[storage_texture(2, image_format = Rgba8Unorm, access = ReadWrite, dimension = "3d")]
+    #[storage_texture(3, image_format = Rgba8Unorm, access = ReadWrite, dimension = "3d")]
     pub cloud_worley_image: Handle<Image>,
 
-    #[storage_texture(3, image_format = Rgba16Float, access = ReadWrite)]
+    #[storage_texture(4, image_format = Rgba16Float, access = WriteOnly)]
     pub sky_image: Handle<Image>,
 }

@@ -6,16 +6,13 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::color::ColorToComponents;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::CascadeShadowConfigBuilder;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin, StandardMaterial};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
-use bevy::shader::ShaderRef;
 use std::f32::consts::PI;
 
 const CAMERA_FAR_PLANE: f32 = 3_000.0;
 const DAY_OF_YEAR: u32 = 172;
-const SUN_ILLUMINANCE: f32 = 12_000.0;
-const MOON_ILLUMINANCE: f32 = 100.0;
+const SUN_ILLUMINANCE: f32 = 7_000.0;
+const MOON_ILLUMINANCE: f32 = 650.0;
 const FOG_EXTINCTION: f32 = 3.0e-5;
 
 #[derive(Resource, Reflect, Clone)]
@@ -172,38 +169,6 @@ impl From<crate::common::core::vrtx::VrtxLighting> for LightingConfig {
     }
 }
 
-#[derive(ShaderType, Debug, Clone, Copy)]
-pub struct SkyUniformsGpu {
-    pub sun_direction: Vec3,
-    pub sun_angular_radius: f32,
-    pub moon_direction: Vec3,
-    pub moon_angular_radius: f32,
-    pub sun_color: Vec3,
-    pub time_of_day: f32,
-    pub moon_color: Vec3,
-    pub star_density: f32,
-    pub ground_albedo: Vec3,
-    pub night_ambient_color: Vec3,
-    pub rayleigh_coeff: Vec3,
-    pub mie_coeff: f32,
-    pub mie_asymmetry: f32,
-    pub horizon_blur: f32,
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub struct SkyMaterialExtension {
-    #[uniform(100)]
-    uniforms: SkyUniformsGpu,
-}
-
-impl MaterialExtension for SkyMaterialExtension {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/procedural_sky.wgsl".into()
-    }
-}
-
-pub type CustomSkyMaterial = ExtendedMaterial<StandardMaterial, SkyMaterialExtension>;
-
 #[derive(Component)]
 pub struct SunLightEntity;
 
@@ -218,7 +183,6 @@ pub struct SkyPlugin;
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(clouds::CloudsPlugin)
-            .add_plugins(MaterialPlugin::<CustomSkyMaterial>::default())
             .insert_resource(bevy::light::DirectionalLightShadowMap { size: 1024 })
             .init_resource::<LightingConfig>()
             .register_type::<LightingConfig>()
@@ -381,7 +345,7 @@ pub(crate) fn sync_lighting_system(
         current_ambient.z,
         1.0,
     ));
-    ambient_light.brightness = (day_weight * 1400.0 + sunset_weight * 800.0 + night_weight * 350.0) * config.ambient_brightness;
+    ambient_light.brightness = (day_weight * 900.0 + sunset_weight * 600.0 + night_weight * 200.0) * config.ambient_brightness;
 
     let day_fog_vec = Vec3::new(0.55, 0.72, 0.90);
     let sunset_fog_vec = Vec3::new(0.82, 0.50, 0.40);
@@ -439,26 +403,6 @@ pub(crate) fn sync_lighting_system(
         clouds_config.clouds_min_transmittance = config.cloud_min_transmittance;
         clouds_config.reprojection_strength = config.cloud_reprojection_strength;
         clouds_config.wind_velocity = config.cloud_wind_velocity;
-    }
-}
-
-fn initial_sky_uniforms(config: &LightingConfig) -> SkyUniformsGpu {
-    let sun_direction = solar_direction(config);
-    SkyUniformsGpu {
-        sun_direction,
-        sun_angular_radius: config.sun_angular_radius,
-        moon_direction: -sun_direction,
-        moon_angular_radius: config.moon_angular_radius,
-        sun_color: Vec3::new(1.0, 0.95, 0.85),
-        time_of_day: config.time_of_day,
-        moon_color: Vec3::new(0.65, 0.82, 1.0),
-        star_density: config.star_density,
-        ground_albedo: Vec3::new(0.18, 0.38, 0.18),
-        night_ambient_color: config.night_ambient.to_linear().to_vec3(),
-        rayleigh_coeff: Vec3::new(5.8e-6, 1.35e-5, 3.31e-5),
-        mie_coeff: 4.0e-6,
-        mie_asymmetry: 0.76,
-        horizon_blur: 0.08,
     }
 }
 

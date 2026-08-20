@@ -41,6 +41,7 @@ pub struct DragStartData {
     pub world_rotation: Quat,
     pub world_scale: Vec3,
     pub world_half_extents: Vec3,
+    pub base_extents: Vec3,
     pub parent_global: Option<Transform>,
 }
 
@@ -574,7 +575,7 @@ fn world_to_local(
 fn capture_drag_starts(
     selection: &Selection,
     gizmo_target: Entity,
-    bricks: &Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    bricks: &Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::assets::components::Image>), Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     parent_global_query: &Query<&GlobalTransform>,
 ) -> Vec<DragStartData> {
     let mut entities: Vec<Entity> = selection.entities.clone();
@@ -583,7 +584,7 @@ fn capture_drag_starts(
     }
     let mut starts = Vec::new();
     for entity in entities {
-        let Ok((local_transform, global_transform, child_of_opt, shape_opt)) = bricks.get(entity) else {
+        let Ok((local_transform, global_transform, child_of_opt, shape_opt, image_opt)) = bricks.get(entity) else {
             continue;
         };
         let parent_global = child_of_opt
@@ -593,12 +594,16 @@ fn capture_drag_starts(
                 rotation: p.rotation(),
                 scale: p.scale(),
             });
-        let shape = shape_opt
-            .map(|s| s.shape)
-            .unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
-        let base_extents = match shape {
-            crate::common::game::bricks::components::BrickShape::Block => Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28),
-            crate::common::game::bricks::components::BrickShape::Sphere => Vec3::splat(1.0 * 0.28),
+        let base_extents = if image_opt.is_some() {
+            Vec3::splat(0.5)
+        } else {
+            match shape_opt
+                .map(|s| s.shape)
+                .unwrap_or(crate::common::game::bricks::components::BrickShape::Block)
+            {
+                crate::common::game::bricks::components::BrickShape::Block => Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28),
+                crate::common::game::bricks::components::BrickShape::Sphere => Vec3::splat(1.0 * 0.28),
+            }
         };
         let world_rotation = global_transform.rotation();
         let world_scale = global_transform.scale();
@@ -618,6 +623,7 @@ fn capture_drag_starts(
             world_rotation,
             world_scale,
             world_half_extents,
+            base_extents,
             parent_global,
         });
     }
@@ -688,9 +694,9 @@ fn compute_resize(
     brick_rotation: Quat,
     parent_transform: Option<&Transform>,
     mirror: bool,
+    base_extents: Vec3,
 ) -> (Vec3, Vec3) {
     let axis_abs = gizmo_axis.abs();
-    let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
     let base_dimension = axis_abs * base_extents * 2.0;
     let base_dim_scalar = base_dimension.length();
 
@@ -725,7 +731,7 @@ fn compute_resize(
 
 pub fn select_brick(
     mut clicks: MessageReader<Pointer<Click>>,
-    bricks: Query<Entity, With<Brick>>,
+    bricks: Query<Entity, Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     gizmos: Query<Entity, With<ToolGizmo>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<Selection>,
@@ -785,7 +791,7 @@ pub fn handle_drag_start(
     mut drags: MessageReader<Pointer<DragStart>>,
     gizmos: Query<&ToolGizmo>,
     mut drag_state: ResMut<DragState>,
-    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::assets::components::Image>), Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     parent_global_query: Query<&GlobalTransform>,
     selection: Res<Selection>,
 ) {
@@ -810,7 +816,7 @@ pub fn handle_drag_start(
 pub fn handle_drag(
     mut drags: MessageReader<Pointer<Drag>>,
     gizmos: Query<&ToolGizmo>,
-    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::assets::components::Image>), Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     mut drag_state: ResMut<DragState>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -839,7 +845,7 @@ pub fn handle_drag(
         drag_state.accumulated_displacement = 0.0;
         return;
     };
-    let Ok((_brick_transform, brick_global, _, _)) = bricks.get(gizmo.target) else {
+    let Ok((_brick_transform, brick_global, _, _, _)) = bricks.get(gizmo.target) else {
         drag_state.active = false;
         drag_state.gizmo_entity = None;
         drag_state.start_translation = None;
@@ -884,7 +890,7 @@ pub fn handle_drag(
                 let sign = if alignment >= 0.0 { 1.0 } else { -1.0 };
                 let rot = Quat::from_axis_angle(gizmo.axis, -angle_delta * sign);
                 for start in &drag_state.start_entities {
-                    if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                    if let Ok((mut brick_transform, _, _, _, _)) = bricks.get_mut(start.entity) {
                         brick_transform.rotate_local(rot);
                     }
                 }
@@ -905,7 +911,7 @@ pub fn handle_drag(
                 window,
             ) {
                 for start in &drag_state.start_entities {
-                    if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                    if let Ok((mut brick_transform, _, _, _, _)) = bricks.get_mut(start.entity) {
                         brick_transform.rotate_local(rot);
                     }
                 }
@@ -956,7 +962,7 @@ pub fn handle_drag(
                     start.world_scale,
                     start.parent_global.as_ref(),
                 );
-                if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                if let Ok((mut brick_transform, _, _, _, _)) = bricks.get_mut(start.entity) {
                     brick_transform.translation = local_translation;
                 }
             }
@@ -972,8 +978,9 @@ pub fn handle_drag(
                     start.world_rotation,
                     start.parent_global.as_ref(),
                     mirror,
+                    start.base_extents,
                 );
-                if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+                if let Ok((mut brick_transform, _, _, _, _)) = bricks.get_mut(start.entity) {
                     brick_transform.scale = local_scale;
                     brick_transform.translation = local_translation;
                 }
@@ -988,7 +995,7 @@ pub fn handle_drag_end(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     gizmos: Query<&ToolGizmo>,
-    bricks: Query<&Transform, With<Brick>>,
+    bricks: Query<&Transform, Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     mut drag_state: ResMut<DragState>,
     mut history: ResMut<UndoRedoHistory>,
 ) {
@@ -1032,8 +1039,9 @@ pub fn handle_drag_end(
 
 pub fn handle_part_drag_start(
     mut drags: MessageReader<Pointer<DragStart>>,
-    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    bricks: Query<(&Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::assets::components::Image>), Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     parent_global_query: Query<&GlobalTransform>,
+    brick_parents: Query<(), With<Brick>>,
     gizmos: Query<&ToolGizmo>,
     mut selection: ResMut<Selection>,
     mut part_drag_state: ResMut<PartDragState>,
@@ -1046,7 +1054,10 @@ pub fn handle_part_drag_start(
         if gizmos.get(target).is_ok() {
             continue;
         }
-        if bricks.get(target).is_err() {
+        let Ok((_, _, child_of_opt, _, image_opt)) = bricks.get(target) else {
+            continue;
+        };
+        if image_opt.is_some() && child_of_opt.is_some_and(|co| brick_parents.contains(co.parent())) {
             continue;
         }
         if !selection.entities.contains(&target) {
@@ -1081,7 +1092,7 @@ fn is_descendant_of(
 pub fn handle_part_drag(
     mut drags: MessageReader<Pointer<Drag>>,
     mut part_drag_state: ResMut<PartDragState>,
-    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>), With<Brick>>,
+    mut bricks: Query<(&mut Transform, &GlobalTransform, Option<&ChildOf>, Option<&crate::common::game::bricks::components::BrickShapeComponent>, Option<&crate::common::game::assets::components::Image>), Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     parent_query: Query<&ChildOf>,
     name_query: Query<&Name>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
@@ -1114,18 +1125,22 @@ pub fn handle_part_drag(
 
     for _ in drags.read() {}
 
-    let (brick_rotation, brick_scale) = {
-        let Ok((_, brick_global, _, _)) = bricks.get(dragged_entity) else {
+    let (brick_rotation, brick_scale, image_opt) = {
+        let Ok((_, brick_global, _, _, image_opt)) = bricks.get(dragged_entity) else {
             part_drag_state.active = false;
             part_drag_state.dragged_entity = None;
             part_drag_state.press_cursor = None;
             part_drag_state.start_entities.clear();
             return;
         };
-        (brick_global.rotation(), brick_global.scale())
+        (brick_global.rotation(), brick_global.scale(), image_opt)
     };
 
-    let base_extents = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
+    let base_extents = if image_opt.is_some() {
+        Vec3::splat(0.5)
+    } else {
+        Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28)
+    };
     let scaled_half_extents = base_extents * brick_scale;
 
     let local_x = brick_rotation.mul_vec3(Vec3::X);
@@ -1213,7 +1228,7 @@ pub fn handle_part_drag(
             start.world_scale,
             start.parent_global.as_ref(),
         );
-        if let Ok((mut brick_transform, _, _, _)) = bricks.get_mut(start.entity) {
+        if let Ok((mut brick_transform, _, _, _, _)) = bricks.get_mut(start.entity) {
             brick_transform.translation = local_translation;
         }
     }
@@ -1223,7 +1238,7 @@ pub fn handle_part_drag_end(
     mut drags: MessageReader<Pointer<DragEnd>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    bricks: Query<&Transform, With<Brick>>,
+    bricks: Query<&Transform, Or<(With<Brick>, With<crate::common::game::assets::components::Image>)>>,
     mut part_drag_state: ResMut<PartDragState>,
     mut history: ResMut<UndoRedoHistory>,
 ) {
@@ -1314,7 +1329,7 @@ pub fn any_brick_transform_changed(
 
 pub fn correct_child_transforms(
     root_query: Query<(Entity, &GlobalTransform), (Without<ChildOf>, With<crate::common::game::bricks::components::Brick>)>,
-    child_query: Query<(&Transform, Option<&Children>)>,
+    child_query: Query<(&Transform, Option<&Children>), Without<crate::common::game::assets::components::Image>>,
     mut global_transform_query: Query<&mut GlobalTransform, With<ChildOf>>,
 ) {
     for (root_entity, root_global) in &root_query {
@@ -1330,7 +1345,7 @@ pub fn correct_child_transforms(
 fn propagate_unscaled(
     parent_entity: Entity,
     parent_unscaled: Transform,
-    child_query: &Query<(&Transform, Option<&Children>)>,
+    child_query: &Query<(&Transform, Option<&Children>), Without<crate::common::game::assets::components::Image>>,
     global_transform_query: &mut Query<&mut GlobalTransform, With<ChildOf>>,
 ) {
     if let Ok((_, Some(children))) = child_query.get(parent_entity) {

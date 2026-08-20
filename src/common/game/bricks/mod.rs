@@ -109,7 +109,6 @@ pub fn studs_material_for_color(
             },
             extension: studs::StudsExtension {
                 stud_texture: studs_assets.stud.clone(),
-                inlet_texture: studs_assets.inlet.clone(),
                 stud_ambient_texture: studs_assets.stud_ambient.clone(),
                 stud_height_texture: studs_assets.stud_height.clone(),
                 inlet_ambient_texture: studs_assets.inlet_ambient.clone(),
@@ -447,6 +446,10 @@ pub fn add_bricks_benchmark(app: &mut App) {
     app.insert_resource(crate::server::ServerSettings {
         map_path: String::new(),
         port: 0,
+        bind_addr: std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+        netcode_key: [0u8; 32],
+        protocol_id: 0,
+        allow_unauthenticated: true,
     })
     .init_resource::<BrickMaterialCache>()
     .init_asset::<StandardMaterial>()

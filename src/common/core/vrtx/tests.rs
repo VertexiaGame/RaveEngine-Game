@@ -173,6 +173,22 @@ fn sample_state() -> VrtxFileState {
                 enabled: true,
             },
         ],
+        images: vec![
+            VrtxImage {
+                name: "Poster".to_string(),
+                asset_id: 123,
+                face: None,
+                parent_name: None,
+                transform: Transform::from_xyz(4.0, 1.5, 2.0).with_scale(Vec3::new(2.0, 2.0, 0.01)),
+            },
+            VrtxImage {
+                name: "Decal".to_string(),
+                asset_id: 456,
+                face: Some("top".to_string()),
+                parent_name: Some("Baseplate".to_string()),
+                transform: Transform::from_xyz(0.0, 0.5, 0.0),
+            },
+        ],
     }
 }
 
@@ -260,6 +276,35 @@ fn lighting_round_trip_with_defaults_is_stable() {
 }
 
 #[test]
+fn images_round_trip_preserves_all_properties() {
+    let state = sample_state();
+    let loaded = round_trip(&state);
+
+    assert_eq!(loaded.images.len(), 2);
+
+    assert_eq!(loaded.images[0].name, "Poster");
+    assert_eq!(loaded.images[0].asset_id, 123);
+    assert_eq!(loaded.images[0].face, None);
+    assert_eq!(loaded.images[0].parent_name, None);
+    assert_transform_eq(&loaded.images[0].transform, &state.images[0].transform);
+
+    assert_eq!(loaded.images[1].name, "Decal");
+    assert_eq!(loaded.images[1].asset_id, 456);
+    assert_eq!(loaded.images[1].face, Some("top".to_string()));
+    assert_eq!(loaded.images[1].parent_name, Some("Baseplate".to_string()));
+    assert_transform_eq(&loaded.images[1].transform, &state.images[1].transform);
+}
+
+#[test]
+fn version_seven_files_load_without_images() {
+    let mut state = sample_state();
+    state.version = 7;
+    let loaded = round_trip(&state);
+    assert_eq!(loaded.version, 7);
+    assert!(loaded.images.is_empty(), "pre-v8 files have no images section");
+}
+
+#[test]
 fn empty_state_round_trip() {
     let state = VrtxFileState {
         version: FORMAT_VERSION,
@@ -273,11 +318,13 @@ fn empty_state_round_trip() {
         camera_transform: Transform::IDENTITY,
         bricks: Vec::new(),
         scripts: Vec::new(),
+        images: Vec::new(),
     };
     let loaded = round_trip(&state);
     assert_eq!(loaded.version, FORMAT_VERSION);
     assert!(loaded.bricks.is_empty());
     assert!(loaded.scripts.is_empty());
+    assert!(loaded.images.is_empty());
     assert_eq!(loaded.settings.bloom, false);
 }
 

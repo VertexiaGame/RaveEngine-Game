@@ -66,6 +66,7 @@ pub fn draw_properties(
         Option<&crate::scripting::ecs::ServerScript>,
         Option<&crate::scripting::ecs::LocalScript>,
         Option<&crate::scripting::ecs::ModuleScript>,
+        Option<&crate::common::game::assets::components::Image>,
     ), Without<Camera3d>>,
     active_editor: &mut ResMut<crate::studio::ui::resources::ActiveScriptEditor>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
@@ -77,15 +78,15 @@ pub fn draw_properties(
 
     let mut script_entity = None;
     let ent = selected_entities[0];
-    if let Ok((_, _, _, _, _, s, l, m)) = explorer_query.get(ent) {
+    if let Ok((_, _, _, _, _, s, l, m, _)) = explorer_query.get(ent) {
         if s.is_some() || l.is_some() || m.is_some() {
             script_entity = Some(ent);
         }
     }
 
     if let Some(entity) = script_entity {
-        let name_str = explorer_query.get(entity).map(|(_, n, _, _, _, _, _, _)| n.as_str().to_string()).unwrap_or_else(|_| "Script".to_string());
-        let (code, script_type, mut enabled) = if let Ok((_, _, _, _, _, s, l, m)) = explorer_query.get(entity) {
+        let name_str = explorer_query.get(entity).map(|(_, n, _, _, _, _, _, _, _)| n.as_str().to_string()).unwrap_or_else(|_| "Script".to_string());
+        let (code, script_type, mut enabled) = if let Ok((_, _, _, _, _, s, l, m, _)) = explorer_query.get(entity) {
             if let Some(ref script) = s {
                 (script.code.clone(), "Script", script.enabled)
             } else if let Some(ref script) = l {
@@ -99,8 +100,8 @@ pub fn draw_properties(
             ("".to_string(), "Script", true)
         };
 
-        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _)) = explorer_query.get(entity) {
-            explorer_query.get(child_of.parent()).map(|(_, name, _, _, _, _, _, _)| name.as_str().to_string()).unwrap_or_else(|_| "None".to_string())
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _)) = explorer_query.get(entity) {
+            explorer_query.get(child_of.parent()).map(|(_, name, _, _, _, _, _, _, _)| name.as_str().to_string()).unwrap_or_else(|_| "None".to_string())
         } else {
             "Workspace".to_string()
         };
@@ -144,7 +145,7 @@ pub fn draw_properties(
                             if script_type != "ModuleScript" {
                                 ui.label(egui::RichText::new("Enabled").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                                 if ui.checkbox(&mut enabled, "").changed() {
-                                    if let Ok((_, _, _, _, _, s, l, _)) = explorer_query.get(entity) {
+                                    if let Ok((_, _, _, _, _, s, l, _, _)) = explorer_query.get(entity) {
                                         if s.is_some() {
                                             commands.entity(entity).insert(crate::scripting::ecs::ServerScript {
                                                 code: code.clone(),
@@ -189,6 +190,209 @@ pub fn draw_properties(
                     active_editor.entity = Some(entity);
                 }
             });
+        });
+        return;
+    }
+
+    let mut image_entity = None;
+    let ent = selected_entities[0];
+    if let Ok((_, _, _, _, _, _, _, _, image_opt)) = explorer_query.get(ent) {
+        if image_opt.is_some() {
+            image_entity = Some(ent);
+        }
+    }
+
+    if let Some(entity) = image_entity {
+        let name_str = explorer_query.get(entity).map(|(_, n, _, _, _, _, _, _, _)| n.as_str().to_string()).unwrap_or_else(|_| "Image".to_string());
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _)) = explorer_query.get(entity) {
+            explorer_query.get(child_of.parent()).map(|(_, name, _, _, _, _, _, _, _)| name.as_str().to_string()).unwrap_or_else(|_| "None".to_string())
+        } else {
+            "Workspace".to_string()
+        };
+        let mut current_id = 0u32;
+        let mut current_face = "front".to_string();
+        let mut is_parented = false;
+        if let Ok((_, _, _, _, _, _, _, _, image_opt)) = explorer_query.get(entity) {
+            if let Some(image) = image_opt {
+                current_id = image.asset_id;
+                current_face = image.face.map(|f| f.as_str().to_string()).unwrap_or_else(|| "front".to_string());
+            }
+        }
+        if let Ok((_, _, child_of_opt, _, _, _, _, _, _)) = explorer_query.get(entity) {
+            is_parented = child_of_opt.is_some();
+        }
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+            });
+
+            ui.add_space(8.0);
+            let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+            ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+            ui.add_space(8.0);
+
+            egui::CollapsingHeader::new(egui::RichText::new("Information").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_image_info_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let name_id = ui.make_persistent_id("properties_image_name_input");
+                            let mut name_edit = ui.data_mut(|d| d.get_temp::<String>(name_id).unwrap_or_else(|| name_str.clone()));
+                            let res = ui.add(egui::TextEdit::singleline(&mut name_edit));
+                            if res.changed() {
+                                ui.data_mut(|d| d.insert_temp(name_id, name_edit.clone()));
+                                commands.entity(entity).insert(Name::new(name_edit.clone()));
+                            } else if !res.has_focus() {
+                                if name_edit != name_str {
+                                    name_edit = name_str.clone();
+                                    ui.data_mut(|d| d.insert_temp(name_id, name_edit.clone()));
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Class Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.label(egui::RichText::new("Image").color(egui::Color32::BLACK).size(13.0));
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("ID").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let id_id = ui.make_persistent_id("properties_image_id_input");
+                            let mut id_text = ui.data_mut(|d| d.get_temp::<String>(id_id).unwrap_or_else(|| current_id.to_string()));
+                            let id_res = ui.add(egui::TextEdit::singleline(&mut id_text).desired_width(60.0));
+                            if id_res.changed() {
+                                ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
+                                if let Ok(parsed) = id_text.parse::<u32>() {
+                                    if let Ok((_, _, _, _, _, _, _, _, image_opt)) = explorer_query.get(entity) {
+                                        if let Some(image) = image_opt {
+                                            commands.entity(entity).insert(crate::common::game::assets::components::Image {
+                                                asset_id: parsed,
+                                                face: image.face,
+                                            });
+                                        }
+                                    }
+                                }
+                            } else if !id_res.has_focus() {
+                                let expected = current_id.to_string();
+                                if id_text != expected {
+                                    id_text = expected;
+                                    ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Face").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            if is_parented {
+                                egui::ComboBox::from_id_salt("properties_image_face_combo")
+                                    .selected_text(&current_face)
+                                    .show_ui(ui, |ui| {
+                                        for face in ["top", "bottom", "left", "right", "front", "back"] {
+                                            if ui.selectable_label(current_face == face, face).clicked() {
+                                                current_face = face.to_string();
+                                                if let Ok((_, _, _, _, _, _, _, _, image_opt)) = explorer_query.get(entity) {
+                                                    if let Some(image) = image_opt {
+                                                        commands.entity(entity).insert(crate::common::game::assets::components::Image {
+                                                            asset_id: image.asset_id,
+                                                            face: Some(crate::common::game::assets::components::ImageFace::from_str(face).unwrap_or(crate::common::game::assets::components::ImageFace::Front)),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    });
+                            } else {
+                                ui.label(egui::RichText::new("None").color(egui::Color32::BLACK).size(13.0));
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Parent").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.label(egui::RichText::new(&parent_name_str).color(egui::Color32::BLACK).size(13.0));
+                            ui.end_row();
+                        });
+                });
+
+            ui.add_space(8.0);
+
+            let (image_pos_studs, image_scale, image_rot_deg) = match properties_query.get(entity) {
+                Ok((_, transform, _, _, _, _, _, _, _, _, _, _)) => {
+                    let (rx, ry, rz) = transform.rotation.to_euler(EulerRot::XYZ);
+                    (
+                        transform.translation / 0.28,
+                        transform.scale,
+                        Vec3::new(rx.to_degrees(), ry.to_degrees(), rz.to_degrees()),
+                    )
+                }
+                Err(_) => (Vec3::ZERO, Vec3::ONE, Vec3::ZERO),
+            };
+
+            egui::CollapsingHeader::new(egui::RichText::new("Transform").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_image_transform_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Position").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut pos_studs = image_pos_studs;
+                            let mut new_px = None;
+                            let mut new_py = None;
+                            let mut new_pz = None;
+                            ui.horizontal(|ui| {
+                                new_px = draw_coord_edit(ui, "X", &mut pos_studs.x, true, "image_pos_x");
+                                new_py = draw_coord_edit(ui, "Y", &mut pos_studs.y, true, "image_pos_y");
+                                new_pz = draw_coord_edit(ui, "Z", &mut pos_studs.z, true, "image_pos_z");
+                            });
+                            if new_px.is_some() || new_py.is_some() || new_pz.is_some() {
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    if let Some(x) = new_px { transform.translation.x = x * 0.28; }
+                                    if let Some(y) = new_py { transform.translation.y = y * 0.28; }
+                                    if let Some(z) = new_pz { transform.translation.z = z * 0.28; }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Size").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut scale_val = image_scale;
+                            let mut new_sx = None;
+                            let mut new_sy = None;
+                            let mut new_sz = None;
+                            ui.horizontal(|ui| {
+                                new_sx = draw_coord_edit(ui, "X", &mut scale_val.x, true, "image_size_x");
+                                new_sy = draw_coord_edit(ui, "Y", &mut scale_val.y, true, "image_size_y");
+                                new_sz = draw_coord_edit(ui, "Z", &mut scale_val.z, true, "image_size_z");
+                            });
+                            if new_sx.is_some() || new_sy.is_some() || new_sz.is_some() {
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    if let Some(x) = new_sx { transform.scale.x = x.max(0.01); }
+                                    if let Some(y) = new_sy { transform.scale.y = y.max(0.01); }
+                                    if let Some(z) = new_sz { transform.scale.z = z.max(0.01); }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Rotation").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut rot_deg = image_rot_deg;
+                            let mut new_rx = None;
+                            let mut new_ry = None;
+                            let mut new_rz = None;
+                            ui.horizontal(|ui| {
+                                new_rx = draw_coord_edit(ui, "X", &mut rot_deg.x, true, "image_rot_x");
+                                new_ry = draw_coord_edit(ui, "Y", &mut rot_deg.y, true, "image_rot_y");
+                                new_rz = draw_coord_edit(ui, "Z", &mut rot_deg.z, true, "image_rot_z");
+                            });
+                            if new_rx.is_some() || new_ry.is_some() || new_rz.is_some() {
+                                let rx_val = new_rx.unwrap_or(rot_deg.x).to_radians();
+                                let ry_val = new_ry.unwrap_or(rot_deg.y).to_radians();
+                                let rz_val = new_rz.unwrap_or(rot_deg.z).to_radians();
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    transform.rotation = Quat::from_euler(EulerRot::XYZ, rx_val, ry_val, rz_val);
+                                }
+                            }
+                            ui.end_row();
+                        });
+                });
         });
         return;
     }
