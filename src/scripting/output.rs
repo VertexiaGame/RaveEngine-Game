@@ -83,7 +83,14 @@ impl OutputBuffer {
         }
     }
 
-    pub fn push(&mut self, level: OutputLevel, source: &str, line: Option<u32>, message: String, traceback: Option<String>) {
+    pub fn push(
+        &mut self,
+        level: OutputLevel,
+        source: &str,
+        line: Option<u32>,
+        message: String,
+        traceback: Option<String>,
+    ) {
         if self.entries.len() >= self.max_entries {
             self.entries.pop_front();
         }
@@ -125,8 +132,17 @@ pub fn end_run() {
     buffer().lock().unwrap().end_run();
 }
 
-pub fn push(level: OutputLevel, source: &str, line: Option<u32>, message: String, traceback: Option<String>) {
-    buffer().lock().unwrap().push(level, source, line, message, traceback);
+pub fn push(
+    level: OutputLevel,
+    source: &str,
+    line: Option<u32>,
+    message: String,
+    traceback: Option<String>,
+) {
+    buffer()
+        .lock()
+        .unwrap()
+        .push(level, source, line, message, traceback);
 }
 
 pub fn push_error(source: &str, detail: String) {
@@ -176,7 +192,13 @@ mod tests {
         let mut buf = OutputBuffer::new();
         let run_id = buf.start_run("Playtest");
         buf.push(OutputLevel::Info, "S", None, "first".to_string(), None);
-        buf.push(OutputLevel::Error, "S", None, "second".to_string(), Some("trace".to_string()));
+        buf.push(
+            OutputLevel::Error,
+            "S",
+            None,
+            "second".to_string(),
+            Some("trace".to_string()),
+        );
         buf.end_run();
 
         assert_eq!(run_id, 1);

@@ -32,6 +32,11 @@ impl ClientAppConfig {
 
         let args: Vec<String> = std::env::args().collect();
         for i in 0..args.len() {
+            if let Some(join) = crate::client::uri::parse_client_join_uri(&args[i]) {
+                ip = join.ip;
+                port = join.port;
+                ukey = join.ukey;
+            }
             if args[i] == "--port" && i + 1 < args.len() {
                 if let Ok(p) = args[i + 1].parse::<u16>() {
                     port = p;

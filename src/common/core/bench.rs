@@ -15,8 +15,16 @@ pub struct BenchStats {
 }
 
 impl BenchStats {
-    pub fn configure(&mut self, scenario: impl Into<String>, warmup_frames: u64, target_frames: u64) {
-        assert!(target_frames > 0, "benchmark frames must be greater than zero");
+    pub fn configure(
+        &mut self,
+        scenario: impl Into<String>,
+        warmup_frames: u64,
+        target_frames: u64,
+    ) {
+        assert!(
+            target_frames > 0,
+            "benchmark frames must be greater than zero"
+        );
         self.scenario = scenario.into();
         self.warmup_frames = warmup_frames;
         self.target_frames = target_frames;

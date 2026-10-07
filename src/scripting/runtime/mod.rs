@@ -1,2 +1,2 @@
-pub mod require;
 pub mod globals;
+pub mod require;

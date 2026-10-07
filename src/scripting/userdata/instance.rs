@@ -1,12 +1,14 @@
-use bevy::prelude::*;
-use mlua::prelude::*;
-use crate::common::game::bricks::components::{Brick, BrickColor, BrickPhysics, BrickShapeComponent};
-use super::vector3::Vector3;
-use super::color3::Color3;
 use super::cframe::CFrame;
-use crate::scripting::ecs::{ServerScript, LocalScript, ModuleScript};
+use super::color3::Color3;
+use super::vector3::Vector3;
+use crate::common::game::bricks::components::{
+    Brick, BrickColor, BrickPhysics, BrickShapeComponent,
+};
+use crate::scripting::ecs::{LocalScript, ModuleScript, ServerScript};
 use crate::scripting::vm::scheduler::ScriptRegistryRef;
 use avian3d::prelude::*;
+use bevy::prelude::*;
+use mlua::prelude::*;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -24,19 +26,46 @@ pub fn class_name_of(world: &World, entity: Entity) -> &'static str {
     if name == "Workspace" {
         return "Workspace";
     }
-    if world.get::<crate::common::net::components::PlayersServiceContainer>(entity).is_some() {
+    if world
+        .get::<crate::common::net::components::PlayersServiceContainer>(entity)
+        .is_some()
+    {
         return "Players";
     }
-    if world.get::<crate::common::net::components::LightingServiceContainer>(entity).is_some() {
+    if world
+        .get::<crate::common::net::components::LightingServiceContainer>(entity)
+        .is_some()
+    {
         return "Lighting";
     }
-    if world.get::<crate::common::net::components::AssetServiceContainer>(entity).is_some() {
+    if world
+        .get::<crate::common::net::components::AssetServiceContainer>(entity)
+        .is_some()
+    {
         return "AssetService";
     }
-    if world.get::<crate::common::game::assets::components::Image>(entity).is_some() {
+    if world
+        .get::<crate::common::game::assets::components::Image>(entity)
+        .is_some()
+    {
         return "Image";
     }
-    if world.get::<crate::common::net::components::Player>(entity).is_some() {
+    if world
+        .get::<crate::common::game::assets::components::Texture>(entity)
+        .is_some()
+    {
+        return "Texture";
+    }
+    if world
+        .get::<crate::common::game::assets::components::Mesh>(entity)
+        .is_some()
+    {
+        return "Mesh";
+    }
+    if world
+        .get::<crate::common::net::components::Player>(entity)
+        .is_some()
+    {
         return "Player";
     }
     if world.get::<Brick>(entity).is_some() {
@@ -55,7 +84,9 @@ pub fn class_name_of(world: &World, entity: Entity) -> &'static str {
 }
 
 fn is_workspace(world: &World, entity: Entity) -> bool {
-    world.get::<Name>(entity).map_or(false, |n| n.as_str() == "Workspace")
+    world
+        .get::<Name>(entity)
+        .map_or(false, |n| n.as_str() == "Workspace")
 }
 
 fn is_managed(world: &World, entity: Entity) -> bool {
@@ -63,7 +94,15 @@ fn is_managed(world: &World, entity: Entity) -> bool {
         || world.get::<ServerScript>(entity).is_some()
         || world.get::<LocalScript>(entity).is_some()
         || world.get::<ModuleScript>(entity).is_some()
-        || world.get::<crate::common::game::assets::components::Image>(entity).is_some()
+        || world
+            .get::<crate::common::game::assets::components::Image>(entity)
+            .is_some()
+        || world
+            .get::<crate::common::game::assets::components::Texture>(entity)
+            .is_some()
+        || world
+            .get::<crate::common::game::assets::components::Mesh>(entity)
+            .is_some()
 }
 
 fn direct_children(world: &World, entity: Entity) -> Vec<Entity> {
@@ -129,52 +168,100 @@ impl LuaUserData for Instance {
         });
 
         methods.add_meta_method(LuaMetaMethod::ToString, |lua, this, _: ()| {
-            let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
+            let world_ref = lua
+                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                .unwrap();
             let world = unsafe { &*world_ref.0 };
-            let name = world.get::<Name>(this.entity).map(|n| n.as_str().to_string()).unwrap_or_else(|| "Instance".to_string());
+            let name = world
+                .get::<Name>(this.entity)
+                .map(|n| n.as_str().to_string())
+                .unwrap_or_else(|| "Instance".to_string());
             Ok(name)
         });
 
         methods.add_meta_method(LuaMetaMethod::Index, |lua, this, key: mlua::LuaString| {
-            let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
+            let world_ref = lua
+                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                .unwrap();
             let world = unsafe { &mut *world_ref.0 };
 
             if world.get_entity(this.entity).is_err() && key.to_str()?.as_ref() != "Destroy" {
-                return Err(mlua::Error::RuntimeError("Instance has been destroyed".to_string()));
+                return Err(mlua::Error::RuntimeError(
+                    "Instance has been destroyed".to_string(),
+                ));
             }
 
             match key.to_str()?.as_ref() {
                 "Name" => {
-                    let name = world.get::<Name>(this.entity).map(|n| n.as_str().to_string()).unwrap_or_default();
+                    let name = world
+                        .get::<Name>(this.entity)
+                        .map(|n| n.as_str().to_string())
+                        .unwrap_or_default();
                     Ok(LuaValue::String(lua.create_string(&name)?))
                 }
-                "ClassName" => {
-                    Ok(LuaValue::String(lua.create_string(class_name_of(world, this.entity))?))
-                }
+                "ClassName" => Ok(LuaValue::String(
+                    lua.create_string(class_name_of(world, this.entity))?,
+                )),
                 "Position" => {
-                    let translation = world.get::<Transform>(this.entity).map(|t| t.translation).unwrap_or_default();
-                    lua.create_userdata(Vector3(Vec3::new(to_studs(translation.x), to_studs(translation.y), to_studs(translation.z)))).map(LuaValue::UserData)
+                    let translation = world
+                        .get::<Transform>(this.entity)
+                        .map(|t| t.translation)
+                        .unwrap_or_default();
+                    lua.create_userdata(Vector3(Vec3::new(
+                        to_studs(translation.x),
+                        to_studs(translation.y),
+                        to_studs(translation.z),
+                    )))
+                    .map(LuaValue::UserData)
                 }
                 "Size" => {
-                    let scale = world.get::<Transform>(this.entity).map(|t| t.scale).unwrap_or(Vec3::ONE);
-                    lua.create_userdata(Vector3(scale)).map(LuaValue::UserData)
+                    let scale = world
+                        .get::<Transform>(this.entity)
+                        .map(|t| t.scale)
+                        .unwrap_or(Vec3::ONE);
+                    let base = world
+                        .get::<BrickShapeComponent>(this.entity)
+                        .map(|s| s.shape.base_size_studs())
+                        .unwrap_or(crate::common::game::bricks::components::BrickShape::Block.base_size_studs());
+                    lua.create_userdata(Vector3(scale * base)).map(LuaValue::UserData)
+                }
+                "Shape" => {
+                    let shape = world
+                        .get::<BrickShapeComponent>(this.entity)
+                        .map(|s| s.shape.display_name())
+                        .unwrap_or("Block");
+                    Ok(LuaValue::String(lua.create_string(shape)?))
                 }
                 "CFrame" => {
-                    let transform = world.get::<Transform>(this.entity).cloned().unwrap_or_default();
+                    let transform = world
+                        .get::<Transform>(this.entity)
+                        .cloned()
+                        .unwrap_or_default();
                     lua.create_userdata(CFrame {
-                        position: Vec3::new(to_studs(transform.translation.x), to_studs(transform.translation.y), to_studs(transform.translation.z)),
+                        position: Vec3::new(
+                            to_studs(transform.translation.x),
+                            to_studs(transform.translation.y),
+                            to_studs(transform.translation.z),
+                        ),
                         rotation: transform.rotation,
-                    }).map(LuaValue::UserData)
+                    })
+                    .map(LuaValue::UserData)
                 }
                 "Parent" => {
                     if let Some(child_of) = world.get::<ChildOf>(this.entity) {
-                        lua.create_userdata(Instance { entity: child_of.parent() }).map(LuaValue::UserData)
+                        lua.create_userdata(Instance {
+                            entity: child_of.parent(),
+                        })
+                        .map(LuaValue::UserData)
                     } else {
                         Ok(LuaValue::Nil)
                     }
                 }
                 "Color" | "BrickColor" => {
-                    let color = world.get::<BrickColor>(this.entity).map(|bc| bc.color).unwrap_or(Color::WHITE);
+                    let color = world
+                        .get::<BrickColor>(this.entity)
+                        .map(|bc| bc.color)
+                        .unwrap_or(Color::WHITE);
                     lua.create_userdata(Color3(color)).map(LuaValue::UserData)
                 }
                 "Anchored" => {
@@ -187,69 +274,131 @@ impl LuaUserData for Instance {
                     let can_collide = phys.map_or(true, |p| p.player_can_collide);
                     Ok(LuaValue::Boolean(can_collide))
                 }
-                "Touched" => {
-                    lua.create_userdata(RBXScriptSignal {
+                "Touched" => lua
+                    .create_userdata(RBXScriptSignal {
                         name: "Touched",
                         entity: this.entity,
-                    }).map(LuaValue::UserData)
-                }
+                    })
+                    .map(LuaValue::UserData),
                 "JumpPower" => {
-                    let jp = world.get::<crate::common::net::components::Player>(this.entity)
+                    let jp = world
+                        .get::<crate::common::net::components::Player>(this.entity)
                         .map(|p| to_studs(p.jump_power))
                         .unwrap_or(50.0);
                     Ok(LuaValue::Number(jp as f64))
                 }
                 "Speed" => {
-                    let s = world.get::<crate::common::net::components::Player>(this.entity)
+                    let s = world
+                        .get::<crate::common::net::components::Player>(this.entity)
                         .map(|p| to_studs(p.speed))
                         .unwrap_or(16.0);
                     Ok(LuaValue::Number(s as f64))
                 }
+                "Gravity" => {
+                    if let Some(g) = world
+                        .get::<crate::common::net::components::Player>(this.entity)
+                        .map(|p| to_studs(p.gravity))
+                    {
+                        return Ok(LuaValue::Number(g as f64));
+                    }
+                    let g = world
+                        .get_resource::<avian3d::prelude::Gravity>()
+                        .map(|g| -g.0.y / 0.28)
+                        .unwrap_or(186.9);
+                    Ok(LuaValue::Number(g as f64))
+                }
+                "SpeedResponse" | "SpeedMode" => {
+                    let mode = world
+                        .get::<crate::common::net::components::Player>(this.entity)
+                        .map(|p| p.speed_response)
+                        .unwrap_or_default();
+                    let s = match mode {
+                        crate::common::game::movement::SpeedResponse::Linear => "Linear",
+                        crate::common::game::movement::SpeedResponse::Exponential => {
+                            "Exponential"
+                        }
+                    };
+                    Ok(LuaValue::String(lua.create_string(s)?))
+                }
                 "Velocity" => {
-                    let vel = world.get::<LinearVelocity>(this.entity)
+                    let vel = world
+                        .get::<LinearVelocity>(this.entity)
                         .map(|v| Vec3::new(to_studs(v.0.x), to_studs(v.0.y), to_studs(v.0.z)))
                         .unwrap_or(Vec3::ZERO);
                     lua.create_userdata(Vector3(vel)).map(LuaValue::UserData)
                 }
                 "Workspace" => {
                     if let Some(workspace_entity) = find_service_entity(world, "Workspace") {
-                        lua.create_userdata(Instance { entity: workspace_entity }).map(LuaValue::UserData)
+                        lua.create_userdata(Instance {
+                            entity: workspace_entity,
+                        })
+                        .map(LuaValue::UserData)
                     } else {
                         Ok(LuaValue::Nil)
                     }
                 }
                 "Players" => {
                     if let Some(players_entity) = find_service_entity(world, "Players") {
-                        lua.create_userdata(Instance { entity: players_entity }).map(LuaValue::UserData)
+                        lua.create_userdata(Instance {
+                            entity: players_entity,
+                        })
+                        .map(LuaValue::UserData)
                     } else {
                         Ok(LuaValue::Nil)
                     }
                 }
                 "Lighting" => {
                     if let Some(lighting_entity) = find_service_entity(world, "Lighting") {
-                        lua.create_userdata(Instance { entity: lighting_entity }).map(LuaValue::UserData)
+                        lua.create_userdata(Instance {
+                            entity: lighting_entity,
+                        })
+                        .map(LuaValue::UserData)
                     } else {
                         Ok(LuaValue::Nil)
                     }
                 }
                 "AssetService" => {
                     if let Some(asset_entity) = find_service_entity(world, "AssetService") {
-                        lua.create_userdata(Instance { entity: asset_entity }).map(LuaValue::UserData)
+                        lua.create_userdata(Instance {
+                            entity: asset_entity,
+                        })
+                        .map(LuaValue::UserData)
                     } else {
                         Ok(LuaValue::Nil)
                     }
                 }
                 "ID" => {
+                    if let Some(texture) =
+                        world.get::<crate::common::game::assets::components::Texture>(this.entity)
+                    {
+                        return Ok(LuaValue::String(
+                            lua.create_string(texture.as_content_id())?,
+                        ));
+                    }
+                    if let Some(mesh) =
+                        world.get::<crate::common::game::assets::components::Mesh>(this.entity)
+                    {
+                        return Ok(LuaValue::String(
+                            lua.create_string(format!("mesh/{}", mesh.asset_id))?,
+                        ));
+                    }
                     let asset_id = world
                         .get::<crate::common::game::assets::components::Image>(this.entity)
                         .map(|img| img.asset_id)
                         .unwrap_or(0);
-                    Ok(LuaValue::String(lua.create_string(format!("image/{asset_id}"))?))
+                    Ok(LuaValue::String(
+                        lua.create_string(format!("image/{asset_id}"))?,
+                    ))
                 }
                 "Face" => {
-                    let parent_is_brick = world.get::<ChildOf>(this.entity).map(|co| co.parent()).is_some_and(|parent| {
-                        world.get::<crate::common::game::bricks::components::Brick>(parent).is_some()
-                    });
+                    let parent_is_brick = world
+                        .get::<ChildOf>(this.entity)
+                        .map(|co| co.parent())
+                        .is_some_and(|parent| {
+                            world
+                                .get::<crate::common::game::bricks::components::Brick>(parent)
+                                .is_some()
+                        });
                     if !parent_is_brick {
                         return Ok(LuaValue::Nil);
                     }
@@ -261,162 +410,270 @@ impl LuaUserData for Instance {
                 }
                 "GetChildren" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &*world_ref.0 };
-                        let children = direct_children(world, entity);
-                        let table = lua.create_table()?;
-                        for (i, child) in children.into_iter().enumerate() {
-                            table.set(i + 1, Instance { entity: child })?;
-                        }
-                        Ok(LuaValue::Table(table))
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &*world_ref.0 };
+                            let children = direct_children(world, entity);
+                            let table = lua.create_table()?;
+                            for (i, child) in children.into_iter().enumerate() {
+                                table.set(i + 1, Instance { entity: child })?;
+                            }
+                            Ok(LuaValue::Table(table))
+                        },
+                    )?))
                 }
                 "GetDescendants" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &*world_ref.0 };
-                        let all = descendants(world, entity);
-                        let table = lua.create_table()?;
-                        for (i, child) in all.into_iter().enumerate() {
-                            table.set(i + 1, Instance { entity: child })?;
-                        }
-                        Ok(LuaValue::Table(table))
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &*world_ref.0 };
+                            let all = descendants(world, entity);
+                            let table = lua.create_table()?;
+                            for (i, child) in all.into_iter().enumerate() {
+                                table.set(i + 1, Instance { entity: child })?;
+                            }
+                            Ok(LuaValue::Table(table))
+                        },
+                    )?))
                 }
                 "GetParent" => {
                     let parent_opt = world.get::<ChildOf>(this.entity).map(|co| co.parent());
-                    Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
-                        if let Some(parent) = parent_opt {
-                            lua.create_userdata(Instance { entity: parent }).map(LuaValue::UserData)
-                        } else {
-                            Ok(LuaValue::Nil)
-                        }
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            if let Some(parent) = parent_opt {
+                                lua.create_userdata(Instance { entity: parent })
+                                    .map(LuaValue::UserData)
+                            } else {
+                                Ok(LuaValue::Nil)
+                            }
+                        },
+                    )?))
                 }
                 "IsA" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, args: LuaMultiValue| {
-                        let want = last_string_arg(&args)
-                            .ok_or_else(|| mlua::Error::RuntimeError("IsA expects a class name".to_string()))?;
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &*world_ref.0 };
-                        let class = class_name_of(world, entity);
-                        let is = want == "Instance" || class == want || (want == "BasePart" && class == "Part");
-                        Ok(LuaValue::Boolean(is))
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, args: LuaMultiValue| {
+                            let want = last_string_arg(&args).ok_or_else(|| {
+                                mlua::Error::RuntimeError("IsA expects a class name".to_string())
+                            })?;
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &*world_ref.0 };
+                            let class = class_name_of(world, entity);
+                            let is = want == "Instance"
+                                || class == want
+                                || (want == "BasePart" && class == "Part");
+                            Ok(LuaValue::Boolean(is))
+                        },
+                    )?))
                 }
                 "FindFirstChild" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, args: LuaMultiValue| {
-                        let name_to_find = last_string_arg(&args)
-                            .ok_or_else(|| mlua::Error::RuntimeError("FindFirstChild expects a name".to_string()))?;
-                        let recursive = last_boolean_arg(&args).unwrap_or(false);
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &*world_ref.0 };
-                        let search: Vec<Entity> = if recursive {
-                            descendants(world, entity)
-                        } else {
-                            direct_children(world, entity)
-                        };
-                        for child in search {
-                            if world.get::<Name>(child).is_some_and(|n| n.as_str() == name_to_find) {
-                                return lua.create_userdata(Instance { entity: child }).map(LuaValue::UserData);
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, args: LuaMultiValue| {
+                            let name_to_find = last_string_arg(&args).ok_or_else(|| {
+                                mlua::Error::RuntimeError(
+                                    "FindFirstChild expects a name".to_string(),
+                                )
+                            })?;
+                            let recursive = last_boolean_arg(&args).unwrap_or(false);
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &*world_ref.0 };
+                            let search: Vec<Entity> = if recursive {
+                                descendants(world, entity)
+                            } else {
+                                direct_children(world, entity)
+                            };
+                            for child in search {
+                                if world
+                                    .get::<Name>(child)
+                                    .is_some_and(|n| n.as_str() == name_to_find)
+                                {
+                                    return lua
+                                        .create_userdata(Instance { entity: child })
+                                        .map(LuaValue::UserData);
+                                }
                             }
-                        }
-                        Ok(LuaValue::Nil)
-                    })?))
+                            Ok(LuaValue::Nil)
+                        },
+                    )?))
                 }
                 "FindFirstChildOfClass" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, args: LuaMultiValue| {
-                        let want = last_string_arg(&args)
-                            .ok_or_else(|| mlua::Error::RuntimeError("FindFirstChildOfClass expects a class name".to_string()))?;
-                        let recursive = last_boolean_arg(&args).unwrap_or(false);
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &*world_ref.0 };
-                        let search: Vec<Entity> = if recursive {
-                            descendants(world, entity)
-                        } else {
-                            direct_children(world, entity)
-                        };
-                        for child in search {
-                            if class_name_of(world, child) == want {
-                                return lua.create_userdata(Instance { entity: child }).map(LuaValue::UserData);
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, args: LuaMultiValue| {
+                            let want = last_string_arg(&args).ok_or_else(|| {
+                                mlua::Error::RuntimeError(
+                                    "FindFirstChildOfClass expects a class name".to_string(),
+                                )
+                            })?;
+                            let recursive = last_boolean_arg(&args).unwrap_or(false);
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &*world_ref.0 };
+                            let search: Vec<Entity> = if recursive {
+                                descendants(world, entity)
+                            } else {
+                                direct_children(world, entity)
+                            };
+                            for child in search {
+                                if class_name_of(world, child) == want {
+                                    return lua
+                                        .create_userdata(Instance { entity: child })
+                                        .map(LuaValue::UserData);
+                                }
                             }
-                        }
-                        Ok(LuaValue::Nil)
-                    })?))
+                            Ok(LuaValue::Nil)
+                        },
+                    )?))
                 }
-                "WaitForChild" => {
-                    Ok(LuaValue::Function(
-                        lua.globals().get::<LuaFunction>("__vertigo_waitforchild")?,
-                    ))
-                }
+                "WaitForChild" => Ok(LuaValue::Function(
+                    lua.globals().get::<LuaFunction>("__vertigo_waitforchild")?,
+                )),
                 "Clone" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
-                        crate::scripting::vm::sandbox::try_spawn_entity(lua)?;
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &mut *world_ref.0 };
-                        if world.get_entity(entity).is_err() {
-                            return Err(mlua::Error::RuntimeError("Instance to clone has been destroyed".to_string()));
-                        }
-                        let (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code, image) = {
-                            let transform = world.get::<Transform>(entity).cloned().unwrap_or_default();
-                            let name = world.get::<Name>(entity).cloned().unwrap_or_else(|| Name::new("Clone"));
-                            let shape = world.get::<BrickShapeComponent>(entity).cloned();
-                            let phys = world.get::<BrickPhysics>(entity).cloned();
-                            let color = world.get::<BrickColor>(entity).cloned();
-                            let layers = world.get::<CollisionLayers>(entity).cloned();
-                            let is_brick = world.get::<Brick>(entity).is_some();
-                            let parent = world.get::<ChildOf>(entity)
-                                .map(|co| co.parent())
-                                .filter(|parent| world.get_entity(*parent).is_ok());
-                            let server_code = world.get::<ServerScript>(entity).map(|s| s.code.clone());
-                            let local_code = world.get::<LocalScript>(entity).map(|s| s.code.clone());
-                            let module_code = world.get::<ModuleScript>(entity).map(|s| s.code.clone());
-                            let image = world.get::<crate::common::game::assets::components::Image>(entity).cloned();
-                            (transform, name, shape, phys, color, layers, is_brick, parent, server_code, local_code, module_code, image)
-                        };
-                        let mut new_entity = world.spawn((transform, name));
-                        if is_brick { new_entity.insert(Brick); }
-                        if let Some(s) = shape { new_entity.insert(s); }
-                        if let Some(p) = phys { new_entity.insert(p); }
-                        if let Some(c) = color { new_entity.insert(c); }
-                        if let Some(l) = layers { new_entity.insert(l); }
-                        if let Some(code) = server_code {
-                            new_entity.insert(ServerScript { code, ..default() });
-                        }
-                        if let Some(code) = local_code {
-                            new_entity.insert(LocalScript { code, ..default() });
-                        }
-                        if let Some(code) = module_code {
-                            new_entity.insert(ModuleScript { code });
-                        }
-                        if let Some(img) = image {
-                            new_entity.insert(img);
-                        }
-                        new_entity.insert(lightyear::prelude::Replicate::default());
-                        let new_id = new_entity.id();
-                        drop(new_entity);
-                        if let Some(parent) = parent {
-                            world.entity_mut(parent).add_child(new_id);
-                        }
-                        lua.create_userdata(Instance { entity: new_id }).map(LuaValue::UserData)
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            crate::scripting::vm::sandbox::try_spawn_entity(lua)?;
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &mut *world_ref.0 };
+                            if world.get_entity(entity).is_err() {
+                                return Err(mlua::Error::RuntimeError(
+                                    "Instance to clone has been destroyed".to_string(),
+                                ));
+                            }
+                            let (
+                                transform,
+                                name,
+                                shape,
+                                phys,
+                                color,
+                                layers,
+                                is_brick,
+                                parent,
+                                server_code,
+                                local_code,
+                                module_code,
+                                image,
+                                mesh,
+                            ) = {
+                                let transform =
+                                    world.get::<Transform>(entity).cloned().unwrap_or_default();
+                                let name = world
+                                    .get::<Name>(entity)
+                                    .cloned()
+                                    .unwrap_or_else(|| Name::new("Clone"));
+                                let shape = world.get::<BrickShapeComponent>(entity).cloned();
+                                let phys = world.get::<BrickPhysics>(entity).cloned();
+                                let color = world.get::<BrickColor>(entity).cloned();
+                                let layers = world.get::<CollisionLayers>(entity).cloned();
+                                let is_brick = world.get::<Brick>(entity).is_some();
+                                let parent = world
+                                    .get::<ChildOf>(entity)
+                                    .map(|co| co.parent())
+                                    .filter(|parent| world.get_entity(*parent).is_ok());
+                                let server_code =
+                                    world.get::<ServerScript>(entity).map(|s| s.code.clone());
+                                let local_code =
+                                    world.get::<LocalScript>(entity).map(|s| s.code.clone());
+                                let module_code =
+                                    world.get::<ModuleScript>(entity).map(|s| s.code.clone());
+                                let image = world
+                                    .get::<crate::common::game::assets::components::Image>(entity)
+                                    .cloned();
+                                let mesh = world
+                                    .get::<crate::common::game::assets::components::Mesh>(entity)
+                                    .cloned();
+                                (
+                                    transform,
+                                    name,
+                                    shape,
+                                    phys,
+                                    color,
+                                    layers,
+                                    is_brick,
+                                    parent,
+                                    server_code,
+                                    local_code,
+                                    module_code,
+                                    image,
+                                    mesh,
+                                )
+                            };
+                            let mut new_entity = world.spawn((transform, name));
+                            if is_brick {
+                                new_entity.insert(Brick);
+                            }
+                            if let Some(s) = shape {
+                                new_entity.insert(s);
+                            }
+                            if let Some(p) = phys {
+                                new_entity.insert(p);
+                            }
+                            if let Some(c) = color {
+                                new_entity.insert(c);
+                            }
+                            if let Some(l) = layers {
+                                new_entity.insert(l);
+                            }
+                            if let Some(code) = server_code {
+                                new_entity.insert(ServerScript { code, ..default() });
+                            }
+                            if let Some(code) = local_code {
+                                new_entity.insert(LocalScript { code, ..default() });
+                            }
+                            if let Some(code) = module_code {
+                                new_entity.insert(ModuleScript { code });
+                            }
+                            let had_mesh = mesh.is_some();
+                            if let Some(img) = image {
+                                new_entity.insert(img);
+                            }
+                            if let Some(m) = mesh {
+                                new_entity.insert(m);
+                            }
+                            new_entity.insert(lightyear::prelude::Replicate::default());
+                            let new_id = new_entity.id();
+                            drop(new_entity);
+                            if let Some(parent) = parent {
+                                world.entity_mut(parent).add_child(new_id);
+                            }
+                            if had_mesh {
+                                crate::common::game::assets::ensure_texture_child_world(
+                                    world, new_id,
+                                );
+                            }
+                            lua.create_userdata(Instance { entity: new_id })
+                                .map(LuaValue::UserData)
+                        },
+                    )?))
                 }
                 "Destroy" => {
                     let entity = this.entity;
-                    Ok(LuaValue::Function(lua.create_function(move |lua, _: LuaMultiValue| {
-                        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
-                        let world = unsafe { &mut *world_ref.0 };
-                        if world.get_entity(entity).is_ok() {
-                            world.entity_mut(entity).despawn();
-                        }
-                        Ok(())
-                    })?))
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &mut *world_ref.0 };
+                            if world.get_entity(entity).is_ok() {
+                                world.entity_mut(entity).despawn();
+                            }
+                            Ok(())
+                        },
+                    )?))
                 }
                 _ => Ok(LuaValue::Nil),
             }
@@ -450,9 +707,35 @@ impl LuaUserData for Instance {
                 "Size" => {
                     if let LuaValue::UserData(ud) = value {
                         if let Ok(vec) = ud.borrow::<Vector3>() {
+                            let base = world
+                                .get::<BrickShapeComponent>(this.entity)
+                                .map(|s| s.shape.base_size_studs())
+                                .unwrap_or(crate::common::game::bricks::components::BrickShape::Block.base_size_studs());
                             if let Some(mut transform) = world.get_mut::<Transform>(this.entity) {
-                                transform.scale = vec.0.max(Vec3::splat(0.01));
+                                transform.scale = (vec.0 / base).max(Vec3::splat(0.01));
                             }
+                        }
+                    }
+                }
+                "Shape" => {
+                    let shape_opt = match &value {
+                        LuaValue::String(s) => s
+                            .to_str()
+                            .ok()
+                            .and_then(|name| {
+                                crate::common::game::bricks::components::BrickShape::from_name(
+                                    name.as_ref(),
+                                )
+                            }),
+                        _ => None,
+                    };
+                    if let Some(shape) = shape_opt {
+                        if let Some(mut comp) = world.get_mut::<BrickShapeComponent>(this.entity) {
+                            comp.shape = shape;
+                        } else {
+                            world
+                                .entity_mut(this.entity)
+                                .insert(BrickShapeComponent { shape });
                         }
                     }
                 }
@@ -576,22 +859,64 @@ impl LuaUserData for Instance {
                     }
                 }
                 "ID" => {
-                    let parsed: Option<u32> = match value {
-                        LuaValue::Number(n) => u32::try_from(n as u64).ok(),
-                        LuaValue::Integer(i) => u32::try_from(i).ok(),
+                    if world.get::<crate::common::game::assets::components::Texture>(this.entity).is_some() {
+                        let parsed = match &value {
+                            LuaValue::Number(n) => u32::try_from(*n as u64).ok().map(|v| (v, true)),
+                            LuaValue::Integer(i) => u32::try_from(*i).ok().map(|v| (v, true)),
+                            LuaValue::String(s) => {
+                                crate::common::game::assets::components::Texture::parse_content_id(&s.to_string_lossy())
+                            }
+                            _ => None,
+                        };
+                        let Some((asset_id, is_decal)) = parsed else {
+                            return Err(mlua::Error::RuntimeError(
+                                "Texture.ID must be a number or a content id like \"image/123\" or \"mesh/123\"".to_string(),
+                            ));
+                        };
+                        if let Some(mut texture) = world.get_mut::<crate::common::game::assets::components::Texture>(this.entity) {
+                            texture.asset_id = asset_id;
+                            texture.is_decal = is_decal;
+                        }
+                        return Ok(());
+                    }
+                    let parsed: Option<(u32, bool)> = match value {
+                        LuaValue::Number(n) => u32::try_from(n as u64).ok().map(|v| (v, false)),
+                        LuaValue::Integer(i) => u32::try_from(i).ok().map(|v| (v, false)),
                         LuaValue::String(s) => {
                             let s = s.to_string_lossy();
-                            let stripped = s.strip_prefix("image/").unwrap_or(&s);
-                            stripped.parse::<u32>().ok()
+                            if let Some(rest) = s.strip_prefix("mesh/") {
+                                rest.parse::<u32>().ok().map(|v| (v, true))
+                            } else {
+                                let stripped = s.strip_prefix("image/").unwrap_or(&s);
+                                stripped.parse::<u32>().ok().map(|v| (v, false))
+                            }
                         }
                         _ => None,
                     };
-                    let Some(asset_id) = parsed else {
+                    let Some((asset_id, is_mesh)) = parsed else {
                         return Err(mlua::Error::RuntimeError(
-                            "Image.ID must be a number or a content id like \"image/123\"".to_string(),
+                            "Image.ID must be a number or a content id like \"image/123\" or \"mesh/123\"".to_string(),
                         ));
                     };
-                    if let Some(mut image) = world.get_mut::<crate::common::game::assets::components::Image>(this.entity) {
+                    if is_mesh {
+                        let old_asset_id = world
+                            .get::<crate::common::game::assets::components::Mesh>(this.entity)
+                            .map(|m| m.asset_id);
+                        if let Some(mut mesh) = world.get_mut::<crate::common::game::assets::components::Mesh>(this.entity) {
+                            mesh.asset_id = asset_id;
+                        } else {
+                            world.entity_mut(this.entity).insert(crate::common::game::assets::components::Mesh {
+                                asset_id,
+                                normalize: false,
+                            });
+                        }
+                        if old_asset_id.is_none_or(|old| old != asset_id) {
+                            if let Some(old) = old_asset_id {
+                                crate::common::game::assets::follow_mesh_id_change(world, this.entity, old, asset_id);
+                            }
+                            crate::common::game::assets::ensure_texture_child_world(world, this.entity);
+                        }
+                    } else if let Some(mut image) = world.get_mut::<crate::common::game::assets::components::Image>(this.entity) {
                         image.asset_id = asset_id;
                     } else {
                         world.entity_mut(this.entity).insert(crate::common::game::assets::components::Image {
@@ -643,8 +968,37 @@ impl LuaUserData for Instance {
                         _ => None,
                     };
                     if let Some(val) = opt_val {
-                        if let Some(mut g) = world.get_resource_mut::<avian3d::prelude::Gravity>() {
+                        if world
+                            .get::<crate::common::net::components::Player>(this.entity)
+                            .is_some()
+                        {
+                            if let Some(mut player) = world.get_mut::<crate::common::net::components::Player>(this.entity) {
+                                player.gravity = val as f32 * 0.28;
+                            }
+                        } else if let Some(mut g) =
+                            world.get_resource_mut::<avian3d::prelude::Gravity>()
+                        {
                             g.0.y = -val as f32 * 0.28;
+                        }
+                    }
+                }
+                "SpeedResponse" | "SpeedMode" => {
+                    let mode = match &value {
+                        LuaValue::String(s) => {
+                            let lower = s.to_string_lossy().to_lowercase();
+                            if lower.starts_with("exp") {
+                                Some(crate::common::game::movement::SpeedResponse::Exponential)
+                            } else if lower.starts_with("lin") {
+                                Some(crate::common::game::movement::SpeedResponse::Linear)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(mode) = mode {
+                        if let Some(mut player) = world.get_mut::<crate::common::net::components::Player>(this.entity) {
+                            player.speed_response = mode;
                         }
                     }
                 }
@@ -665,7 +1019,10 @@ pub fn find_service_entity(world: &World, service_name: &str) -> Option<Entity> 
             _ => None,
         };
         if let Some(entity) = cached {
-            if world.get::<Name>(entity).is_some_and(|name| name.as_str() == service_name) {
+            if world
+                .get::<Name>(entity)
+                .is_some_and(|name| name.as_str() == service_name)
+            {
                 return Some(entity);
             }
         }
@@ -691,7 +1048,10 @@ impl LuaUserData for RBXScriptSignal {
         methods.add_method("Connect", |lua, this, callback: LuaFunction| {
             let registry_ref = lua.app_data_ref::<ScriptRegistryRef>().unwrap();
             let mut registry = registry_ref.0.lock().unwrap();
-            let connections = registry.connections.entry((this.entity, this.name)).or_default();
+            let connections = registry
+                .connections
+                .entry((this.entity, this.name))
+                .or_default();
             if connections.len() >= crate::scripting::vm::sandbox::MAX_CONNECTIONS_PER_ENTITY {
                 return Err(mlua::Error::RuntimeError(format!(
                     "too many {} connections on this instance (limit {})",
@@ -707,27 +1067,30 @@ impl LuaUserData for RBXScriptSignal {
             let name = this.name;
             let registry_ref_clone = (*registry_ref).clone();
             let mut owned_key = Some(key);
-            conn_table.set("Disconnect", lua.create_function_mut(move |lua, _: ()| {
-                let mut registry = registry_ref_clone.0.lock().unwrap();
-                let mut to_remove = None;
-                if let Some(conns) = registry.connections.get_mut(&(entity, name)) {
-                    conns.retain(|k| !Arc::ptr_eq(k, owned_key.as_ref().unwrap()));
-                    if conns.is_empty() {
-                        registry.connections.remove(&(entity, name));
+            conn_table.set(
+                "Disconnect",
+                lua.create_function_mut(move |lua, _: ()| {
+                    let mut registry = registry_ref_clone.0.lock().unwrap();
+                    let mut to_remove = None;
+                    if let Some(conns) = registry.connections.get_mut(&(entity, name)) {
+                        conns.retain(|k| !Arc::ptr_eq(k, owned_key.as_ref().unwrap()));
+                        if conns.is_empty() {
+                            registry.connections.remove(&(entity, name));
+                        }
                     }
-                }
-                if let Some(k) = owned_key.take() {
-                    match Arc::try_unwrap(k) {
-                        Ok(orphaned) => to_remove = Some(orphaned),
-                        Err(arc) => owned_key = Some(arc),
+                    if let Some(k) = owned_key.take() {
+                        match Arc::try_unwrap(k) {
+                            Ok(orphaned) => to_remove = Some(orphaned),
+                            Err(arc) => owned_key = Some(arc),
+                        }
                     }
-                }
-                drop(registry);
-                if let Some(orphaned) = to_remove {
-                    let _ = lua.remove_registry_value(orphaned);
-                }
-                Ok(())
-            })?)?;
+                    drop(registry);
+                    if let Some(orphaned) = to_remove {
+                        let _ = lua.remove_registry_value(orphaned);
+                    }
+                    Ok(())
+                })?,
+            )?;
             Ok(conn_table)
         });
     }
@@ -736,10 +1099,12 @@ impl LuaUserData for RBXScriptSignal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::net::components::{
+        LightingServiceContainer, Player, PlayersServiceContainer,
+    };
     use crate::scripting::testing::{
         advance, entity_of, eval, global, run_script, spawn_brick, test_vm, test_world,
     };
-    use crate::common::net::components::{LightingServiceContainer, Player, PlayersServiceContainer};
 
     fn expose(vm: &crate::scripting::vm::server_vm::ServerScriptVM, name: &str, entity: Entity) {
         vm.lua
@@ -748,7 +1113,11 @@ mod tests {
             .unwrap();
     }
 
-    fn count_connections(vm: &crate::scripting::vm::server_vm::ServerScriptVM, entity: Entity, name: &'static str) -> usize {
+    fn count_connections(
+        vm: &crate::scripting::vm::server_vm::ServerScriptVM,
+        entity: Entity,
+        name: &'static str,
+    ) -> usize {
         vm.registry
             .lock()
             .unwrap()
@@ -756,7 +1125,6 @@ mod tests {
             .get(&(entity, name))
             .map_or(0, |conns| conns.len())
     }
-
 
     #[test]
     fn class_names_cover_all_known_entity_kinds() {
@@ -766,16 +1134,20 @@ mod tests {
         let workspace = world.spawn(Name::new("Workspace")).id();
         let players = world.spawn(PlayersServiceContainer).id();
         let lighting = world.spawn(LightingServiceContainer).id();
-        let asset_service = world.spawn(crate::common::net::components::AssetServiceContainer).id();
+        let asset_service = world
+            .spawn(crate::common::net::components::AssetServiceContainer)
+            .id();
         let player = world.spawn(Player::default()).id();
         let brick = spawn_brick(&mut world, "Brick");
         let server_script = world.spawn((Name::new("S"), ServerScript::default())).id();
         let local_script = world.spawn((Name::new("L"), LocalScript::default())).id();
         let module = world.spawn((Name::new("M"), ModuleScript::default())).id();
-        let image = world.spawn((
-            Name::new("Image"),
-            crate::common::game::assets::components::Image::default(),
-        )).id();
+        let image = world
+            .spawn((
+                Name::new("Image"),
+                crate::common::game::assets::components::Image::default(),
+            ))
+            .id();
         let folder = world.spawn(Name::new("Folder")).id();
 
         let cases = [
@@ -824,12 +1196,13 @@ mod tests {
         assert_eq!(str, "MyBrick");
     }
 
-
     #[test]
     fn part_properties_round_trip_through_lua() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local p = Instance.new("Part")
             p.Name = "Hello"
             p.CFrame = CFrame.new(5, 6, 7) * CFrame.angles(0, math.pi / 2, 0)
@@ -839,11 +1212,25 @@ mod tests {
             p.Anchored = false
             p.CanCollide = false
             _G.part = p
-        "#);
+        "#,
+        );
         let part = entity_of(&vm, "part");
 
         let (name, class, px, py, pz, sx, sz, look_x, look_z, r, g, b, anchored, can_collide): (
-            String, String, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, bool, bool,
+            String,
+            String,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            bool,
+            bool,
         ) = eval(
             &vm,
             r#"
@@ -883,11 +1270,14 @@ mod tests {
     fn anchoring_a_part_makes_it_static() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local p = Instance.new("Part")
             p.Anchored = true
             _G.part = p
-        "#);
+        "#,
+        );
         let part = entity_of(&vm, "part");
         assert!(world.get::<BrickPhysics>(part).unwrap().enabled == false);
         assert_eq!(world.get::<RigidBody>(part).unwrap(), &RigidBody::Static);
@@ -905,16 +1295,20 @@ mod tests {
                 speed: 100.0,
                 jump_power: 40.0,
                 username: "Tester".to_string(),
+                ..default()
             },))
             .id();
         expose(&vm, "p", player);
 
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local p = _G.p
             p.Velocity = Vector3.new(1, 2, 3)
             p.JumpPower = 60
             p.Speed = 120
-        "#);
+        "#,
+        );
 
         let (vx, vz, jp, spd): (f64, f64, f64, f64) = eval(
             &vm,
@@ -931,16 +1325,18 @@ mod tests {
         assert!((player_comp.speed - 33.6).abs() < 1e-6);
     }
 
-
     #[test]
     fn parent_manipulation() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.folder = Instance.new("Folder")
             _G.child = Instance.new("Folder")
             _G.child.Parent = _G.folder
-        "#);
+        "#,
+        );
         let folder = entity_of(&vm, "folder");
         let child = entity_of(&vm, "child");
         assert_eq!(world.get::<ChildOf>(child).unwrap().parent(), folder);
@@ -951,7 +1347,10 @@ mod tests {
         let gone = world.spawn(Name::new("Gone")).id();
         world.entity_mut(gone).despawn();
         expose(&vm, "gone", gone);
-        let ok: bool = eval(&vm, "return pcall(function() _G.child.Parent = _G.gone end)");
+        let ok: bool = eval(
+            &vm,
+            "return pcall(function() _G.child.Parent = _G.gone end)",
+        );
         assert!(!ok);
     }
 
@@ -981,7 +1380,9 @@ mod tests {
     fn children_descendants_and_findfirstchild() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local folder = Instance.new("Folder")
             folder.Name = "F"
             local part = Instance.new("Part")
@@ -997,10 +1398,17 @@ mod tests {
             deep.Name = "Deep"
             deep.Parent = sub
             _G.folder = folder
-        "#);
+        "#,
+        );
         let folder = entity_of(&vm, "folder");
 
-        let (child_count, has_deep, by_name, missing, by_class): (usize, bool, String, bool, String) = eval(
+        let (child_count, has_deep, by_name, missing, by_class): (
+            usize,
+            bool,
+            String,
+            bool,
+            String,
+        ) = eval(
             &vm,
             r#"
                 local f = _G.folder
@@ -1044,13 +1452,16 @@ mod tests {
     fn wait_for_child_finds_immediate_child() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local folder = Instance.new("Folder")
             local part = Instance.new("Part")
             part.Name = "Ready"
             part.Parent = folder
             _G.found = folder:WaitForChild("Ready").Name
-        "#);
+        "#,
+        );
         assert_eq!(global::<String>(&vm, "found"), "Ready");
     }
 
@@ -1058,7 +1469,9 @@ mod tests {
     fn wait_for_child_waits_for_late_child() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.folder = Instance.new("Folder")
             task.spawn(function()
                 task.wait(0.05)
@@ -1070,7 +1483,8 @@ mod tests {
                 local child = _G.folder:WaitForChild("Late", 2)
                 _G.found = child and child.Name or "none"
             end)
-        "#);
+        "#,
+        );
         advance(&vm, 20, 10);
         assert_eq!(global::<String>(&vm, "found"), "Late");
     }
@@ -1079,7 +1493,9 @@ mod tests {
     fn wait_for_child_times_out() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.folder = Instance.new("Folder")
             task.spawn(function()
                 local ok, err = pcall(function()
@@ -1087,17 +1503,19 @@ mod tests {
                 end)
                 _G.timed_out = not ok and tostring(err):find("timed out") ~= nil
             end)
-        "#);
+        "#,
+        );
         advance(&vm, 25, 12);
         assert!(global::<bool>(&vm, "timed_out"));
     }
-
 
     #[test]
     fn clone_copies_class_properties_and_parent() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local folder = Instance.new("Folder")
             folder.Name = "ParentFolder"
             local p = Instance.new("Part")
@@ -1106,10 +1524,19 @@ mod tests {
             p.Color = Color3.fromRGB(255, 0, 0)
             p.Parent = folder
             _G.p = p
-        "#);
+        "#,
+        );
         let original = entity_of(&vm, "p");
 
-        let (name, class, px, py, pz, parent_name, is_same): (String, String, f64, f64, f64, String, bool) = eval(
+        let (name, class, px, py, pz, parent_name, is_same): (
+            String,
+            String,
+            f64,
+            f64,
+            f64,
+            String,
+            bool,
+        ) = eval(
             &vm,
             r#"
                 local c = _G.p:Clone()
@@ -1160,12 +1587,18 @@ mod tests {
     fn destroy_removes_the_entity_and_future_access_errors() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.p = Instance.new("Part")
             _G.p:Destroy()
-        "#);
+        "#,
+        );
         let part = entity_of(&vm, "p");
-        assert!(world.get_entity(part).is_err(), "Destroy must despawn the entity");
+        assert!(
+            world.get_entity(part).is_err(),
+            "Destroy must despawn the entity"
+        );
 
         let (index_ok, newindex_ok): (bool, bool) = eval(
             &vm,
@@ -1183,15 +1616,17 @@ mod tests {
     fn destroy_is_idempotent() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.p = Instance.new("Part")
             _G.p:Destroy()
             local ok = pcall(function() _G.p:Destroy() end)
             _G.double_destroy_ok = ok
-        "#);
+        "#,
+        );
         assert!(global::<bool>(&vm, "double_destroy_ok"));
     }
-
 
     #[test]
     fn instance_resolves_service_instances() {
@@ -1219,11 +1654,14 @@ mod tests {
     fn touched_signal_connect_and_disconnect() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.p = Instance.new("Part")
             _G.conn = _G.p.Touched:Connect(function() end)
             _G.conn2 = _G.p.Touched:Connect(function() end)
-        "#);
+        "#,
+        );
         let part = entity_of(&vm, "p");
         assert_eq!(count_connections(&vm, part, "Touched"), 2);
 
@@ -1233,7 +1671,11 @@ mod tests {
         run_script(&vm, "_G.conn2:Disconnect()");
         assert_eq!(count_connections(&vm, part, "Touched"), 0);
         assert!(
-            !vm.registry.lock().unwrap().connections.contains_key(&(part, "Touched")),
+            !vm.registry
+                .lock()
+                .unwrap()
+                .connections
+                .contains_key(&(part, "Touched")),
             "empty connection lists must be removed"
         );
     }
@@ -1246,10 +1688,14 @@ mod tests {
         assert_eq!(find_service_entity(&world, "Workspace"), Some(entity));
         assert_eq!(find_service_entity(&world, "Players"), None);
 
-        world.resource_mut::<crate::scripting::vm::scheduler::ServiceEntities>().workspace = Some(entity);
+        world
+            .resource_mut::<crate::scripting::vm::scheduler::ServiceEntities>()
+            .workspace = Some(entity);
         assert_eq!(find_service_entity(&world, "Workspace"), Some(entity));
 
-        world.resource_mut::<crate::scripting::vm::scheduler::ServiceEntities>().workspace = Some(Entity::PLACEHOLDER);
+        world
+            .resource_mut::<crate::scripting::vm::scheduler::ServiceEntities>()
+            .workspace = Some(Entity::PLACEHOLDER);
         assert_eq!(find_service_entity(&world, "Workspace"), Some(entity));
     }
 
@@ -1257,21 +1703,39 @@ mod tests {
     fn image_id_always_carries_content_prefix() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.img = Instance.new("Image")
             _G.img.ID = 123
-        "#);
+        "#,
+        );
         let entity = entity_of(&vm, "img");
         let id: String = eval(&vm, "return _G.img.ID");
         assert_eq!(id, "image/123");
-        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 123);
+        assert_eq!(
+            world
+                .get::<crate::common::game::assets::components::Image>(entity)
+                .unwrap()
+                .asset_id,
+            123
+        );
 
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.img.ID = "image/456"
-        "#);
+        "#,
+        );
         let id: String = eval(&vm, "return _G.img.ID");
         assert_eq!(id, "image/456");
-        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 456);
+        assert_eq!(
+            world
+                .get::<crate::common::game::assets::components::Image>(entity)
+                .unwrap()
+                .asset_id,
+            456
+        );
 
         let ok: bool = eval(&vm, r#"return pcall(function() _G.img.ID = "nope" end)"#);
         assert!(!ok, "non-content strings must be rejected");
@@ -1287,9 +1751,12 @@ mod tests {
         let vm = test_vm(&mut world);
         let brick = spawn_brick(&mut world, "Brick");
         expose(&vm, "b", brick);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.img = Instance.new("Image")
-        "#);
+        "#,
+        );
 
         let is_nil: bool = eval(&vm, "return _G.img.Face == nil");
         assert!(is_nil, "standalone images have no Face property");
@@ -1305,7 +1772,10 @@ mod tests {
         assert_eq!(face, "top");
         let image = entity_of(&vm, "img");
         assert_eq!(
-            world.get::<crate::common::game::assets::components::Image>(image).unwrap().face,
+            world
+                .get::<crate::common::game::assets::components::Image>(image)
+                .unwrap()
+                .face,
             Some(crate::common::game::assets::components::ImageFace::Top)
         );
 
@@ -1318,7 +1788,10 @@ mod tests {
             );
         }
 
-        let ok: bool = eval(&vm, r#"return pcall(function() _G.img.Face = "inside" end)"#);
+        let ok: bool = eval(
+            &vm,
+            r#"return pcall(function() _G.img.Face = "inside" end)"#,
+        );
         assert!(!ok, "invalid face names must be rejected");
 
         run_script(&vm, "_G.img.Face = nil");
@@ -1330,13 +1803,18 @@ mod tests {
     fn clone_copies_image_asset() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.img = Instance.new("Image")
             _G.img.ID = 77
             _G.copy = _G.img:Clone()
-        "#);
+        "#,
+        );
         let copy = entity_of(&vm, "copy");
-        let image = world.get::<crate::common::game::assets::components::Image>(copy).unwrap();
+        let image = world
+            .get::<crate::common::game::assets::components::Image>(copy)
+            .unwrap();
         assert_eq!(image.asset_id, 77);
         let id: String = eval(&vm, "return _G.copy.ID");
         assert_eq!(id, "image/77");
@@ -1346,14 +1824,144 @@ mod tests {
     fn asset_service_get_asset_creates_image_instance() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.img = game:GetService("AssetService"):GetAsset(42)
-        "#);
+        "#,
+        );
         let class: String = eval(&vm, "return _G.img.ClassName");
         assert_eq!(class, "Image");
         let id: String = eval(&vm, "return _G.img.ID");
         assert_eq!(id, "image/42");
         let entity = entity_of(&vm, "img");
-        assert_eq!(world.get::<crate::common::game::assets::components::Image>(entity).unwrap().asset_id, 42);
+        assert_eq!(
+            world
+                .get::<crate::common::game::assets::components::Image>(entity)
+                .unwrap()
+                .asset_id,
+            42
+        );
+    }
+
+    #[test]
+    fn setting_mesh_id_creates_default_texture_child() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(
+            &vm,
+            r#"
+            _G.mesh = Instance.new("Mesh")
+            _G.mesh.ID = "mesh/100"
+        "#,
+        );
+        let mesh_entity = entity_of(&vm, "mesh");
+
+        let children: Vec<Entity> = world
+            .get::<Children>(mesh_entity)
+            .map(|c| c.iter().collect())
+            .unwrap_or_default();
+        assert_eq!(
+            children.len(),
+            1,
+            "mesh must have exactly one texture child"
+        );
+        let texture = world
+            .get::<crate::common::game::assets::components::Texture>(children[0])
+            .unwrap();
+        assert_eq!(texture.asset_id, 100);
+        assert!(!texture.is_decal);
+
+        // Visible through the Lua API.
+        let (class, id, name): (String, String, String) = eval(
+            &vm,
+            r#"
+                local tex = _G.mesh:GetChildren()[1]
+                return tex.ClassName, tex.ID, tex.Name
+            "#,
+        );
+        assert_eq!(class, "Texture");
+        assert_eq!(id, "mesh/100");
+        assert_eq!(name, "Texture");
+
+        // Setting the ID again must not create a second texture.
+        run_script(&vm, r#"_G.mesh.ID = "mesh/200""#);
+        let children: Vec<Entity> = world
+            .get::<Children>(mesh_entity)
+            .map(|c| c.iter().collect())
+            .unwrap_or_default();
+        assert_eq!(children.len(), 1);
+        let texture = world
+            .get::<crate::common::game::assets::components::Texture>(children[0])
+            .unwrap();
+        assert_eq!(
+            texture.asset_id, 200,
+            "untouched default texture follows the mesh id"
+        );
+    }
+
+    #[test]
+    fn customized_texture_id_does_not_follow_mesh_id_change() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(
+            &vm,
+            r#"
+            _G.mesh = Instance.new("Mesh")
+            _G.mesh.ID = "mesh/100"
+            local tex = _G.mesh:GetChildren()[1]
+            tex.ID = "image/55"
+            _G.tex = tex
+        "#,
+        );
+        run_script(&vm, r#"_G.mesh.ID = "mesh/300""#);
+        let texture = entity_of(&vm, "tex");
+        let stored = world
+            .get::<crate::common::game::assets::components::Texture>(texture)
+            .unwrap();
+        assert_eq!(stored.asset_id, 55, "custom decal ids are left alone");
+        assert!(stored.is_decal);
+        let id: String = eval(&vm, "return _G.tex.ID");
+        assert_eq!(id, "image/55");
+    }
+
+    #[test]
+    fn texture_id_setter_accepts_content_ids_and_numbers() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(
+            &vm,
+            r#"
+            _G.mesh = Instance.new("Mesh")
+            _G.mesh.ID = "mesh/1"
+            _G.tex = _G.mesh:GetChildren()[1]
+        "#,
+        );
+
+        run_script(&vm, r#"_G.tex.ID = "image/9""#);
+        let id: String = eval(&vm, "return _G.tex.ID");
+        assert_eq!(id, "image/9");
+
+        run_script(&vm, "_G.tex.ID = 12");
+        let id: String = eval(&vm, "return _G.tex.ID");
+        assert_eq!(id, "image/12", "bare numbers are decals");
+
+        run_script(&vm, r#"_G.tex.ID = "mesh/3""#);
+        let id: String = eval(&vm, "return _G.tex.ID");
+        assert_eq!(id, "mesh/3");
+
+        let ok: bool = eval(&vm, r#"return pcall(function() _G.tex.ID = "bogus" end)"#);
+        assert!(!ok, "invalid content ids must be rejected");
+    }
+
+    #[test]
+    fn instance_new_supports_texture_class() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(&vm, "_G.t = Instance.new('Texture')");
+        let class: String = eval(&vm, "return _G.t.ClassName");
+        assert_eq!(class, "Texture");
+        let id: String = eval(&vm, "return _G.t.ID");
+        assert_eq!(id, "mesh/0", "standalone textures default to mesh/0");
     }
 }

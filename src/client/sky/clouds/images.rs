@@ -7,12 +7,18 @@ use bevy::{
 
 pub const IMAGE_SIZE: u32 = 1440;
 
-pub const RENDER_WIDTH: u32 = 1280;
-pub const RENDER_HEIGHT: u32 = 720;
+pub const RENDER_WIDTH: u32 = 1920;
+pub const RENDER_HEIGHT: u32 = 1080;
 
 pub fn build_images(
     images: ResMut<Assets<Image>>,
-) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
+) -> (
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+) {
     build_images_with_size(images, RENDER_WIDTH, RENDER_HEIGHT)
 }
 
@@ -67,14 +73,24 @@ pub fn build_render_images_with_size(
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
     sky_image.sampler = ImageSampler::linear();
 
-    (images.add(cloud_render_image), images.add(cloud_render_previous_image), images.add(sky_image))
+    (
+        images.add(cloud_render_image),
+        images.add(cloud_render_previous_image),
+        images.add(sky_image),
+    )
 }
 
 pub fn build_images_with_size(
     mut images: ResMut<Assets<Image>>,
     width: u32,
     height: u32,
-) -> (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>) {
+) -> (
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+    Handle<Image>,
+) {
     let (cloud_render_image, cloud_render_previous_image, sky_image) =
         build_render_images_with_size(&mut *images, width, height);
     let mut cloud_atlas_image = Image::new_fill(

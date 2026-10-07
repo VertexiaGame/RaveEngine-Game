@@ -102,14 +102,24 @@ fn write_lighting(w: &mut impl Write, lighting: &VrtxLighting) -> std::io::Resul
     write_vec3(w, lighting.cloud_wind_velocity)
 }
 
+fn write_players(w: &mut impl Write, players: &VrtxPlayers) -> std::io::Result<()> {
+    write_f32(w, players.speed)?;
+    write_f32(w, players.jump_power)?;
+    write_f32(w, players.gravity)?;
+    write_f32(w, players.friction)?;
+    write_f32(w, players.bounciness)?;
+    let response_byte = match players.speed_response {
+        crate::common::game::movement::SpeedResponse::Linear => 0u8,
+        crate::common::game::movement::SpeedResponse::Exponential => 1u8,
+    };
+    write_u8(w, response_byte)
+}
+
 fn write_brick(w: &mut impl Write, brick: &VrtxBrick, version: u32) -> std::io::Result<()> {
     write_string_u16(w, &brick.name)?;
     write_transform(w, &brick.transform)?;
 
-    let shape_val = match brick.shape {
-        crate::common::game::bricks::components::BrickShape::Block => 0u8,
-        crate::common::game::bricks::components::BrickShape::Sphere => 1u8,
-    };
+    let shape_val = brick.shape.to_u8();
     write_u8(w, shape_val)?;
 
     let srgba = brick.color.to_srgba();
@@ -167,8 +177,46 @@ fn write_image(w: &mut impl Write, image: &VrtxImage) -> std::io::Result<()> {
     write_transform(w, &image.transform)
 }
 
+fn write_mesh(w: &mut impl Write, mesh: &VrtxMesh) -> std::io::Result<()> {
+    write_string_u16(w, &mesh.name)?;
+    write_u32(w, mesh.asset_id)?;
+    write_u8(w, if mesh.normalize { 1 } else { 0 })?;
+
+    if let Some(ref parent) = mesh.parent_name {
+        write_string_u16(w, parent)?;
+    } else {
+        write_u16(w, 0)?;
+    }
+
+    write_transform(w, &mesh.transform)?;
+
+    write_u8(w, if mesh.physics_enabled { 1 } else { 0 })?;
+    write_f32(w, mesh.bounciness)?;
+    write_u8(w, if mesh.player_can_collide { 1 } else { 0 })?;
+    write_f32(w, mesh.friction)?;
+    write_f32(w, mesh.gravity_scale)?;
+    write_f32(w, mesh.mass)
+}
+
+fn write_texture(w: &mut impl Write, texture: &VrtxTexture) -> std::io::Result<()> {
+    write_string_u16(w, &texture.name)?;
+    write_string_u16(w, &texture.id_string)?;
+
+    if let Some(ref parent) = texture.parent_name {
+        write_string_u16(w, parent)?;
+    } else {
+        write_u16(w, 0)?;
+    }
+
+    Ok(())
+}
+
 pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
-    let file = File::create(path)?;
+    let resolved = crate::common::assets_path::resolve_vrtx_path(path);
+    if let Some(parent) = resolved.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let file = File::create(&resolved).or_else(|_| File::create(path))?;
     let mut writer = BufWriter::new(file);
 
     writer.write_all(b"VRTX")?;
@@ -200,6 +248,33 @@ pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
         for image in &state.images {
             write_image(&mut writer, image)?;
         }
+    }
+
+    if state.version >= 9 {
+        write_u32(&mut writer, state.meshes.len() as u32)?;
+        for mesh in &state.meshes {
+            write_mesh(&mut writer, mesh)?;
+        }
+    }
+
+    if state.version >= 10 {
+        write_u32(&mut writer, state.textures.len() as u32)?;
+        for texture in &state.textures {
+            write_texture(&mut writer, texture)?;
+        }
+    }
+
+    if state.version >= 12 {
+        write_players(&mut writer, &state.players)?;
+    } else if state.version == 11 {
+        write_f32(&mut writer, state.players.speed)?;
+        write_f32(&mut writer, state.players.jump_power)?;
+        write_f32(
+            &mut writer,
+            state.players.gravity / (186.9 * 0.28),
+        )?;
+        write_f32(&mut writer, state.players.friction)?;
+        write_f32(&mut writer, state.players.bounciness)?;
     }
 
     writer.flush()?;

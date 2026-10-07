@@ -1,12 +1,14 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{EguiContexts, egui};
 
 pub fn configure_visuals(mut contexts: EguiContexts) {
     if let Ok(ctx) = contexts.ctx_mut() {
         ctx.set_visuals(egui::Visuals::light());
 
-        let font_bytes = std::fs::read("assets/content/game/fonts/Ubuntu.ttf")
-            .or_else(|_| std::fs::read("content/game/fonts/Ubuntu.ttf"))
+        let font_bytes =
+            std::fs::read(crate::common::assets_path::resolve_asset_path(
+                "content/game/fonts/Ubuntu.ttf",
+            ))
             .unwrap_or_default();
         if !font_bytes.is_empty() {
             let mut fonts = egui::FontDefinitions::default();

@@ -1,9 +1,9 @@
-﻿use std::time::Instant;
-use std::collections::{VecDeque, HashSet};
-use std::sync::{Arc, Mutex};
-use bevy::prelude::{Entity, Resource, World};
 use bevy::log::*;
+use bevy::prelude::{Entity, Resource, World};
 use mlua::prelude::*;
+use std::collections::{HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[derive(Resource, Default)]
 pub struct ServiceEntities {
@@ -169,7 +169,12 @@ mod tests {
     use std::time::Duration;
 
     fn task(key: mlua::RegistryKey, wake: Option<Instant>) -> LuaTask {
-        LuaTask { thread_key: key, wake_time: wake, callback_key: None, source: "test".to_string() }
+        LuaTask {
+            thread_key: key,
+            wake_time: wake,
+            callback_key: None,
+            source: "test".to_string(),
+        }
     }
 
     fn vm() -> Lua {
@@ -183,14 +188,19 @@ mod tests {
 
         let wake = yielded_to_wake(LuaValue::Number(0.5), now);
         assert!(wake.is_some());
-        assert_eq!(wake.unwrap().duration_since(now), Duration::from_millis(500));
+        assert_eq!(
+            wake.unwrap().duration_since(now),
+            Duration::from_millis(500)
+        );
 
         let wake = yielded_to_wake(LuaValue::Integer(3), now);
         assert!(wake.is_some());
         assert_eq!(wake.unwrap().duration_since(now), Duration::from_secs(3));
 
         assert!(yielded_to_wake(LuaValue::Nil, now).is_none());
-        assert!(yielded_to_wake(LuaValue::String(lua.create_string("later").unwrap()), now).is_none());
+        assert!(
+            yielded_to_wake(LuaValue::String(lua.create_string("later").unwrap()), now).is_none()
+        );
     }
 
     #[test]
@@ -351,7 +361,8 @@ mod tests {
         let dead_key = Arc::new(lua.create_registry_value("dead-cb").unwrap());
         {
             let mut reg = registry.lock().unwrap();
-            reg.connections.insert((alive, "Touched"), vec![alive_key.clone()]);
+            reg.connections
+                .insert((alive, "Touched"), vec![alive_key.clone()]);
             reg.connections.insert((dead, "Touched"), vec![dead_key]);
         }
 
@@ -386,5 +397,3 @@ mod tests {
         assert!(lua.registry_value::<String>(&table_handle).is_ok());
     }
 }
-
-

@@ -1,5 +1,5 @@
-﻿use bevy::prelude::*;
-use serde::{Serialize, Deserialize};
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
     true

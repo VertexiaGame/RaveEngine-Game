@@ -1,20 +1,31 @@
 use avian3d::prelude::{
-    Collider, CollidingEntities, ComputedMass, LinearVelocity, MoveAndSlide, MoveAndSlideConfig,
-    MoveAndSlideHitData, MoveAndSlideHitResponse, RigidBody, SimpleCollider, SpatialQueryFilter,
+    AngularVelocity, Collider, CollidingEntities, ComputedMass, LinearVelocity, MoveAndSlide,
+    MoveAndSlideConfig, MoveAndSlideHitData, MoveAndSlideHitResponse, RigidBody, SimpleCollider,
+    SpatialQueryFilter,
 };
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
 pub const DEFAULT_WALK_SPEED: f32 = 16.0 * 0.28;
+pub const DEFAULT_PLAYER_GRAVITY: f32 = 186.9 * 0.28;
 pub const GROUND_ACCEL: f32 = 60.0;
 pub const GROUND_DECEL: f32 = 60.0;
 pub const AIR_ACCEL: f32 = 30.0;
 pub const AIR_DECEL: f32 = 45.0;
+pub const EXP_GROUND_RESPONSE: f32 = 12.0;
+pub const EXP_AIR_RESPONSE: f32 = 5.0;
 pub const HARD_SPEED_LIMIT: f32 = 40.0;
 pub const MAX_FALL_SPEED: f32 = 14.0;
 pub const TURN_SPEED: f32 = 25.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Reflect, serde::Serialize, serde::Deserialize)]
+pub enum SpeedResponse {
+    #[default]
+    Linear,
+    Exponential,
+}
 pub const JUMP_BUFFER_SECS: f32 = 0.15;
-pub const COYOTE_TIME_SECS: f32 = 0.1;
+pub const HELD_JUMP_REPEAT_GROUND_STEPS: u32 = 3;
 
 pub const PLAYER_HALF_WIDTH: f32 = 1.0 * 0.28;
 pub const PLAYER_HALF_HEIGHT: f32 = 2.5 * 0.28;
@@ -29,7 +40,8 @@ pub const GROUNDED_GRACE_SECS: f32 = 0.05;
 pub struct CharacterMoveState {
     pub horizontal_velocity: Vec2,
     pub jump_buffered_at: Option<f32>,
-    pub coyote_until: Option<f32>,
+    pub prev_jump_held: bool,
+    pub ground_contact_steps: u32,
     pub grounded_until: Option<f32>,
     pub support: Option<Entity>,
     pub support_velocity: Vec2,
@@ -40,7 +52,8 @@ impl Default for CharacterMoveState {
         Self {
             horizontal_velocity: Vec2::ZERO,
             jump_buffered_at: None,
-            coyote_until: None,
+            prev_jump_held: false,
+            ground_contact_steps: 0,
             grounded_until: None,
             support: None,
             support_velocity: Vec2::ZERO,
@@ -54,8 +67,8 @@ pub struct CharacterMoveParams {
     pub jump_held: bool,
     pub speed: f32,
     pub jump_power: f32,
-    pub gravity_y: f32,
-    pub gravity_scale: f32,
+    pub gravity: f32,
+    pub speed_response: SpeedResponse,
     pub dt: f32,
     pub elapsed: f32,
 }
@@ -77,9 +90,9 @@ pub struct PlayerMovementPlan {
     pub grounded: bool,
 }
 
-pub fn apply_gravity(velocity: Vec3, gravity_y: f32, gravity_scale: f32, dt: f32) -> Vec3 {
+pub fn apply_gravity(velocity: Vec3, gravity: f32, dt: f32) -> Vec3 {
     let mut velocity = velocity;
-    velocity.y += gravity_y * gravity_scale * dt;
+    velocity.y -= gravity * dt;
     if velocity.y < -MAX_FALL_SPEED {
         velocity.y = -MAX_FALL_SPEED;
     }
@@ -92,40 +105,54 @@ pub fn horizontal_acceleration(
     wish: Vec2,
     speed: f32,
     dt: f32,
+    response: SpeedResponse,
 ) -> Vec2 {
     let has_wish = wish.length_squared() > 0.001;
     let target = if has_wish { wish * speed } else { Vec2::ZERO };
-    let rate = if grounded {
-        if has_wish {
-            GROUND_ACCEL
-        } else {
-            GROUND_DECEL
+    let mut horizontal = match response {
+        SpeedResponse::Linear => {
+            let rate = if grounded {
+                if has_wish { GROUND_ACCEL } else { GROUND_DECEL }
+            } else if has_wish {
+                AIR_ACCEL
+            } else {
+                AIR_DECEL
+            };
+            horizontal.move_towards(target, rate * dt)
         }
-    } else if has_wish {
-        AIR_ACCEL
-    } else {
-        AIR_DECEL
+        SpeedResponse::Exponential => {
+            let rate = if grounded {
+                EXP_GROUND_RESPONSE
+            } else {
+                EXP_AIR_RESPONSE
+            };
+            let t = 1.0 - (-rate * dt).exp();
+            horizontal.lerp(target, t)
+        }
     };
-    let mut horizontal = horizontal.move_towards(target, rate * dt);
-    if horizontal.length() > HARD_SPEED_LIMIT {
-        horizontal = horizontal.normalize() * HARD_SPEED_LIMIT;
+    let limit = speed.max(HARD_SPEED_LIMIT);
+    if horizontal.length() > limit {
+        horizontal = horizontal.normalize() * limit;
     }
     horizontal
 }
 
 pub fn update_jump(
     state: &mut CharacterMoveState,
-    grounded: bool,
+    on_ground: bool,
     jump_held: bool,
     elapsed: f32,
 ) -> bool {
-    if grounded {
-        state.coyote_until = Some(elapsed + COYOTE_TIME_SECS);
-    } else if state.coyote_until.is_some_and(|deadline| elapsed > deadline) {
-        state.coyote_until = None;
+    if on_ground {
+        state.ground_contact_steps = state.ground_contact_steps.saturating_add(1);
+    } else {
+        state.ground_contact_steps = 0;
     }
-    let can_jump = grounded || state.coyote_until.is_some_and(|deadline| elapsed <= deadline);
-    if jump_held {
+    let just_pressed = jump_held && !state.prev_jump_held;
+    state.prev_jump_held = jump_held;
+    let hold_repeat = jump_held
+        && state.ground_contact_steps >= HELD_JUMP_REPEAT_GROUND_STEPS;
+    if just_pressed || hold_repeat {
         state.jump_buffered_at = Some(elapsed);
     }
     if state
@@ -134,9 +161,8 @@ pub fn update_jump(
     {
         state.jump_buffered_at = None;
     }
-    if state.jump_buffered_at.is_some() && can_jump {
+    if state.jump_buffered_at.is_some() && on_ground {
         state.jump_buffered_at = None;
-        state.coyote_until = None;
         return true;
     }
     false
@@ -159,7 +185,7 @@ pub fn character_move(
     let dt_duration = std::time::Duration::from_secs_f32(dt);
     let elapsed = params.elapsed;
 
-    let mut velocity = apply_gravity(current_velocity, params.gravity_y, params.gravity_scale, dt);
+    let mut velocity = apply_gravity(current_velocity, params.gravity, dt);
 
     let grounded_before = state
         .grounded_until
@@ -171,6 +197,7 @@ pub fn character_move(
         params.wish_direction,
         params.speed,
         dt,
+        params.speed_response,
     );
     let mut horizontal = state.horizontal_velocity;
 
@@ -182,8 +209,9 @@ pub fn character_move(
     if grounded_before {
         horizontal += state.support_velocity;
     }
-    if horizontal.length() > HARD_SPEED_LIMIT {
-        horizontal = horizontal.normalize() * HARD_SPEED_LIMIT;
+    let limit = params.speed.max(HARD_SPEED_LIMIT);
+    if horizontal.length() > limit {
+        horizontal = horizontal.normalize() * limit;
     }
     velocity.x = horizontal.x;
     velocity.z = horizontal.y;
@@ -195,36 +223,34 @@ pub fn character_move(
             skin_width: 0.02,
             ..default()
         };
-        let mut slide =
-            |slide_velocity: Vec3, slide_position: Vec3| -> (Vec3, Vec3, bool) {
-                let mut wall_hit = false;
-                let out = move_and_slide.move_and_slide(
-                    collider,
-                    slide_position,
-                    rotation,
-                    slide_velocity,
-                    dt_duration,
-                    &config,
-                    filter,
-                    |hit: MoveAndSlideHitData| {
-                        let normal = hit.normal.as_vec3();
-                        if normal.y >= MAX_SLOPE_COS {
-                            on_ground = true;
-                            support_hit = Some(hit.entity);
-                        } else {
-                            wall_hit = true;
-                        }
-                        MoveAndSlideHitResponse::Accept
-                    },
-                );
-                (out.position, out.projected_velocity, wall_hit)
-            };
+        let mut slide = |slide_velocity: Vec3, slide_position: Vec3| -> (Vec3, Vec3, bool) {
+            let mut wall_hit = false;
+            let out = move_and_slide.move_and_slide(
+                collider,
+                slide_position,
+                rotation,
+                slide_velocity,
+                dt_duration,
+                &config,
+                filter,
+                |hit: MoveAndSlideHitData| {
+                    let normal = hit.normal.as_vec3();
+                    if normal.y >= MAX_SLOPE_COS {
+                        on_ground = true;
+                        support_hit = Some(hit.entity);
+                    } else {
+                        wall_hit = true;
+                    }
+                    MoveAndSlideHitResponse::Accept
+                },
+            );
+            (out.position, out.projected_velocity, wall_hit)
+        };
 
         let (slide_position, slide_velocity, initial_wall_hit) = slide(velocity, center);
         let input_horizontal = horizontal.length();
-        let blocked = input_horizontal > 0.0001
-            && slide_velocity.xz().length() < input_horizontal * 0.7;
-
+        let blocked =
+            input_horizontal > 0.0001 && slide_velocity.xz().length() < input_horizontal * 0.7;
 
         if has_wish && dt > 0.0 && grounded_before && (blocked || initial_wall_hit) {
             let (up_position, _, _) = slide(Vec3::Y * (MAX_STEP_HEIGHT / dt), slide_position);
@@ -248,9 +274,12 @@ pub fn character_move(
             && state
                 .grounded_until
                 .is_some_and(|deadline| elapsed <= deadline));
-    if grounded {
+    if on_ground {
         state.grounded_until = Some(elapsed + GROUNDED_GRACE_SECS);
-    } else if state.grounded_until.is_some_and(|deadline| elapsed > deadline) {
+    } else if state
+        .grounded_until
+        .is_some_and(|deadline| elapsed > deadline)
+    {
         state.grounded_until = None;
         state.support_velocity = Vec2::ZERO;
     }
@@ -260,7 +289,7 @@ pub fn character_move(
     }
 
     let mut output_velocity = Vec3::new(velocity.x, projected.y, velocity.z);
-    if update_jump(state, grounded, params.jump_held, elapsed) {
+    if update_jump(state, on_ground, params.jump_held, elapsed) {
         output_velocity.y = params.jump_power;
     }
 
@@ -272,9 +301,11 @@ pub fn character_move(
     }
 }
 
-pub const PUSH_FACING_MIN_DOT: f32 = 0.3;
-pub const PUSH_FORCE: f32 = 60.0;
-pub const MAX_PUSH_ACCEL: f32 = 40.0;
+pub const PUSH_FACING_MIN_DOT: f32 = 0.4;
+pub const PUSH_FORCE: f32 = 260.0;
+pub const MAX_PUSH_ACCEL: f32 = 110.0;
+pub const PUSH_ANGULAR_GAIN: f32 = 3.0;
+pub const PUSH_MAX_ANGULAR_SPEED: f32 = 5.0;
 
 pub fn push_collided_dynamic_bodies<F: QueryFilter>(
     player_position: Vec3,
@@ -286,6 +317,7 @@ pub fn push_collided_dynamic_bodies<F: QueryFilter>(
             &Transform,
             &RigidBody,
             &mut LinearVelocity,
+            &mut AngularVelocity,
             &ComputedMass,
             &Collider,
         ),
@@ -293,17 +325,29 @@ pub fn push_collided_dynamic_bodies<F: QueryFilter>(
     >,
     dt: f32,
 ) {
+    if !dt.is_finite() || dt <= 0.0 {
+        return;
+    }
     let push_speed = player_horizontal_velocity.length();
-    if push_speed <= 0.0 {
+    if !push_speed.is_finite() || push_speed < 0.1 {
         return;
     }
     let push_dir = player_horizontal_velocity / push_speed;
+    if !push_dir.is_finite() {
+        return;
+    }
     let player_feet_y = player_position.y - PLAYER_HALF_HEIGHT;
     for &other in colliding_entities.0.iter() {
-        let Ok((_, body_transform, body, mut lin_vel, mass, collider)) = bodies.get_mut(other) else {
+        let Ok((_, body_transform, body, mut lin_vel, mut ang_vel, mass, collider)) =
+            bodies.get_mut(other)
+        else {
             continue;
         };
         if !body.is_dynamic() {
+            continue;
+        }
+        let mass_value = mass.value();
+        if !mass_value.is_finite() || mass_value < 1e-4 {
             continue;
         }
         let body_top = collider
@@ -314,26 +358,47 @@ pub fn push_collided_dynamic_bodies<F: QueryFilter>(
             continue;
         }
         let to_body = body_transform.translation.xz() - player_position.xz();
-        if to_body.normalize_or_zero().dot(push_dir) < PUSH_FACING_MIN_DOT {
+        if to_body.length_squared() < 1e-8 {
+            continue;
+        }
+        let facing_dot = to_body.normalize_or_zero().dot(push_dir);
+        if !facing_dot.is_finite() || facing_dot < PUSH_FACING_MIN_DOT {
             continue;
         }
         let old_horizontal = lin_vel.0.xz();
-        let along = old_horizontal.dot(push_dir);
-        if along >= push_speed {
+        if !old_horizontal.is_finite() {
             continue;
         }
-        let acceleration =
-            (PUSH_FORCE / mass.value().max(f32::EPSILON)).min(MAX_PUSH_ACCEL);
-        let new_along = (along + acceleration * dt).min(push_speed);
-        let new_horizontal = push_dir * new_along + (old_horizontal - push_dir * along);
-        lin_vel.0.x = new_horizontal.x;
-        lin_vel.0.z = new_horizontal.y;
+        let along = old_horizontal.dot(push_dir);
+        let facing_strength = 0.4 + 0.6 * facing_dot.clamp(0.0, 1.0);
+        if along < push_speed {
+            let acceleration =
+                (PUSH_FORCE / mass_value.max(f32::EPSILON)).min(MAX_PUSH_ACCEL) * facing_strength;
+            let new_along = (along + acceleration * dt).min(push_speed);
+            let new_horizontal = push_dir * new_along + (old_horizontal - push_dir * along);
+            if new_horizontal.is_finite() {
+                lin_vel.0.x = new_horizontal.x;
+                lin_vel.0.z = new_horizontal.y;
+            }
+        }
+        let yaw_torque = push_dir.y * to_body.x - push_dir.x * to_body.y;
+        if yaw_torque.is_finite() && yaw_torque.abs() > 1e-4 {
+            let angular_push =
+                (yaw_torque * PUSH_ANGULAR_GAIN * facing_strength / mass_value) * dt;
+            let new_yaw = (ang_vel.0.y + angular_push).clamp(
+                -PUSH_MAX_ANGULAR_SPEED,
+                PUSH_MAX_ANGULAR_SPEED,
+            );
+            if new_yaw.is_finite() {
+                ang_vel.0.y = new_yaw;
+            }
+        }
     }
 }
 
 //bunch of vars
 //move validation : basically, this is the server-side part that checks if a client is somehow cheating bc we are now client authoritative
-//we have a lot of tests because these values are very sensitive: can either fuck up movement or fuck up validation !!! 
+//we have a lot of tests because these values are very sensitive: can either fuck up movement or fuck up validation !!!
 pub const VALIDATION_SUPPORT_ALLOWANCE: f32 = 8.0;
 pub const VALIDATION_RISE_ALLOWANCE: f32 = 12.0;
 pub const VALIDATION_HORIZ_GRACE: f32 = 0.7;
@@ -641,7 +706,11 @@ mod tests {
         for _ in 0..120 {
             let next = validate_client_move(
                 Some(&last),
-                claim(Vec3::new(0.0, 0.7, last.position.z - HARD_SPEED_LIMIT * 2.0 / 60.0)),
+                claim(Vec3::new(
+                    0.0,
+                    0.7,
+                    last.position.z - HARD_SPEED_LIMIT * 2.0 / 60.0,
+                )),
                 1.0 / 60.0,
                 &config(),
                 &mut budget,
@@ -790,19 +859,23 @@ mod tests {
 
     #[test]
     fn gravity_pulls_velocity_down() {
-        let velocity = apply_gravity(Vec3::ZERO, -52.332, 1.0, 1.0 / 60.0);
+        let velocity = apply_gravity(Vec3::ZERO, 52.332, 1.0 / 60.0);
         assert!((velocity.y + 52.332 / 60.0).abs() < 1e-4);
     }
 
     #[test]
-    fn gravity_respects_gravity_scale() {
-        let velocity = apply_gravity(Vec3::ZERO, -52.332, 2.0, 1.0 / 60.0);
+    fn gravity_scales_with_player_gravity() {
+        let velocity = apply_gravity(Vec3::ZERO, 2.0 * 52.332, 1.0 / 60.0);
         assert!((velocity.y + 2.0 * 52.332 / 60.0).abs() < 1e-4);
     }
 
     #[test]
     fn gravity_clamps_fall_speed() {
-        let velocity = apply_gravity(Vec3::NEG_Y * (MAX_FALL_SPEED * 3.0), -52.332, 1.0, 1.0 / 60.0);
+        let velocity = apply_gravity(
+            Vec3::NEG_Y * (MAX_FALL_SPEED * 3.0),
+            52.332,
+            1.0 / 60.0,
+        );
         assert_eq!(velocity.y, -MAX_FALL_SPEED);
     }
 
@@ -816,24 +889,84 @@ mod tests {
                 Vec2::new(0.0, -1.0),
                 DEFAULT_WALK_SPEED,
                 1.0 / 60.0,
+                SpeedResponse::Linear,
             );
         }
         assert!((horizontal.y + DEFAULT_WALK_SPEED).abs() < 0.01);
     }
 
     #[test]
+    fn exponential_acceleration_converges_to_walk_speed() {
+        let mut horizontal = Vec2::ZERO;
+        for _ in 0..240 {
+            horizontal = horizontal_acceleration(
+                horizontal,
+                true,
+                Vec2::new(0.0, -1.0),
+                DEFAULT_WALK_SPEED,
+                1.0 / 60.0,
+                SpeedResponse::Exponential,
+            );
+        }
+        assert!((horizontal.y + DEFAULT_WALK_SPEED).abs() < 0.05);
+    }
+
+    #[test]
+    fn exponential_acceleration_is_smooth() {
+        let first = horizontal_acceleration(
+            Vec2::ZERO,
+            true,
+            Vec2::new(0.0, -1.0),
+            DEFAULT_WALK_SPEED,
+            1.0 / 60.0,
+            SpeedResponse::Exponential,
+        );
+        let second = horizontal_acceleration(
+            first,
+            true,
+            Vec2::new(0.0, -1.0),
+            DEFAULT_WALK_SPEED,
+            1.0 / 60.0,
+            SpeedResponse::Exponential,
+        );
+        assert!(second.length() > first.length());
+        assert!(second.length() < DEFAULT_WALK_SPEED);
+    }
+
+    #[test]
     fn decelerates_to_stop_without_input() {
         let mut horizontal = Vec2::new(0.0, -DEFAULT_WALK_SPEED);
         for _ in 0..120 {
-            horizontal = horizontal_acceleration(horizontal, true, Vec2::ZERO, DEFAULT_WALK_SPEED, 1.0 / 60.0);
+            horizontal = horizontal_acceleration(
+                horizontal,
+                true,
+                Vec2::ZERO,
+                DEFAULT_WALK_SPEED,
+                1.0 / 60.0,
+                SpeedResponse::Linear,
+            );
         }
         assert!(horizontal.length() < 0.01);
     }
 
     #[test]
     fn air_acceleration_is_slower_than_ground() {
-        let air = horizontal_acceleration(Vec2::ZERO, false, Vec2::new(0.0, -1.0), DEFAULT_WALK_SPEED, 1.0 / 60.0);
-        let ground = horizontal_acceleration(Vec2::ZERO, true, Vec2::new(0.0, -1.0), DEFAULT_WALK_SPEED, 1.0 / 60.0);
+        let air = horizontal_acceleration(
+            Vec2::ZERO,
+            false,
+            Vec2::new(0.0, -1.0),
+            DEFAULT_WALK_SPEED,
+            1.0 / 60.0,
+            SpeedResponse::Linear,
+        );
+        let ground = horizontal_acceleration(
+            Vec2::ZERO,
+            true,
+            Vec2::new(0.0, -1.0),
+            DEFAULT_WALK_SPEED,
+            1.0 / 60.0,
+            SpeedResponse::Linear,
+        );
         assert!(air.length() < ground.length());
     }
 
@@ -845,8 +978,26 @@ mod tests {
             Vec2::new(1.0, 0.0),
             HARD_SPEED_LIMIT,
             1.0 / 60.0,
+            SpeedResponse::Linear,
         );
         assert!((horizontal.length() - HARD_SPEED_LIMIT).abs() < 1e-4);
+    }
+
+    #[test]
+    fn high_configured_speed_is_not_clamped_to_hard_limit() {
+        let fast = HARD_SPEED_LIMIT * 3.0;
+        let mut horizontal = Vec2::ZERO;
+        for _ in 0..600 {
+            horizontal = horizontal_acceleration(
+                horizontal,
+                true,
+                Vec2::new(1.0, 0.0),
+                fast,
+                1.0 / 60.0,
+                SpeedResponse::Linear,
+            );
+        }
+        assert!((horizontal.length() - fast).abs() < 0.05);
     }
 
     #[test]
@@ -854,7 +1005,6 @@ mod tests {
         let mut state = CharacterMoveState::default();
         assert!(update_jump(&mut state, true, true, 0.0));
         assert_eq!(state.jump_buffered_at, None);
-        assert_eq!(state.coyote_until, None);
     }
 
     #[test]
@@ -870,20 +1020,51 @@ mod tests {
             jump_buffered_at: Some(0.0),
             ..default()
         };
-        assert!(!update_jump(&mut state, true, false, JUMP_BUFFER_SECS + 0.1));
+        assert!(!update_jump(
+            &mut state,
+            true,
+            false,
+            JUMP_BUFFER_SECS + 0.1
+        ));
     }
 
     #[test]
-    fn coyote_jump_fires_after_leaving_ground() {
+    fn no_jump_after_leaving_ground() {
         let mut state = CharacterMoveState::default();
         assert!(!update_jump(&mut state, true, false, 0.0));
-        assert!(update_jump(&mut state, false, true, 0.05));
+        assert!(!update_jump(&mut state, false, true, 0.05));
     }
 
     #[test]
-    fn coyote_expires_after_grace_window() {
+    fn buffered_press_still_fires_on_landing_but_not_mid_air() {
         let mut state = CharacterMoveState::default();
         assert!(!update_jump(&mut state, true, false, 0.0));
-        assert!(!update_jump(&mut state, false, true, COYOTE_TIME_SECS + 0.2));
+        assert!(!update_jump(&mut state, false, true, 0.3));
+        assert!(update_jump(&mut state, true, false, 0.35));
+    }
+
+    #[test]
+    fn held_jump_repeats_only_after_landing_beat() {
+        let mut state = CharacterMoveState {
+            prev_jump_held: true,
+            ..default()
+        };
+        assert!(!update_jump(&mut state, true, true, 0.0));
+        assert!(!update_jump(&mut state, true, true, 0.016));
+        assert!(update_jump(&mut state, true, true, 0.032));
+    }
+
+    #[test]
+    fn held_jump_never_fires_mid_air() {
+        let mut state = CharacterMoveState {
+            prev_jump_held: true,
+            ..default()
+        };
+        for step in 0..5 {
+            assert!(
+                !update_jump(&mut state, false, true, step as f32 * 0.016),
+                "held jump fired mid-air on step {step}"
+            );
+        }
     }
 }

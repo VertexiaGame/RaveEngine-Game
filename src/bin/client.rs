@@ -1,9 +1,9 @@
-use bevy::prelude::*;
-use bevy::log::LogPlugin;
-use lightyear::prelude::*;
-use lightyear::prelude::client::*;
 use RaveEngineLib::client::ClientPlugin;
 use RaveEngineLib::common::CommonPlugin;
+use bevy::log::LogPlugin;
+use bevy::prelude::*;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 
 #[derive(Resource)]
 struct ClientConnectSettings {
@@ -27,6 +27,7 @@ fn main() {
         std::env::set_var("VERTIGO_APP", "client");
         std::env::set_var("RUST_LOG", new_rust_log);
     }
+    let _ = RaveEngineLib::client::uri::register_client_uri_scheme();
 
     let mut ip = std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
     let mut port = 5000;
@@ -36,6 +37,16 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
+        if let Some(join) = RaveEngineLib::client::uri::parse_client_join_uri(&args[i]) {
+            ip = join.ip;
+            port = join.port;
+            ukey = join.ukey;
+        }
+        if args[i] == "--no-clouds" || args[i] == "--disable-clouds" {
+            unsafe {
+                std::env::set_var("VERTIGO_NO_CLOUDS", "1");
+            }
+        }
         if args[i] == "--port" && i + 1 < args.len() {
             if let Ok(p) = args[i + 1].parse::<u16>() {
                 port = p;
@@ -59,7 +70,8 @@ fn main() {
         }
     }
 
-    let netcode_key = RaveEngineLib::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref());
+    let netcode_key =
+        RaveEngineLib::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref());
     let protocol_id = RaveEngineLib::common::net::netcode::netcode_protocol_id(protocol_id_cli);
 
     let mut app = App::new();
@@ -67,7 +79,7 @@ fn main() {
         level: bevy::log::Level::DEBUG,
         filter: "wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=debug,lightyear_udp=trace,lightyear_netcode=trace,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off".to_string(),
         ..default()
-    }).set(bevy::render::RenderPlugin {
+    }).set(RaveEngineLib::common::assets_path::asset_plugin()).set(bevy::render::RenderPlugin {
         render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
             bevy::render::settings::WgpuSettings {
                 disabled_features: Some(bevy::render::settings::WgpuFeatures::TEXTURE_BINDING_ARRAY),
@@ -76,14 +88,22 @@ fn main() {
         )),
         ..default()
     }));
-    app.insert_resource(ClientConnectSettings { ip, port, netcode_key, protocol_id });
+    app.insert_resource(ClientConnectSettings {
+        ip,
+        port,
+        netcode_key,
+        protocol_id,
+    });
     app.insert_resource(RaveEngineLib::client::ClientUkey(ukey));
     app.add_plugins(client::ClientPlugins {
         tick_duration: core::time::Duration::from_secs_f64(1.0 / 60.0),
     });
     app.add_plugins(CommonPlugin);
     app.add_plugins(ClientPlugin);
-    app.add_systems(Startup, setup_client.after(RaveEngineLib::client::setup_player_assets));
+    app.add_systems(
+        Startup,
+        setup_client.after(RaveEngineLib::client::setup_player_assets),
+    );
     app.add_systems(Update, trigger_delayed_connect);
     app.run();
 }

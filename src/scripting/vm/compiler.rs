@@ -1,5 +1,5 @@
-﻿use mlua::prelude::*;
 use crate::scripting::vm::sandbox::MAX_SCRIPT_CODE_BYTES;
+use mlua::prelude::*;
 
 pub fn compile_code(lua: &Lua, code: &str, name: &str) -> Result<LuaFunction, mlua::Error> {
     if code.len() > MAX_SCRIPT_CODE_BYTES {
@@ -28,7 +28,10 @@ mod tests {
         let mut world = test_world();
         let vm = test_vm(&mut world);
         let err = compile_code(&vm.lua, "this is not lua", "Broken").unwrap_err();
-        assert!(err.to_string().contains("Broken"), "trace should name the chunk: {err}");
+        assert!(
+            err.to_string().contains("Broken"),
+            "trace should name the chunk: {err}"
+        );
     }
 
     #[test]

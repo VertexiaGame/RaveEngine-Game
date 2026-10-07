@@ -1,7 +1,7 @@
-use bevy::prelude::*;
 use bevy::log::LogPlugin;
-use lightyear::prelude::*;
+use bevy::prelude::*;
 use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use rave_engine_lib::client::ClientPlugin;
 use rave_engine_lib::common::CommonPlugin;
 
@@ -59,7 +59,8 @@ fn main() {
         }
     }
 
-    let netcode_key = rave_engine_lib::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref());
+    let netcode_key =
+        rave_engine_lib::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref());
     let protocol_id = rave_engine_lib::common::net::netcode::netcode_protocol_id(protocol_id_cli);
 
     let mut app = App::new();
@@ -67,7 +68,7 @@ fn main() {
         level: bevy::log::Level::DEBUG,
         filter: "wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=debug,lightyear_udp=trace,lightyear_netcode=trace,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off".to_string(),
         ..default()
-    }).set(bevy::render::RenderPlugin {
+    }).set(rave_engine_lib::common::assets_path::asset_plugin()).set(bevy::render::RenderPlugin {
         render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
             bevy::render::settings::WgpuSettings {
                 disabled_features: Some(bevy::render::settings::WgpuFeatures::TEXTURE_BINDING_ARRAY),
@@ -76,14 +77,22 @@ fn main() {
         )),
         ..default()
     }));
-    app.insert_resource(ClientConnectSettings { ip, port, netcode_key, protocol_id });
+    app.insert_resource(ClientConnectSettings {
+        ip,
+        port,
+        netcode_key,
+        protocol_id,
+    });
     app.insert_resource(rave_engine_lib::client::ClientUkey(ukey));
     app.add_plugins(client::ClientPlugins {
         tick_duration: core::time::Duration::from_secs_f64(1.0 / 60.0),
     });
     app.add_plugins(CommonPlugin);
     app.add_plugins(ClientPlugin);
-    app.add_systems(Startup, setup_client.after(rave_engine_lib::client::setup_player_assets));
+    app.add_systems(
+        Startup,
+        setup_client.after(rave_engine_lib::client::setup_player_assets),
+    );
     app.add_systems(Update, trigger_delayed_connect);
     app.run();
 }

@@ -1,657 +1,231 @@
 use bevy::prelude::*;
-use bevy::animation::{AnimatedBy, AnimationTargetId};
-use bevy::ecs::change_detection::Ref;
-use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
-use crate::client::player::model::PlayerGltfHandle;
-use crate::client::LocalPlayer;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LimbPart {
+pub const AVATAR_ROOT_OFFSET_Y: f32 = -0.7;
+pub const AVATAR_STUD_SCALE: f32 = 0.28;
+
+pub const LEFT_ARM_PIVOT: Vec3 = Vec3::new(-1.5, 3.9, 0.0);
+pub const RIGHT_ARM_PIVOT: Vec3 = Vec3::new(1.5, 3.9, 0.0);
+pub const LEFT_LEG_PIVOT: Vec3 = Vec3::new(-0.5, 2.0, 0.0);
+pub const RIGHT_LEG_PIVOT: Vec3 = Vec3::new(0.5, 2.0, 0.0);
+pub const HEAD_PIVOT: Vec3 = Vec3::new(0.0, 3.9, 0.0);
+
+const WALK_SPEED_STUDS: f32 = 1.0;
+const PHASE_PER_STUD: f32 = 0.8;
+const POSE_TWEEN_RATE: f32 = 10.0;
+const VELOCITY_SMOOTHING: f32 = 0.5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AvatarLimbKind {
     Head,
-    Torso,
     LeftArm,
     RightArm,
     LeftLeg,
     RightLeg,
 }
 
-#[derive(Component)]
-pub struct LimbComponent {
-    pub part_type: LimbPart,
+impl AvatarLimbKind {
+    pub const ALL: [AvatarLimbKind; 5] = [
+        AvatarLimbKind::Head,
+        AvatarLimbKind::LeftArm,
+        AvatarLimbKind::RightArm,
+        AvatarLimbKind::LeftLeg,
+        AvatarLimbKind::RightLeg,
+    ];
+
+    pub fn pivot(&self) -> Vec3 {
+        match self {
+            AvatarLimbKind::Head => HEAD_PIVOT,
+            AvatarLimbKind::LeftArm => LEFT_ARM_PIVOT,
+            AvatarLimbKind::RightArm => RIGHT_ARM_PIVOT,
+            AvatarLimbKind::LeftLeg => LEFT_LEG_PIVOT,
+            AvatarLimbKind::RightLeg => RIGHT_LEG_PIVOT,
+        }
+    }
+
+    pub fn part_name(&self) -> &'static str {
+        match self {
+            AvatarLimbKind::Head => "Head",
+            AvatarLimbKind::LeftArm => "LeftArm",
+            AvatarLimbKind::RightArm => "RightArm",
+            AvatarLimbKind::LeftLeg => "LeftLeg",
+            AvatarLimbKind::RightLeg => "RightLeg",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AvatarLocomotion {
+    #[default]
+    Idle,
+    Walk,
+    Jump,
+    Fall,
 }
 
 #[derive(Component)]
-pub struct LimbPlayerMarker {
-    pub part_type: LimbPart,
-    pub player_entity: Entity,
-}
-
-#[derive(Resource)]
-pub struct LimbAnimations {
-    pub graphs: std::collections::HashMap<LimbPart, Handle<AnimationGraph>>,
-    pub indices: std::collections::HashMap<LimbPart, Vec<AnimationNodeIndex>>,
-}
-
-#[derive(Resource, Default)]
-pub struct PlayerAnimationGraphLoaded {
-    pub graph: Option<Handle<AnimationGraph>>,
-    pub indices: Vec<AnimationNodeIndex>,
-}
-
-#[derive(Resource, Default)]
-pub struct AvatarAnimationsRetargeted {
-    pub retargeted_clips: std::collections::HashSet<Handle<AnimationClip>>,
+pub struct AvatarLimb {
+    pub kind: AvatarLimbKind,
+    pub current: Vec2,
 }
 
 #[derive(Component)]
-pub struct PlayerAnimationMarker {
-    pub player_entity: Entity,
-    pub current_index: Option<AnimationNodeIndex>,
-    pub walk_speed: f32,
+pub struct AvatarRig {
+    pub limbs: [Entity; 5],
 }
 
-#[derive(Component, Default)]
-pub struct PlayerVelocityTracker {
-    pub last_position: Vec3,
+#[derive(Component)]
+pub struct AvatarAnimState {
+    pub locomotion: AvatarLocomotion,
+    pub phase: f32,
     pub velocity: Vec3,
-    pub is_grounded: bool,
-    pub moving: bool,
-    pub jump_triggered: bool,
-    last_arrival: f64,
-    jump_latch_until: f64,
+    pub last_position: Vec3,
+    pub initialized: bool,
 }
 
-pub fn add_missing_animation_players(
-    mut commands: Commands,
-    query: Query<(Entity, &Name), (Without<AnimationPlayer>, With<ChildOf>)>,
-    parent_query: Query<&ChildOf>,
-    players: Query<Entity, With<crate::common::net::components::Player>>,
-) {
-    for (entity, name) in &query {
-        if name.as_str().contains("Armature") {
-            let mut current = entity;
-            let mut under_player = false;
-            while let Ok(child_of) = parent_query.get(current) {
-                let parent = child_of.parent();
-                if players.get(parent).is_ok() {
-                    under_player = true;
-                    break;
+impl Default for AvatarAnimState {
+    fn default() -> Self {
+        Self {
+            locomotion: AvatarLocomotion::Idle,
+            phase: 0.0,
+            velocity: Vec3::ZERO,
+            last_position: Vec3::ZERO,
+            initialized: false,
+        }
+    }
+}
+
+fn damp(current: f32, target: f32, rate: f32, delta_secs: f32) -> f32 {
+    current + (target - current) * (1.0 - (-rate * delta_secs).exp())
+}
+
+fn limb_pose_target(kind: AvatarLimbKind, locomotion: AvatarLocomotion, phase: f32, t: f32) -> Vec2 {
+    match locomotion {
+        AvatarLocomotion::Idle => {
+            let sway = (t * 1.6).sin() * 0.03;
+            match kind {
+                AvatarLimbKind::Head => Vec2::new(sway * 0.5, 0.0),
+                AvatarLimbKind::LeftArm | AvatarLimbKind::RightArm => {
+                    let outward = match kind {
+                        AvatarLimbKind::LeftArm => -0.02,
+                        _ => 0.02,
+                    };
+                    Vec2::new(0.02 + sway, outward)
                 }
-                current = parent;
-            }
-
-            if under_player {
-                commands.entity(entity).insert(AnimationPlayer::default());
-                info!("PLAYER_LOG: Manually attached AnimationPlayer to 'Armature' Entity {:?}", entity);
+                AvatarLimbKind::LeftLeg | AvatarLimbKind::RightLeg => Vec2::ZERO,
             }
         }
-    }
-}
-
-pub fn build_avatar_animation_graph(
-    gltf_assets: Res<Assets<bevy::gltf::Gltf>>,
-    gltf_handle: Option<Res<PlayerGltfHandle>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut graph_loaded: ResMut<PlayerAnimationGraphLoaded>,
-) {
-    if graph_loaded.graph.is_some() {
-        return;
-    }
-    let Some(handle) = gltf_handle.as_ref() else {
-        return;
-    };
-    let Some(gltf) = gltf_assets.get(&handle.0) else {
-        return;
-    };
-
-    let find_clip_robust = |gltf: &bevy::gltf::Gltf, targets: &[&str], fallback_idx: usize| -> Option<Handle<AnimationClip>> {
-        for &target in targets {
-            if let Some(clip) = gltf.named_animations.get(target) {
-                return Some(clip.clone());
-            }
-            for (anim_name, clip) in &gltf.named_animations {
-                let anim_name_str = &**anim_name;
-                if anim_name_str.contains(target) {
-                    return Some(clip.clone());
-                }
-            }
-            let armature_format = format!("Armature|{}", target);
-            if let Some(clip) = gltf.named_animations.get(armature_format.as_str()) {
-                return Some(clip.clone());
+        AvatarLocomotion::Walk => {
+            let swing = phase.sin();
+            match kind {
+                AvatarLimbKind::Head => Vec2::new((phase * 2.0).sin() * 0.02, 0.0),
+                AvatarLimbKind::LeftArm => Vec2::new(-swing * 0.55, -0.02),
+                AvatarLimbKind::RightArm => Vec2::new(swing * 0.55, 0.02),
+                AvatarLimbKind::LeftLeg => Vec2::new(swing * 0.65, 0.0),
+                AvatarLimbKind::RightLeg => Vec2::new(-swing * 0.65, 0.0),
             }
         }
-        if fallback_idx < gltf.animations.len() {
-            return Some(gltf.animations[fallback_idx].clone());
-        }
-        None
-    };
-
-    let idle = find_clip_robust(&gltf, &["Scene.001", "Idle", "idle"], 0);
-    let walk = find_clip_robust(&gltf, &["Scene.002", "Walk", "walk"], 1);
-    let jump = find_clip_robust(&gltf, &["Scene.003", "Jump", "jump"], 2);
-    let fall = find_clip_robust(&gltf, &["Scene.004", "Falling", "fall", "falling"], 3);
-
-    let Some(idle) = idle else {
-        return;
-    };
-    let walk = walk.unwrap_or_else(|| idle.clone());
-    let jump = jump.unwrap_or_else(|| idle.clone());
-    let fall = fall.unwrap_or_else(|| idle.clone());
-
-    let (graph, indices) = AnimationGraph::from_clips([idle, walk, jump, fall]);
-    let graph_handle = graphs.add(graph);
-
-    graph_loaded.graph = Some(graph_handle);
-    graph_loaded.indices = indices;
-}
-
-pub fn retarget_avatar_clips(
-    mut retargeted: ResMut<AvatarAnimationsRetargeted>,
-    gltf_handle: Option<Res<PlayerGltfHandle>>,
-    gltf_assets: Res<Assets<bevy::gltf::Gltf>>,
-    mut clips: ResMut<Assets<AnimationClip>>,
-    armatures: Query<(Entity, &Name), With<ChildOf>>,
-    children_query: Query<&Children>,
-    names_query: Query<&Name>,
-) {
-    let Some(handle) = gltf_handle.as_ref() else {
-        return;
-    };
-    let Some(gltf) = gltf_assets.get(&handle.0) else {
-        return;
-    };
-    if retargeted.retargeted_clips.len() >= gltf.animations.len() {
-        return;
-    }
-
-    let mut armature_root = None;
-    for (entity, name) in &armatures {
-        if name.as_str().contains("Armature") {
-            armature_root = Some(entity);
-            break;
-        }
-    }
-
-    let Some(root_entity) = armature_root else {
-        return;
-    };
-
-    let mut mappings = std::collections::HashMap::new();
-
-    let mut current_path = Vec::new();
-    collect_bone_paths(
-        root_entity,
-        &mut current_path,
-        &mut mappings,
-        &children_query,
-        &names_query,
-    );
-
-    if mappings.len() < 10 {
-        return;
-    }
-
-    let mut retargeted_any = false;
-    for clip_handle in &gltf.animations {
-        if retargeted.retargeted_clips.contains(clip_handle) {
-            continue;
-        }
-        if let Some(mut clip) = clips.get_mut(clip_handle) {
-            retarget_clip_in_place(&mut *clip, &mappings);
-            retargeted.retargeted_clips.insert(clip_handle.clone());
-            retargeted_any = true;
-        }
-    }
-
-    if retargeted_any {
-        info!("PLAYER_LOG: Successfully retargeted {} animation clips in-place! Total retargeted: {}", 
-            retargeted.retargeted_clips.len(), gltf.animations.len());
-    }
-}
-
-fn collect_bone_paths(
-    entity: Entity,
-    current_path: &mut Vec<Name>,
-    mappings: &mut std::collections::HashMap<AnimationTargetId, AnimationTargetId>,
-    children_query: &Query<&Children>,
-    names_query: &Query<&Name>,
-) {
-    let Some(name) = names_query.get(entity).ok() else {
-        return;
-    };
-
-    let is_root = name.as_str().contains("Armature");
-    if !is_root {
-        current_path.push(name.clone());
-    }
-
-    if !current_path.is_empty() {
-        let standard_id = AnimationTargetId::from_names(current_path.iter());
-
-        let alternative_roots = ["Armature", "Armature.001", "Armature.002", "Armature.003", "Armature.004", "armature"];
-        let intermediate_armatures = ["Armature", "Armature.001", "Armature.002", "Armature.003", "Armature.004", "Armature.005", "Armature.006", "Armature.007", "armature"];
-
-        mappings.insert(standard_id, standard_id);
-
-        for &alt_root in &alternative_roots {
-            let mut alt_path1 = Vec::new();
-            alt_path1.push(Name::new(alt_root.to_string()));
-            for name_part in current_path.iter() {
-                alt_path1.push(name_part.clone());
-            }
-            let alt_id1 = AnimationTargetId::from_names(alt_path1.iter());
-            mappings.insert(alt_id1, standard_id);
-
-            for &inter in &intermediate_armatures {
-                let mut alt_path2 = Vec::new();
-                alt_path2.push(Name::new(alt_root.to_string()));
-                alt_path2.push(Name::new(inter.to_string()));
-                for name_part in current_path.iter() {
-                    alt_path2.push(name_part.clone());
-                }
-                let alt_id2 = AnimationTargetId::from_names(alt_path2.iter());
-                mappings.insert(alt_id2, standard_id);
+        AvatarLocomotion::Jump => match kind {
+            AvatarLimbKind::Head => Vec2::new(-0.1, 0.0),
+            AvatarLimbKind::LeftArm => Vec2::new(-2.85, -0.02),
+            AvatarLimbKind::RightArm => Vec2::new(-2.85, 0.02),
+            AvatarLimbKind::LeftLeg => Vec2::new(0.1, -0.05),
+            AvatarLimbKind::RightLeg => Vec2::new(0.1, 0.05),
+        },
+        AvatarLocomotion::Fall => {
+            let dangle = (t * 2.2).sin() * 0.03;
+            match kind {
+                AvatarLimbKind::Head => Vec2::new(0.2 + dangle, 0.0),
+                AvatarLimbKind::LeftArm => Vec2::new(-2.85 + dangle, -0.04),
+                AvatarLimbKind::RightArm => Vec2::new(-2.85 + dangle, 0.04),
+                AvatarLimbKind::LeftLeg => Vec2::new(0.1 + dangle, -0.04),
+                AvatarLimbKind::RightLeg => Vec2::new(0.1 + dangle, 0.04),
             }
         }
     }
+}
 
-    if let Ok(children) = children_query.get(entity) {
-        for child in children.iter() {
-            collect_bone_paths(child, current_path, mappings, children_query, names_query);
+fn locomotion_for(grounded: bool, velocity_studs: Vec3) -> AvatarLocomotion {
+    if !grounded {
+        if velocity_studs.y > 1.5 {
+            return AvatarLocomotion::Jump;
         }
+        return AvatarLocomotion::Fall;
     }
-
-    if !is_root {
-        current_path.pop();
+    if Vec2::new(velocity_studs.x, velocity_studs.z).length() > WALK_SPEED_STUDS {
+        return AvatarLocomotion::Walk;
     }
+    AvatarLocomotion::Idle
 }
 
-fn retarget_clip_in_place(
-    clip: &mut AnimationClip,
-    mappings: &std::collections::HashMap<AnimationTargetId, AnimationTargetId>,
-) {
-    let old_curves = std::mem::take(clip.curves_mut());
-    let mut_curves = clip.curves_mut();
-    for (old_target_id, curves) in old_curves {
-        let new_target_id = mappings.get(&old_target_id).copied().unwrap_or(old_target_id);
-        mut_curves.insert(new_target_id, curves);
-    }
-}
-
-pub fn init_player_animations(
-    mut commands: Commands,
-    mut anim_players: Query<(Entity, &ChildOf), (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
-    parent_query: Query<&ChildOf>,
-    players: Query<Entity, With<crate::common::net::components::Player>>,
-    player_anims: Res<PlayerAnimationGraphLoaded>,
-    children_query: Query<&Children>,
-    names_query: Query<&Name>,
-) {
-    let Some(graph_handle) = &player_anims.graph else {
-        return;
-    };
-
-    for (player_entity, child_of) in &mut anim_players {
-        let mut current = child_of.parent();
-        let mut player_entity_opt = None;
-
-        loop {
-            if players.get(current).is_ok() {
-                player_entity_opt = Some(current);
-                break;
-            }
-            if let Ok(next_parent) = parent_query.get(current) {
-                current = next_parent.parent();
-            } else {
-                break;
-            }
-        }
-
-        if let Some(p_entity) = player_entity_opt {
-            commands.entity(player_entity).insert((
-                AnimationGraphHandle(graph_handle.clone()),
-                AnimationTransitions::default(),
-                PlayerAnimationMarker { player_entity: p_entity, current_index: None, walk_speed: 1.0 },
-            ));
-            info!("PLAYER_LOG: Successfully linked unified AnimationPlayer {:?} to player {:?}.", player_entity, p_entity);
-
-            let mut current_path = Vec::new();
-            insert_animation_targets_recursive(
-                &mut commands,
-                player_entity,
-                player_entity,
-                &mut current_path,
-                &children_query,
-                &names_query,
-            );
-            info!("PLAYER_LOG: Successfully populated AnimationTargetId and AnimatedBy hierarchy under {:?}", player_entity);
-        }
-    }
-}
-
-fn insert_animation_targets_recursive(
-    commands: &mut Commands,
-    entity: Entity,
-    armature_entity: Entity,
-    current_path: &mut Vec<Name>,
-    children_query: &Query<&Children>,
-    names_query: &Query<&Name>,
-) {
-    let Some(name) = names_query.get(entity).ok() else {
-        return;
-    };
-
-    let is_root = name.as_str().contains("Armature");
-    if !is_root {
-        current_path.push(name.clone());
-    }
-
-    if !current_path.is_empty() {
-        let target_id = AnimationTargetId::from_names(current_path.iter());
-        commands.entity(entity).insert((
-            AnimatedBy(armature_entity),
-            target_id,
-        ));
-    } else {
-        commands.entity(entity).insert(AnimatedBy(armature_entity));
-    }
-
-    if let Ok(children) = children_query.get(entity) {
-        for child in children.iter() {
-            insert_animation_targets_recursive(
-                commands,
-                child,
-                armature_entity,
-                current_path,
-                children_query,
-                names_query,
-            );
-        }
-    }
-
-    if !is_root {
-        current_path.pop();
-    }
-}
-
-type PlayerGrid = std::collections::HashMap<(i32, i32), Vec<(Entity, Transform)>>;
-
-fn grid_cell(position: Vec3) -> (i32, i32) {
-    (position.x.floor() as i32, position.z.floor() as i32)
-}
-
-fn rebuild_player_grid(grid: &mut PlayerGrid, players: impl Iterator<Item = (Entity, Transform)>) {
-    grid.clear();
-    for (entity, transform) in players {
-        grid.entry(grid_cell(transform.translation)).or_default().push((entity, transform));
-    }
-}
-
-fn supported_by_player(entity: Entity, transform: &Transform, grid: &PlayerGrid) -> bool {
-    let (cell_x, cell_z) = grid_cell(transform.translation);
-    for x in (cell_x - 1)..=(cell_x + 1) {
-        for z in (cell_z - 1)..=(cell_z + 1) {
-            let Some(players) = grid.get(&(x, z)) else { continue };
-            for &(other_entity, other_transform) in players {
-                if other_entity == entity {
-                    continue;
-                }
-
-                let local = other_transform.rotation.inverse().mul_vec3(transform.translation - other_transform.translation);
-                let within_x = local.x.abs() <= 1.0 * 0.28 + 2.0 * 0.28 * 0.5;
-                let within_z = local.z.abs() <= 0.5 * 0.28 + 1.0 * 0.28 * 0.5;
-                let max_height = 2.5 * 0.28 + 2.5 * 0.28 + 0.15;
-                if within_x && within_z && local.y >= 0.0 && local.y <= max_height {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-fn supported_by_world(entity: Entity, transform: &Transform, spatial_query: &SpatialQuery) -> bool {
-    let filter = SpatialQueryFilter::default()
-        .with_excluded_entities([entity])
-        .with_mask(0b0001);
-    spatial_query
-        .cast_ray(
-            transform.translation,
-            Dir3::NEG_Y,
-            2.5 * 0.28 + 0.15,
-            true,
-            &filter,
-        )
-        .is_some()
-}
-
-fn tracking_delta(delta_secs: f32) -> Option<f32> {
-    (delta_secs > 0.0).then_some(delta_secs)
-}
-
-fn grounded_for_animation(tracker: &PlayerVelocityTracker) -> bool {
-    tracker.is_grounded || tracker.velocity.y.abs() < 0.2
-}
-
-pub fn track_remote_player_animation(
-    mut commands: Commands,
-    mut query: Query<(
-        Entity,
-        Ref<crate::common::net::components::NetworkTransform>,
-        Option<&mut PlayerVelocityTracker>,
-    ), (With<crate::common::net::components::Player>, Without<LocalPlayer>)>,
+pub fn update_avatar_anim_state(
+    mut roots: Query<(&crate::client::PlayerVisualChild, &mut AvatarAnimState)>,
+    players: Query<(
+        &crate::common::net::components::Player,
+        &GlobalTransform,
+        Option<&crate::client::LocalPlayer>,
+        Option<&crate::common::game::movement::PlayerMovementPlan>,
+    )>,
     time: Res<Time>,
 ) {
-    let now = time.elapsed_secs_f64();
-    for (entity, net_transform, tracker_opt) in &mut query {
-        if !net_transform.is_changed() {
+    let delta_secs = time.delta_secs();
+    for (visual_child, mut anim) in &mut roots {
+        let Ok((_, transform, local_opt, plan_opt)) = players.get(visual_child.parent) else {
             continue;
+        };
+        let position = transform.translation();
+        if !anim.initialized {
+            anim.last_position = position;
+            anim.initialized = true;
         }
-        let new_position = net_transform.translation;
-        if let Some(mut tracker) = tracker_opt {
-            let dt = now - tracker.last_arrival;
-            let displacement = new_position - tracker.last_position;
-            if dt > 0.001 {
-                if displacement.length() < 2.0 {
-                    let raw_velocity = displacement / dt as f32;
-                    tracker.velocity = tracker.velocity.lerp(raw_velocity, 0.6);
-                }
-                if tracker.velocity.y > 2.0 {
-                    tracker.jump_triggered = true;
-                    tracker.jump_latch_until = now + 0.35;
-                }
+
+        let (velocity_ms, grounded) = match (local_opt, plan_opt) {
+            (Some(_), Some(plan)) => (plan.velocity, plan.grounded),
+            _ => {
+                let raw = if delta_secs > 0.0001 {
+                    (position - anim.last_position) / delta_secs
+                } else {
+                    Vec3::ZERO
+                };
+                let smoothed = anim.velocity.lerp(raw, VELOCITY_SMOOTHING);
+                (smoothed, smoothed.y.abs() < 1.5 * AVATAR_STUD_SCALE)
             }
-            tracker.last_position = new_position;
-            tracker.last_arrival = now;
-            tracker.moving = Vec2::new(tracker.velocity.x, tracker.velocity.z).length() > 0.5;
-            if tracker.jump_triggered && now > tracker.jump_latch_until {
-                tracker.jump_triggered = false;
-            }
-        } else {
-            commands.entity(entity).insert(PlayerVelocityTracker {
-                last_position: new_position,
-                velocity: Vec3::ZERO,
-                is_grounded: false,
-                moving: false,
-                jump_triggered: false,
-                last_arrival: now,
-                jump_latch_until: 0.0,
-            });
+        };
+        anim.velocity = velocity_ms;
+        anim.last_position = position;
+
+        let velocity_studs = velocity_ms / AVATAR_STUD_SCALE;
+        anim.locomotion = locomotion_for(grounded, velocity_studs);
+
+        if anim.locomotion == AvatarLocomotion::Walk {
+            let speed = Vec2::new(velocity_studs.x, velocity_studs.z).length();
+            anim.phase += delta_secs * speed * PHASE_PER_STUD;
         }
     }
 }
 
-pub fn track_remote_player_grounded(
-    mut commands: Commands,
-    mut query: Query<(
-        Entity,
-        &crate::common::net::components::NetworkTransform,
-        Option<&mut PlayerVelocityTracker>,
-    ), (With<crate::common::net::components::Player>, Without<LocalPlayer>)>,
-    spatial_query: SpatialQuery,
+pub fn pose_avatar_limbs(
+    mut roots: Query<(&AvatarRig, &mut AvatarAnimState, &mut Transform)>,
+    mut limbs: Query<(&mut AvatarLimb, &mut Transform), Without<AvatarRig>>,
     time: Res<Time>,
-    mut cached_players: Local<Vec<(Entity, Transform)>>,
-    mut player_grid: Local<PlayerGrid>,
-    mut last_tick: Local<f32>,
-    mut probe_offset: Local<usize>,
 ) {
-    if !tracking_delta(time.delta_secs()).is_some() {
-        return;
-    }
-
+    let delta_secs = time.delta_secs();
     let now = time.elapsed_secs();
-    let interval = now - *last_tick;
-    if interval < 0.1 {
-        return;
-    }
-    *last_tick = now;
-
-    cached_players.clear();
-    cached_players.extend(query.iter().map(|(e, nt, _)| {
-        (
-            e,
-            Transform {
-                translation: nt.translation,
-                rotation: nt.rotation,
-                ..default()
-            },
-        )
-    }));
-    rebuild_player_grid(&mut player_grid, cached_players.iter().copied());
-
-    const PROBE_STRIDE: usize = 6;
-    let count = query.iter().count();
-    for (index, (entity, net_transform, tracker_opt)) in (&mut query).into_iter().enumerate() {
-        let transform = Transform {
-            translation: net_transform.translation,
-            rotation: net_transform.rotation,
-            ..default()
-        };
-        let needs_new_tracker = tracker_opt.is_none();
-        let cast_world_support = needs_new_tracker || index % PROBE_STRIDE == *probe_offset;
-        let is_grounded = if cast_world_support {
-            supported_by_world(entity, &transform, &spatial_query)
-                || supported_by_player(entity, &transform, &player_grid)
-        } else {
-            tracker_opt.as_ref().map_or(true, |tracker| tracker.is_grounded)
-        };
-
-        if let Some(mut tracker) = tracker_opt {
-            tracker.is_grounded = is_grounded;
-        } else {
-            commands.entity(entity).insert(PlayerVelocityTracker {
-                last_position: transform.translation,
-                velocity: Vec3::ZERO,
-                is_grounded,
-                moving: false,
-                jump_triggered: false,
-                last_arrival: time.elapsed_secs_f64(),
-                jump_latch_until: 0.0,
-            });
+    for (rig, anim, mut root_transform) in &mut roots {
+        let mut bob = 0.0;
+        if anim.locomotion == AvatarLocomotion::Walk {
+            bob = (anim.phase * 2.0).sin() * 0.004;
         }
-    }
-    if count > 0 {
-        *probe_offset = (*probe_offset + 1) % PROBE_STRIDE;
-    }
-}
+        root_transform.translation.y = AVATAR_ROOT_OFFSET_Y + bob;
 
-pub fn track_local_player_animation(
-    mut commands: Commands,
-    mut query: Query<(
-        Entity,
-        &crate::common::game::movement::PlayerMovementPlan,
-        Option<&mut PlayerVelocityTracker>,
-    ), (With<LocalPlayer>, With<crate::common::net::components::Player>)>,
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-) {
-    let now = time.elapsed_secs_f64();
-    let jump_pressed = keys.just_pressed(KeyCode::Space);
-    for (entity, plan, tracker_opt) in &mut query {
-        if let Some(mut tracker) = tracker_opt {
-            tracker.velocity = plan.velocity;
-            tracker.is_grounded = plan.grounded;
-            tracker.moving = Vec2::new(plan.velocity.x, plan.velocity.z).length() > 0.5;
-            if jump_pressed || plan.velocity.y > 2.0 {
-                tracker.jump_triggered = true;
-                tracker.jump_latch_until = now + 0.35;
-            }
-            if tracker.jump_triggered && now > tracker.jump_latch_until {
-                tracker.jump_triggered = false;
-            }
-        } else {
-            commands.entity(entity).insert(PlayerVelocityTracker {
-                last_position: plan.velocity,
-                velocity: plan.velocity,
-                is_grounded: plan.grounded,
-                moving: plan.velocity.length() > 0.5,
-                jump_triggered: jump_pressed || plan.velocity.y > 2.0,
-                last_arrival: now,
-                jump_latch_until: if jump_pressed { now + 0.35 } else { 0.0 },
-            });
-        }
-    }
-}
-
-pub fn animate_player(
-    mut anim_players: Query<(&mut AnimationPlayer, &mut AnimationTransitions, &mut PlayerAnimationMarker)>,
-    players: Query<&PlayerVelocityTracker>,
-    player_anims: Res<PlayerAnimationGraphLoaded>,
-    time: Res<Time>,
-) {
-    for (mut player, mut transitions, mut marker) in &mut anim_players {
-        let Ok(tracker) = players.get(marker.player_entity) else {
-            continue;
-        };
-
-        let velocity = tracker.velocity;
-        let speed_xz = Vec2::new(velocity.x, velocity.z).length();
-
-        if f32::is_nan(speed_xz) || player_anims.indices.len() < 4 {
-            continue;
-        }
-
-        let jump_index = player_anims.indices[2];
-        let fall_index = player_anims.indices[3];
-        let walk_index = player_anims.indices[1];
-        let idle_index = player_anims.indices[0];
-
-        let is_jump_finished = player.animation(jump_index).map_or(false, |anim| anim.is_finished());
-
-        let mut active_index = if tracker.jump_triggered {
-            jump_index
-        } else if !grounded_for_animation(tracker) {
-            if velocity.y > 0.0 {
-                jump_index
-            } else {
-                fall_index
-            }
-        } else if tracker.moving {
-            walk_index
-        } else {
-            idle_index
-        };
-
-        if marker.current_index == Some(jump_index) && !is_jump_finished {
-            active_index = jump_index;
-        }
-
-        if marker.current_index != Some(active_index) {
-            if active_index == jump_index {
-                transitions.play(&mut player, active_index, std::time::Duration::from_millis(150)).replay();
-            } else {
-                transitions.play(&mut player, active_index, std::time::Duration::from_millis(250)).repeat();
-            }
-            marker.current_index = Some(active_index);
-            info!("PLAYER_LOG: Animation state changed to NodeIndex {:?}", active_index);
-        }
-
-        if active_index == walk_index {
-            let target_walk_speed = (speed_xz / crate::common::game::movement::DEFAULT_WALK_SPEED).clamp(0.2, 1.5);
-            marker.walk_speed += (target_walk_speed - marker.walk_speed) * (8.0 * time.delta_secs()).min(1.0);
-            if let Some(anim) = player.animation_mut(walk_index) {
-                anim.set_speed(marker.walk_speed);
-            }
+        for (index, kind) in AvatarLimbKind::ALL.iter().enumerate() {
+            let Ok((mut limb, mut limb_transform)) = limbs.get_mut(rig.limbs[index]) else {
+                continue;
+            };
+            let target = limb_pose_target(*kind, anim.locomotion, anim.phase, now);
+            limb.current.x = damp(limb.current.x, target.x, POSE_TWEEN_RATE, delta_secs);
+            limb.current.y = damp(limb.current.y, target.y, POSE_TWEEN_RATE, delta_secs);
+            limb_transform.rotation =
+                Quat::from_euler(EulerRot::XYZ, limb.current.x, 0.0, limb.current.y);
         }
     }
 }
@@ -659,129 +233,90 @@ pub fn animate_player(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avian3d::prelude::*;
 
-    #[derive(Component)]
-    struct ProbePlayer;
-
-    #[derive(Resource, Default)]
-    struct ProbeResult(bool);
-
-    fn run_probe(
-        spatial_query: SpatialQuery,
-        player: Single<(Entity, &Transform), With<ProbePlayer>>,
-        mut result: ResMut<ProbeResult>,
-    ) {
-        result.0 = supported_by_world(player.0, player.1, &spatial_query);
-    }
-
-    fn world_support(collider: Collider, transform: Transform, player_position: Vec3) -> bool {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default(), PhysicsPlugins::default()))
-            .init_asset::<Mesh>()
-            .init_resource::<ProbeResult>()
-            .add_systems(Update, run_probe);
-        app.world_mut().spawn((
-            RigidBody::Static,
-            collider,
-            transform,
-            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
-        ));
-        app.world_mut().spawn((ProbePlayer, Transform::from_translation(player_position)));
-        app.update();
-        app.update();
-        app.world().resource::<ProbeResult>().0
+    #[test]
+    fn idle_limbs_rest_near_neutral() {
+        for kind in AvatarLimbKind::ALL {
+            let pose = limb_pose_target(kind, AvatarLocomotion::Idle, 0.0, 0.0);
+            assert!(pose.x.abs() < 0.1, "{:?} idle rx too large", kind);
+            assert!(pose.y.abs() < 0.1, "{:?} idle rz too large", kind);
+        }
     }
 
     #[test]
-    fn detects_stacked_players_in_neighboring_cells() {
-        let mut world = World::new();
-        let lower = world.spawn_empty().id();
-        let upper = world.spawn_empty().id();
-        let lower_transform = Transform::from_xyz(0.9, 0.0, 0.0);
-        let upper_transform = Transform::from_xyz(0.9, 1.4, 0.0);
-        let mut grid = PlayerGrid::default();
-        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
-
-        assert!(supported_by_player(upper, &upper_transform, &grid));
+    fn walk_swings_opposite_limbs_symmetrically() {
+        let phase = 1.0;
+        let left_arm = limb_pose_target(AvatarLimbKind::LeftArm, AvatarLocomotion::Walk, phase, 0.0);
+        let right_arm =
+            limb_pose_target(AvatarLimbKind::RightArm, AvatarLocomotion::Walk, phase, 0.0);
+        let left_leg =
+            limb_pose_target(AvatarLimbKind::LeftLeg, AvatarLocomotion::Walk, phase, 0.0);
+        let right_leg =
+            limb_pose_target(AvatarLimbKind::RightLeg, AvatarLocomotion::Walk, phase, 0.0);
+        assert!((left_arm.x + right_arm.x).abs() < 1e-6);
+        assert!((left_leg.x + right_leg.x).abs() < 1e-6);
+        assert!(left_arm.x * left_leg.x < 0.0);
+        assert!(left_arm.x.abs() > 0.3);
+        assert!(left_leg.x.abs() > 0.3);
     }
 
     #[test]
-    fn ignores_players_outside_the_support_area() {
-        let mut world = World::new();
-        let lower = world.spawn_empty().id();
-        let upper = world.spawn_empty().id();
-        let lower_transform = Transform::from_xyz(0.0, 0.0, 0.0);
-        let upper_transform = Transform::from_xyz(0.8, 1.4, 0.0);
-        let mut grid = PlayerGrid::default();
-        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
-
-        assert!(!supported_by_player(upper, &upper_transform, &grid));
+    fn jump_raises_arms_straight_up() {
+        for kind in [AvatarLimbKind::LeftArm, AvatarLimbKind::RightArm] {
+            let pose = limb_pose_target(kind, AvatarLocomotion::Jump, 0.0, 0.0);
+            assert!(pose.x < -2.0, "{:?} arms not raised", kind);
+            assert!(pose.y.abs() <= 0.03, "{:?} arms too splayed", kind);
+        }
+        for kind in [AvatarLimbKind::LeftLeg, AvatarLimbKind::RightLeg] {
+            let pose = limb_pose_target(kind, AvatarLocomotion::Jump, 0.0, 0.0);
+            assert!(pose.y.abs() <= 0.1, "{:?} legs too spread", kind);
+            assert!(pose.y.abs() > 0.0, "{:?} legs not spread", kind);
+        }
     }
 
     #[test]
-    fn respects_rotated_player_support() {
-        let mut world = World::new();
-        let lower = world.spawn_empty().id();
-        let upper = world.spawn_empty().id();
-        let lower_transform = Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
-        let upper_transform = Transform::from_xyz(0.0, 1.4, 0.4);
-        let mut grid = PlayerGrid::default();
-        rebuild_player_grid(&mut grid, [(lower, lower_transform), (upper, upper_transform)].into_iter());
-
-        assert!(supported_by_player(upper, &upper_transform, &grid));
+    fn fall_dangles_limbs_with_raised_arms() {
+        for kind in [AvatarLimbKind::LeftArm, AvatarLimbKind::RightArm] {
+            let pose = limb_pose_target(kind, AvatarLocomotion::Fall, 0.0, 0.0);
+            assert!(pose.x < -2.0, "{:?} fall arms not raised", kind);
+            assert!(pose.y.abs() <= 0.05, "{:?} fall arms too splayed", kind);
+        }
+        for kind in [AvatarLimbKind::LeftLeg, AvatarLimbKind::RightLeg] {
+            let pose = limb_pose_target(kind, AvatarLocomotion::Fall, 0.0, 0.0);
+            assert!(pose.y.abs() <= 0.06, "{:?} fall legs too spread", kind);
+            assert!(pose.y.abs() > 0.0, "{:?} fall legs not spread", kind);
+        }
+        let head = limb_pose_target(AvatarLimbKind::Head, AvatarLocomotion::Fall, 0.0, 0.0);
+        assert!(head.x > 0.0, "fall head not drooping");
     }
 
     #[test]
-    fn detects_flat_and_rotated_world_support() {
-        assert!(world_support(
-            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
-            Transform::default(),
-            Vec3::new(0.0, 2.5 * 0.28 + 0.5 * 0.28, 0.0),
-        ));
-        assert!(world_support(
-            Collider::cuboid(4.0 * 0.28, 1.0 * 0.28, 2.0 * 0.28),
-            Transform::from_rotation(Quat::from_rotation_z(0.2)),
-            Vec3::new(0.0, 2.5 * 0.28 + 0.5 * 0.28, 0.0),
-        ));
+    fn locomotion_selects_expected_states() {
+        assert_eq!(
+            locomotion_for(true, Vec3::ZERO),
+            AvatarLocomotion::Idle
+        );
+        assert_eq!(
+            locomotion_for(true, Vec3::new(8.0, 0.0, 0.0)),
+            AvatarLocomotion::Walk
+        );
+        assert_eq!(
+            locomotion_for(false, Vec3::new(0.0, 8.0, 0.0)),
+            AvatarLocomotion::Jump
+        );
+        assert_eq!(
+            locomotion_for(false, Vec3::new(0.0, -8.0, 0.0)),
+            AvatarLocomotion::Fall
+        );
     }
 
     #[test]
-    fn detects_sphere_support_and_airborne_players() {
-        assert!(world_support(
-            Collider::sphere(0.28),
-            Transform::default(),
-            Vec3::new(0.0, 2.5 * 0.28 + 0.28, 0.0),
-        ));
-        assert!(!world_support(
-            Collider::sphere(0.28),
-            Transform::default(),
-            Vec3::new(0.0, 3.0, 0.0),
-        ));
-    }
-
-    #[test]
-    fn rejects_zero_delta_time() {
-        assert_eq!(tracking_delta(0.0), None);
-        assert_eq!(tracking_delta(-0.1), None);
-        assert_eq!(tracking_delta(0.1), Some(0.1));
-    }
-
-    #[test]
-    fn settles_animation_when_vertical_motion_stops() {
-        let mut tracker = PlayerVelocityTracker {
-            last_position: Vec3::ZERO,
-            velocity: Vec3::ZERO,
-            is_grounded: false,
-            ..default()
-        };
-
-        assert!(grounded_for_animation(&tracker));
-        tracker.velocity.y = -0.3;
-        assert!(!grounded_for_animation(&tracker));
-        tracker.velocity.y = 0.3;
-        assert!(!grounded_for_animation(&tracker));
-        tracker.is_grounded = true;
-        assert!(grounded_for_animation(&tracker));
+    fn damp_converges_toward_target() {
+        let mut value = 0.0;
+        for _ in 0..120 {
+            value = damp(value, 1.0, 10.0, 1.0 / 60.0);
+        }
+        assert!((value - 1.0).abs() < 0.01);
+        assert_eq!(damp(2.0, 2.0, 10.0, 1.0 / 60.0), 2.0);
     }
 }

@@ -1,7 +1,7 @@
-pub mod vrtx;
-pub mod performance;
 #[cfg(feature = "bench")]
 pub mod bench;
+pub mod performance;
+pub mod vrtx;
 
 use bevy::prelude::*;
 

@@ -1,9 +1,9 @@
-use bevy::prelude::*;
-use bevy_egui::egui;
-use crate::studio::tools::Selection;
 use crate::common::game::bricks::components::Brick;
+use crate::studio::tools::Selection;
 use crate::studio::ui::CopiedEntityBuffer;
 use bevy::pbr::ExtendedMaterial;
+use bevy::prelude::*;
+use bevy_egui::egui;
 
 pub fn draw_entity_context_menu(
     ui: &mut egui::Ui,
@@ -11,34 +11,72 @@ pub fn draw_entity_context_menu(
     commands: &mut Commands,
     selection: &mut ResMut<Selection>,
     copiedbuffer: &mut CopiedEntityBuffer,
-    entities_query: &Query<(
-        Entity,
-        &mut Transform,
-        &Name,
-        Option<&ChildOf>,
-        Option<&Children>,
-        Option<&Brick>,
-        Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
-        &GlobalTransform,
-        Option<&Mesh3d>,
-        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
-        Option<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
-        Option<&mut crate::common::game::bricks::components::BrickPhysics>,
-    ), Without<Camera3d>>,
+    entities_query: &Query<
+        (
+            Entity,
+            &mut Transform,
+            &Name,
+            Option<&ChildOf>,
+            Option<&Children>,
+            Option<&Brick>,
+            Option<&mut crate::common::game::bricks::components::BrickShapeComponent>,
+            &GlobalTransform,
+            Option<&Mesh3d>,
+            Option<
+                &MeshMaterial3d<
+                    ExtendedMaterial<
+                        StandardMaterial,
+                        crate::common::game::bricks::studs::ShadowOpacityExtension,
+                    >,
+                >,
+            >,
+            Option<
+                &MeshMaterial3d<
+                    ExtendedMaterial<
+                        StandardMaterial,
+                        crate::common::game::bricks::studs::StudsExtension,
+                    >,
+                >,
+            >,
+            Option<&mut crate::common::game::bricks::components::BrickPhysics>,
+        ),
+        Without<Camera3d>,
+    >,
     history: &mut ResMut<crate::studio::tools::UndoRedoHistory>,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
+    mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
+    texture_assets: &Query<&crate::common::game::assets::components::Texture>,
 ) -> bool {
     let mut closed = false;
     if ui.button("Copy").clicked() {
-        if let Ok((_, transform, name, _, _, brick_opt, shape_opt, _, mesh_opt, mat_opt, studs_mat_opt, phys_opt)) = entities_query.get(entity) {
+        if let Ok((
+            _,
+            transform,
+            name,
+            _,
+            _,
+            brick_opt,
+            shape_opt,
+            _,
+            mesh_opt,
+            mat_opt,
+            studs_mat_opt,
+            phys_opt,
+        )) = entities_query.get(entity)
+        {
             copiedbuffer.transform = Some(*transform);
             copiedbuffer.mesh = mesh_opt.cloned();
+            copiedbuffer.mesh_asset = mesh_assets.get(entity).ok().copied();
+            copiedbuffer.texture = texture_assets.get(entity).ok().copied();
             copiedbuffer.material = mat_opt.cloned();
             copiedbuffer.studs_material = studs_mat_opt.cloned();
             copiedbuffer.name = Some(name.to_string());
             copiedbuffer.is_brick = brick_opt.is_some();
-            copiedbuffer.shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+            copiedbuffer.shape = shape_opt
+                .as_ref()
+                .map(|s| s.shape)
+                .unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
             copiedbuffer.physics = phys_opt.cloned();
             copiedbuffer.show_studs = studs_query.get(entity).map(|s| s.enabled).unwrap_or(true);
             copiedbuffer.color = brick_colors.get(entity).ok().map(|bc| bc.color);
@@ -53,14 +91,25 @@ pub fn draw_entity_context_menu(
             let mut newtransform = transform;
             newtransform.translation += Vec3::new(2.0, 0.0, 2.0);
 
-            let new_entity = commands.spawn((
-                newtransform,
-                Name::new(format!("{} - Copy", name)),
-                Pickable::default(),
-            )).id();
+            let new_entity = commands
+                .spawn((
+                    newtransform,
+                    Name::new(format!("{} - Copy", name)),
+                    Pickable::default(),
+                ))
+                .id();
 
             if let Some(ref mesh) = copiedbuffer.mesh {
                 commands.entity(new_entity).insert(mesh.clone());
+            }
+            if let Some(ref mesh_asset) = copiedbuffer.mesh_asset {
+                commands.entity(new_entity).insert(*mesh_asset);
+            }
+            if let Some(texture) = copiedbuffer.texture {
+                let texture_entity = commands
+                    .spawn((Name::new("Texture"), Transform::default(), texture))
+                    .id();
+                commands.entity(new_entity).add_child(texture_entity);
             }
             if let Some(ref mat) = copiedbuffer.material {
                 commands.entity(new_entity).insert(mat.clone());
@@ -72,8 +121,12 @@ pub fn draw_entity_context_menu(
                 let mut new_entity_cmd = commands.entity(new_entity);
                 new_entity_cmd.insert((
                     Brick,
-                    crate::common::game::bricks::components::BrickShapeComponent { shape: copiedbuffer.shape },
-                    crate::common::game::bricks::components::BrickStuds { enabled: copiedbuffer.show_studs },
+                    crate::common::game::bricks::components::BrickShapeComponent {
+                        shape: copiedbuffer.shape,
+                    },
+                    crate::common::game::bricks::components::BrickStuds {
+                        enabled: copiedbuffer.show_studs,
+                    },
                     crate::common::game::bricks::components::BrickColor {
                         color: copiedbuffer.color.unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
                     },
@@ -99,6 +152,7 @@ pub fn draw_entity_context_menu(
                 is_brick: copiedbuffer.is_brick,
                 shape: copiedbuffer.shape,
                 mesh: copiedbuffer.mesh.clone(),
+                mesh_asset: copiedbuffer.mesh_asset,
                 standard_material: copiedbuffer.material.clone(),
                 studs_material: copiedbuffer.studs_material.clone(),
                 parent: None,
@@ -122,17 +176,39 @@ pub fn draw_entity_context_menu(
         }
     }
     if ui.button("Duplicate").clicked() {
-        if let Ok((_, transform, name, child_of_opt, _, brick_opt, shape_opt, _, mesh_opt, mat_opt, studs_mat_opt, phys_opt)) = entities_query.get(entity) {
+        if let Ok((
+            _,
+            transform,
+            name,
+            child_of_opt,
+            _,
+            brick_opt,
+            shape_opt,
+            _,
+            mesh_opt,
+            mat_opt,
+            studs_mat_opt,
+            phys_opt,
+        )) = entities_query.get(entity)
+        {
             let newtransform = *transform;
 
-            let new_entity = commands.spawn((
-                newtransform,
-                Name::new(format!("{} - Copy", name.as_str())),
-                Pickable::default(),
-            )).id();
+            let new_entity = commands
+                .spawn((
+                    newtransform,
+                    Name::new(format!("{} - Copy", name.as_str())),
+                    Pickable::default(),
+                ))
+                .id();
 
             if let Some(mesh) = mesh_opt {
                 commands.entity(new_entity).insert(mesh.clone());
+            }
+            if let Ok(texture) = texture_assets.get(entity) {
+                let texture_entity = commands
+                    .spawn((Name::new("Texture"), Transform::default(), *texture))
+                    .id();
+                commands.entity(new_entity).add_child(texture_entity);
             }
             if let Some(mat) = mat_opt {
                 commands.entity(new_entity).insert(mat.clone());
@@ -140,15 +216,23 @@ pub fn draw_entity_context_menu(
             if let Some(studs_mat) = studs_mat_opt {
                 commands.entity(new_entity).insert(studs_mat.clone());
             }
-            let shape = shape_opt.as_ref().map(|s| s.shape).unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
+            let shape = shape_opt
+                .as_ref()
+                .map(|s| s.shape)
+                .unwrap_or(crate::common::game::bricks::components::BrickShape::Block);
             if brick_opt.is_some() {
                 let mut new_entity_cmd = commands.entity(new_entity);
                 new_entity_cmd.insert((
                     Brick,
                     crate::common::game::bricks::components::BrickShapeComponent { shape },
-                    crate::common::game::bricks::components::BrickStuds { enabled: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true) },
+                    crate::common::game::bricks::components::BrickStuds {
+                        enabled: studs_query.get(entity).map(|s| s.enabled).unwrap_or(true),
+                    },
                     crate::common::game::bricks::components::BrickColor {
-                        color: brick_colors.get(entity).map(|bc| bc.color).unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
+                        color: brick_colors
+                            .get(entity)
+                            .map(|bc| bc.color)
+                            .unwrap_or(Color::srgb(0.84, 0.24, 0.16)),
                     },
                 ));
             }
@@ -179,6 +263,7 @@ pub fn draw_entity_context_menu(
                 is_brick: brick_opt.is_some(),
                 shape,
                 mesh: mesh_opt.cloned(),
+                mesh_asset: mesh_assets.get(entity).ok().copied(),
                 standard_material: mat_opt.cloned(),
                 studs_material: studs_mat_opt.cloned(),
                 parent: parent_entity,
@@ -202,11 +287,14 @@ pub fn draw_entity_context_menu(
         }
     }
     if ui.button("Delete").clicked() {
-        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(entity, entities_query, studs_query, brick_colors) {
-            history.push_command(crate::studio::tools::UndoCommand::Delete {
-                entity,
-                data,
-            });
+        if let Some(data) = crate::common::game::bricks::data::capture_brick_data(
+            entity,
+            entities_query,
+            studs_query,
+            brick_colors,
+            mesh_assets,
+        ) {
+            history.push_command(crate::studio::tools::UndoCommand::Delete { entity, data });
         }
         commands.entity(entity).try_despawn();
         if selection.entity == Some(entity) {

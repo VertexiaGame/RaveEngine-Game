@@ -1,8 +1,7 @@
-﻿
-use bevy::prelude::*;
-use mlua::prelude::*;
 use crate::scripting::vm::scheduler::{LuaTask, yielded_to_wake};
 use crate::scripting::vm::server_vm::{ServerScriptVM, WorldRef};
+use bevy::prelude::*;
+use mlua::prelude::*;
 use std::time::{Duration, Instant};
 
 pub fn test_world() -> World {
@@ -64,7 +63,9 @@ pub fn global<T: FromLua>(vm: &ServerScriptVM, name: &str) -> T {
 
 pub fn entity_of(vm: &ServerScriptVM, global_name: &str) -> Entity {
     let ud: mlua::AnyUserData = global(vm, global_name);
-    let inst = ud.borrow::<crate::scripting::userdata::instance::Instance>().unwrap();
+    let inst = ud
+        .borrow::<crate::scripting::userdata::instance::Instance>()
+        .unwrap();
     inst.entity
 }
 

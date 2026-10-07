@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-pub const FORMAT_VERSION: u32 = 8;
+pub const FORMAT_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VrtxBrick {
@@ -36,10 +36,55 @@ pub struct VrtxImage {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct VrtxMesh {
+    pub name: String,
+    pub asset_id: u32,
+    pub normalize: bool,
+    pub parent_name: Option<String>,
+    pub transform: Transform,
+    pub physics_enabled: bool,
+    pub bounciness: f32,
+    pub player_can_collide: bool,
+    pub friction: f32,
+    pub gravity_scale: f32,
+    pub mass: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VrtxTexture {
+    pub name: String,
+    pub id_string: String,
+    pub parent_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct VrtxSettings {
     pub ssao: bool,
     pub contact_shadows: bool,
     pub bloom: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VrtxPlayers {
+    pub speed: f32,
+    pub jump_power: f32,
+    pub gravity: f32,
+    pub speed_response: crate::common::game::movement::SpeedResponse,
+    pub friction: f32,
+    pub bounciness: f32,
+}
+
+impl Default for VrtxPlayers {
+    fn default() -> Self {
+        Self {
+            speed: 16.0 * 0.28,
+            jump_power: 50.0 * 0.28,
+            gravity: 186.9 * 0.28,
+            speed_response: crate::common::game::movement::SpeedResponse::Linear,
+            friction: 0.0,
+            bounciness: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,8 +168,11 @@ pub struct VrtxFileState {
     pub gravity: Vec3,
     pub settings: VrtxSettings,
     pub lighting: VrtxLighting,
+    pub players: VrtxPlayers,
     pub camera_transform: Transform,
     pub bricks: Vec<VrtxBrick>,
     pub scripts: Vec<VrtxScript>,
     pub images: Vec<VrtxImage>,
+    pub meshes: Vec<VrtxMesh>,
+    pub textures: Vec<VrtxTexture>,
 }

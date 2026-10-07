@@ -4,17 +4,17 @@ use bevy::{
     ecs::system::ResMut,
     prelude::*,
     render::{
+        Extract, Render, RenderApp, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_asset::RenderAssets,
         render_resource::{
-            binding_types::uniform_buffer, AsBindGroup, BindGroup, BindGroupEntries,
-            BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedComputePipelineId,
-            CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor, Extent3d,
-            Origin3d, PipelineCache, ShaderStages, TexelCopyTextureInfo, TextureAspect,
+            AsBindGroup, BindGroup, BindGroupEntries, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntries, CachedComputePipelineId, CachedPipelineState,
+            ComputePassDescriptor, ComputePipelineDescriptor, Extent3d, Origin3d, PipelineCache,
+            ShaderStages, TexelCopyTextureInfo, TextureAspect, binding_types::uniform_buffer,
         },
         renderer::{RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue},
         texture::GpuImage,
-        Extract, Render, RenderApp, RenderSystems,
     },
 };
 use std::borrow::Cow;
@@ -26,6 +26,15 @@ use super::{
 };
 
 const WORKGROUP_SIZE: u32 = 8;
+
+pub(crate) const INIT_CHUNK_ROWS: u32 = 144;
+
+pub(crate) fn init_chunk_range(next_row: u32) -> Option<(u32, u32)> {
+    if next_row >= IMAGE_SIZE {
+        return None;
+    }
+    Some((next_row, (IMAGE_SIZE - next_row).min(INIT_CHUNK_ROWS)))
+}
 
 #[derive(Resource, Clone, Copy)]
 pub(crate) struct CameraMatrices {
@@ -82,14 +91,15 @@ fn prepare_uniforms_bind_group(
     buffer.sun_color = clouds_config.sun_color;
     buffer.camera_translation = camera.translation;
     buffer.time = time.elapsed_secs_wrapped();
-    buffer.reprojection_strength =
-        clouds_config.reprojection_strength.powf(time.delta_secs() * 60.0);
+    buffer.reprojection_strength = clouds_config
+        .reprojection_strength
+        .powf(time.delta_secs() * 60.0);
     buffer.render_resolution = clouds_config.render_resolution;
     buffer.inverse_camera_view = camera.inverse_camera_view;
     *previous_inverse_camera_view = camera.inverse_camera_view;
     buffer.inverse_camera_projection = camera.inverse_camera_projection;
     buffer.wind_displacement += time.delta_secs() * clouds_config.wind_velocity;
-    buffer.atlas_seed = time.elapsed_secs_wrapped().fract();
+    buffer.atlas_seed = 0.0;
 
     clouds_uniform_buffer
         .buffer
@@ -119,7 +129,18 @@ fn prepare_textures_bind_group(
     render_device: Res<RenderDevice>,
     mut clouds_state: ResMut<CloudsState>,
     mut last_atlas_image: Local<Option<Handle<Image>>>,
-    mut cached_bind_group: Local<Option<(BindGroup, (Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>, Handle<Image>))>>,
+    mut cached_bind_group: Local<
+        Option<(
+            BindGroup,
+            (
+                Handle<Image>,
+                Handle<Image>,
+                Handle<Image>,
+                Handle<Image>,
+                Handle<Image>,
+            ),
+        )>,
+    >,
 ) {
     if last_atlas_image.as_ref() != Some(&clouds_image.cloud_atlas_image) {
         *clouds_state = CloudsState::Loading;
@@ -133,14 +154,18 @@ fn prepare_textures_bind_group(
         clouds_image.cloud_worley_image.clone(),
         clouds_image.sky_image.clone(),
     );
-    if cached_bind_group.as_ref().is_some_and(|(_, handles)| *handles == current_textures) {
+    if cached_bind_group
+        .as_ref()
+        .is_some_and(|(_, handles)| *handles == current_textures)
+    {
         return;
     }
 
     let Some(cloud_render_view) = gpu_images.get(&clouds_image.cloud_render_image) else {
         return;
     };
-    let Some(cloud_render_previous_view) = gpu_images.get(&clouds_image.cloud_render_previous_image)
+    let Some(cloud_render_previous_view) =
+        gpu_images.get(&clouds_image.cloud_render_previous_image)
     else {
         return;
     };
@@ -230,8 +255,12 @@ impl FromWorld for CloudsPipelineResource {
 enum CloudsState {
     #[default]
     Loading,
-    Init,
-    Update,
+    Init {
+        next_row: u32,
+    },
+    Update {
+        noise_ready: bool,
+    },
 }
 
 fn run_clouds_compute_pass(
@@ -243,6 +272,9 @@ fn run_clouds_compute_pass(
     clouds_config: Option<Res<CloudsConfig>>,
     clouds_image: Option<Res<CloudsImage>>,
     gpu_images: Option<Res<RenderAssets<GpuImage>>>,
+    mut clouds_uniform_buffer: ResMut<CloudsUniformBuffer>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
     mut render_context: RenderContext,
 ) {
     let Some(texture_bind_group) = texture_bind_group else {
@@ -255,39 +287,116 @@ fn run_clouds_compute_pass(
         return;
     };
 
-    let pipeline_to_run = match *state {
+    let init_ready = matches!(
+        pipeline_cache.get_compute_pipeline_state(pipeline.init_pipeline),
+        CachedPipelineState::Ok(_)
+    );
+    let update_ready = matches!(
+        pipeline_cache.get_compute_pipeline_state(pipeline.update_pipeline),
+        CachedPipelineState::Ok(_)
+    );
+
+    enum Work {
+        InitChunk { base_y: u32, rows: u32 },
+        Update,
+    }
+
+    let work = match *state {
         CloudsState::Loading => {
-            if let CachedPipelineState::Ok(_) =
-                pipeline_cache.get_compute_pipeline_state(pipeline.init_pipeline)
-            {
-                *state = CloudsState::Init;
+            if !init_ready {
+                return;
+            }
+            if clouds_config.enabled {
+                match init_chunk_range(0) {
+                    Some((base_y, rows)) => {
+                        *state = CloudsState::Init {
+                            next_row: base_y + rows,
+                        };
+                        Work::InitChunk { base_y, rows }
+                    }
+                    None => {
+                        *state = CloudsState::Update { noise_ready: true };
+                        if !update_ready {
+                            return;
+                        }
+                        Work::Update
+                    }
+                }
+            } else if update_ready {
+                *state = CloudsState::Update { noise_ready: false };
+                Work::Update
             } else {
                 return;
             }
-            pipeline.init_pipeline
         }
-        CloudsState::Init => {
-            if let CachedPipelineState::Ok(_) =
-                pipeline_cache.get_compute_pipeline_state(pipeline.update_pipeline)
-            {
-                *state = CloudsState::Update;
+        CloudsState::Init { next_row } => {
+            if !clouds_config.enabled {
+                if update_ready {
+                    *state = CloudsState::Update { noise_ready: false };
+                    Work::Update
+                } else {
+                    return;
+                }
+            } else {
+                match init_chunk_range(next_row) {
+                    Some((base_y, rows)) => {
+                        *state = CloudsState::Init {
+                            next_row: base_y + rows,
+                        };
+                        Work::InitChunk { base_y, rows }
+                    }
+                    None => {
+                        *state = CloudsState::Update { noise_ready: true };
+                        if !update_ready {
+                            return;
+                        }
+                        Work::Update
+                    }
+                }
             }
-            pipeline.init_pipeline
         }
-        CloudsState::Update => pipeline.update_pipeline,
+        CloudsState::Update { noise_ready } => {
+            if clouds_config.enabled && !noise_ready {
+                *state = CloudsState::Loading;
+                return;
+            }
+            if !update_ready {
+                return;
+            }
+            Work::Update
+        }
+    };
+
+    let (pipeline_to_run, dispatch_groups) = match work {
+        Work::InitChunk { base_y, rows } => {
+            let buffer = clouds_uniform_buffer.buffer.get_mut();
+            buffer.init_base_y = base_y;
+            buffer.init_rows = rows;
+            clouds_uniform_buffer
+                .buffer
+                .write_buffer(&render_device, &render_queue);
+            (
+                pipeline.init_pipeline,
+                (
+                    IMAGE_SIZE / WORKGROUP_SIZE,
+                    rows.div_ceil(WORKGROUP_SIZE).max(1),
+                ),
+            )
+        }
+        Work::Update => {
+            let resolution = clouds_config.render_resolution;
+            (
+                pipeline.update_pipeline,
+                (
+                    (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1),
+                    (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1),
+                ),
+            )
+        }
     };
 
     let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_to_run) else {
         return;
-    };
-
-    let dispatch_groups = if pipeline_to_run == pipeline.init_pipeline {
-        (IMAGE_SIZE / WORKGROUP_SIZE, IMAGE_SIZE / WORKGROUP_SIZE)
-    } else {
-        let resolution = clouds_config.render_resolution;
-        let groups_x = (resolution.x as u32).div_ceil(WORKGROUP_SIZE).max(1);
-        let groups_y = (resolution.y as u32).div_ceil(WORKGROUP_SIZE).max(1);
-        (groups_x, groups_y)
     };
 
     let mut pass = render_context
@@ -377,4 +486,24 @@ fn extract_time(mut commands: Commands, time: Extract<Res<Time>>) {
 
 fn extract_camera_matrices(mut commands: Commands, camera: Extract<Res<CameraMatrices>>) {
     commands.insert_resource(**camera);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_chunks_cover_whole_image_without_overlap() {
+        let mut next_row = 0;
+        let mut chunks = 0;
+        while let Some((base_y, rows)) = init_chunk_range(next_row) {
+            assert_eq!(base_y, next_row);
+            assert!(rows > 0);
+            assert!(rows <= INIT_CHUNK_ROWS);
+            next_row += rows;
+            chunks += 1;
+        }
+        assert_eq!(next_row, IMAGE_SIZE);
+        assert!(chunks > 1);
+    }
 }

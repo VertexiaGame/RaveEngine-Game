@@ -29,12 +29,8 @@ pub fn netcode_private_key(cli: Option<&str>) -> [u8; 32] {
         }
         warn!("Well this isn't very sigma of you, isn't it?");
     }
-    let key: [u8; 32] = rand::random();
-    warn!(
-        "lahcn client with NETCODE_PRIVATE_KEY or ELSE. ",
-        format_hex_key(&key)
-    );
-    key
+    warn!("NETCODE_PRIVATE_KEY not set, defaulting to 0");
+    [0u8; 32]
 }
 
 pub fn netcode_protocol_id(cli: Option<u64>) -> u64 {
@@ -66,7 +62,10 @@ mod tests {
         assert!(parse_hex_key("").is_none());
         assert!(parse_hex_key(&"ab".repeat(31)).is_none());
         assert!(parse_hex_key(&"zz".repeat(32)).is_none());
-        assert!(parse_hex_key(&"AB".repeat(32)).is_some(), "uppercase hex is fine");
+        assert!(
+            parse_hex_key(&"AB".repeat(32)).is_some(),
+            "uppercase hex is fine"
+        );
     }
 
     #[test]
@@ -79,5 +78,23 @@ mod tests {
     fn protocol_id_falls_back_to_zero() {
         assert_eq!(netcode_protocol_id(Some(7)), 7);
         assert_eq!(netcode_protocol_id(None), 0);
+    }
+
+    #[test]
+    fn private_key_falls_back_to_zero() {
+        let prev = std::env::var("NETCODE_PRIVATE_KEY").ok();
+        unsafe {
+            std::env::remove_var("NETCODE_PRIVATE_KEY");
+        }
+        assert_eq!(netcode_private_key(None), [0u8; 32]);
+        assert_eq!(
+            netcode_private_key(Some(&"42".repeat(32))),
+            [0x42u8; 32]
+        );
+        if let Some(value) = prev {
+            unsafe {
+                std::env::set_var("NETCODE_PRIVATE_KEY", value);
+            }
+        }
     }
 }

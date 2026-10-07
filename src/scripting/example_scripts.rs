@@ -1,8 +1,7 @@
-
-use bevy::prelude::*;
 use crate::scripting::ecs::ModuleScript;
 use crate::scripting::testing::*;
 use crate::scripting::userdata::instance::Instance;
+use bevy::prelude::*;
 
 fn example_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/lua")
@@ -12,14 +11,22 @@ fn read_example(name: &str) -> String {
     std::fs::read_to_string(example_dir().join(name)).unwrap()
 }
 
+fn collect_lua_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let entries = std::fs::read_dir(dir).unwrap();
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_lua_files(&path, out);
+        } else if path.extension().map_or(false, |ext| ext == "lua") {
+            out.push(path);
+        }
+    }
+}
+
 #[test]
 fn all_top_level_example_scripts_run_without_errors() {
-    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(example_dir())
-        .unwrap()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().map_or(false, |ext| ext == "lua"))
-        .collect();
+    let mut files = Vec::new();
+    collect_lua_files(&example_dir(), &mut files);
     files.sort();
 
     assert!(!files.is_empty(), "no example scripts found in scripts/lua");
@@ -45,7 +52,11 @@ fn all_top_level_example_scripts_run_without_errors() {
         advance(&vm, 20, 12);
 
         run_script(&vm, "_G.smoke_ok = true");
-        assert!(global::<bool>(&vm, "smoke_ok"), "scheduler wedged by {}", file.display());
+        assert!(
+            global::<bool>(&vm, "smoke_ok"),
+            "scheduler wedged by {}",
+            file.display()
+        );
     }
 }
 
@@ -60,17 +71,23 @@ fn example_module_loads_and_is_cached() {
 
     vm.lua
         .globals()
-        .set("mod", vm.lua.create_userdata(Instance { entity: module }).unwrap())
+        .set(
+            "mod",
+            vm.lua.create_userdata(Instance { entity: module }).unwrap(),
+        )
         .unwrap();
 
-    run_script(&vm, r#"
+    run_script(
+        &vm,
+        r#"
         local M = require(_G.mod)
         _G.add = M.add(2, 3)
         _G.double = M.double(21)
         _G.lerp = M.lerp(0, 10, 0.5)
         _G.cached = require(_G.mod) == M
         _G.global_isolated = (module_counter == nil)
-    "#);
+    "#,
+    );
     assert_eq!(global::<f64>(&vm, "add"), 5.0);
     assert_eq!(global::<f64>(&vm, "double"), 42.0);
     assert_eq!(global::<f64>(&vm, "lerp"), 5.0);
@@ -89,7 +106,13 @@ fn example_module_main_script_runs_with_script_env() {
         .spawn((Name::new("MathModule"), ModuleScript { code: module_code }))
         .id();
     let script = world
-        .spawn((Name::new("Main"), crate::scripting::ecs::ServerScript { code: main_code.clone(), ..default() }))
+        .spawn((
+            Name::new("Main"),
+            crate::scripting::ecs::ServerScript {
+                code: main_code.clone(),
+                ..default()
+            },
+        ))
         .id();
     world.entity_mut(folder).add_child(module);
     world.entity_mut(folder).add_child(script);

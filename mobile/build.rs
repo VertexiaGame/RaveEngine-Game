@@ -37,9 +37,10 @@ fn main() {
                 .max()
         })
         .map(|clang_dir| {
-            clang_dir.join("lib").join("linux").join(
-                "libclang_rt.builtins-aarch64-android.a",
-            )
+            clang_dir
+                .join("lib")
+                .join("linux")
+                .join("libclang_rt.builtins-aarch64-android.a")
         });
 
     if let Some(path) = builtins.filter(|p| p.exists()) {
@@ -60,16 +61,13 @@ fn find_ndk() -> Option<PathBuf> {
     for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Ok(sdk) = env::var(var) {
             let ndk_dir = Path::new(&sdk).join("ndk");
-            if let Some(latest) = fs::read_dir(&ndk_dir)
-                .ok()
-                .and_then(|entries| {
-                    entries
-                        .filter_map(|e| e.ok())
-                        .map(|e| e.path())
-                        .filter(|p| ndk_ok(p))
-                        .max()
-                })
-            {
+            if let Some(latest) = fs::read_dir(&ndk_dir).ok().and_then(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| ndk_ok(p))
+                    .max()
+            }) {
                 return Some(latest);
             }
         }

@@ -1,7 +1,7 @@
-﻿use bevy::prelude::*;
+use super::scheduler::{LuaScheduler, ScriptRegistry};
+use bevy::prelude::*;
 use mlua::prelude::*;
 use std::sync::{Arc, Mutex};
-use super::scheduler::{LuaScheduler, ScriptRegistry};
 
 pub struct WorldRef(pub *mut World);
 unsafe impl Send for WorldRef {}

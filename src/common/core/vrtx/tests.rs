@@ -6,7 +6,12 @@ static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 fn temp_path(name: &str) -> String {
     let salt = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir()
-        .join(format!("vrtx_test_{}_{}_{}.vrtx", std::process::id(), salt, name))
+        .join(format!(
+            "vrtx_test_{}_{}_{}.vrtx",
+            std::process::id(),
+            salt,
+            name
+        ))
         .display()
         .to_string()
 }
@@ -20,10 +25,7 @@ fn round_trip(state: &VrtxFileState) -> VrtxFileState {
 }
 
 fn assert_f32_eq(a: f32, b: f32) {
-    assert!(
-        (a - b).abs() < 1e-4,
-        "f32 mismatch: {a} != {b}"
-    );
+    assert!((a - b).abs() < 1e-4, "f32 mismatch: {a} != {b}");
 }
 
 fn assert_vec3_eq(a: Vec3, b: Vec3) {
@@ -76,6 +78,15 @@ fn assert_lighting_eq(a: &VrtxLighting, b: &VrtxLighting) {
     assert_eq!(a.night_ambient, b.night_ambient);
 }
 
+fn assert_players_eq(a: &VrtxPlayers, b: &VrtxPlayers) {
+    assert_f32_eq(a.speed, b.speed);
+    assert_f32_eq(a.jump_power, b.jump_power);
+    assert_f32_eq(a.gravity, b.gravity);
+    assert_eq!(a.speed_response, b.speed_response);
+    assert_f32_eq(a.friction, b.friction);
+    assert_f32_eq(a.bounciness, b.bounciness);
+}
+
 fn sample_state() -> VrtxFileState {
     VrtxFileState {
         version: FORMAT_VERSION,
@@ -119,12 +130,25 @@ fn sample_state() -> VrtxFileState {
             cloud_reprojection_strength: 0.8,
             cloud_wind_velocity: Vec3::new(-3.0, 0.0, 5.0),
         },
-        camera_transform: Transform::from_xyz(3.0, 7.0, -2.0)
-            .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.5, -0.3, 0.1)),
+        players: VrtxPlayers {
+            speed: 16.0 * 0.28,
+            jump_power: 50.0 * 0.28,
+            gravity: 186.9 * 0.28,
+            speed_response: crate::common::game::movement::SpeedResponse::Exponential,
+            friction: 0.35,
+            bounciness: 0.1,
+        },
+        camera_transform: Transform::from_xyz(3.0, 7.0, -2.0).with_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            0.5,
+            -0.3,
+            0.1,
+        )),
         bricks: vec![
             VrtxBrick {
                 name: "Baseplate".to_string(),
-                transform: Transform::from_xyz(0.0, -0.14, 0.0).with_scale(Vec3::new(25.0, 1.0, 50.0)),
+                transform: Transform::from_xyz(0.0, -0.14, 0.0)
+                    .with_scale(Vec3::new(25.0, 1.0, 50.0)),
                 shape: crate::common::game::bricks::components::BrickShape::Block,
                 color: Color::Srgba(Srgba::new(0.22, 0.52, 0.28, 1.0)),
                 physics_enabled: false,
@@ -189,6 +213,46 @@ fn sample_state() -> VrtxFileState {
                 transform: Transform::from_xyz(0.0, 0.5, 0.0),
             },
         ],
+        meshes: vec![
+            VrtxMesh {
+                name: "Chair".to_string(),
+                asset_id: 789,
+                normalize: false,
+                parent_name: None,
+                transform: Transform::from_xyz(2.0, 3.0, 4.0).with_scale(Vec3::splat(0.5)),
+                physics_enabled: true,
+                bounciness: 0.2,
+                player_can_collide: true,
+                friction: 0.6,
+                gravity_scale: 1.5,
+                mass: 8.0,
+            },
+            VrtxMesh {
+                name: "Rocks".to_string(),
+                asset_id: 321,
+                normalize: true,
+                parent_name: Some("Baseplate".to_string()),
+                transform: Transform::from_xyz(-2.0, 0.0, 1.0),
+                physics_enabled: false,
+                bounciness: 0.0,
+                player_can_collide: false,
+                friction: 0.9,
+                gravity_scale: 0.0,
+                mass: 100.0,
+            },
+        ],
+        textures: vec![
+            VrtxTexture {
+                name: "Texture".to_string(),
+                id_string: "mesh/789".to_string(),
+                parent_name: Some("Chair".to_string()),
+            },
+            VrtxTexture {
+                name: "CustomSkin".to_string(),
+                id_string: "image/42".to_string(),
+                parent_name: Some("Chair".to_string()),
+            },
+        ],
     }
 }
 
@@ -201,7 +265,10 @@ fn bricks_round_trip_preserves_all_properties() {
     let (b0, b1) = (&loaded.bricks[0], &loaded.bricks[1]);
     assert_eq!(b0.name, "Baseplate");
     assert_transform_eq(&b0.transform, &state.bricks[0].transform);
-    assert_eq!(b0.shape, crate::common::game::bricks::components::BrickShape::Block);
+    assert_eq!(
+        b0.shape,
+        crate::common::game::bricks::components::BrickShape::Block
+    );
     assert_eq!(b0.color, state.bricks[0].color);
     assert_eq!(b0.physics_enabled, false);
     assert_f32_eq(b0.bounciness, 0.1);
@@ -212,7 +279,10 @@ fn bricks_round_trip_preserves_all_properties() {
     assert_eq!(b0.show_studs, true);
 
     assert_eq!(b1.name, "Ball");
-    assert_eq!(b1.shape, crate::common::game::bricks::components::BrickShape::Sphere);
+    assert_eq!(
+        b1.shape,
+        crate::common::game::bricks::components::BrickShape::Sphere
+    );
     assert_transform_eq(&b1.transform, &state.bricks[1].transform);
     assert_eq!(b1.color, state.bricks[1].color);
     assert_eq!(b1.physics_enabled, true);
@@ -276,6 +346,21 @@ fn lighting_round_trip_with_defaults_is_stable() {
 }
 
 #[test]
+fn players_round_trip_preserves_all_properties() {
+    let state = sample_state();
+    let loaded = round_trip(&state);
+    assert_players_eq(&loaded.players, &state.players);
+}
+
+#[test]
+fn players_round_trip_with_defaults_is_stable() {
+    let mut state = sample_state();
+    state.players = VrtxPlayers::default();
+    let loaded = round_trip(&state);
+    assert_players_eq(&loaded.players, &VrtxPlayers::default());
+}
+
+#[test]
 fn images_round_trip_preserves_all_properties() {
     let state = sample_state();
     let loaded = round_trip(&state);
@@ -301,7 +386,62 @@ fn version_seven_files_load_without_images() {
     state.version = 7;
     let loaded = round_trip(&state);
     assert_eq!(loaded.version, 7);
-    assert!(loaded.images.is_empty(), "pre-v8 files have no images section");
+    assert!(
+        loaded.images.is_empty(),
+        "pre-v8 files have no images section"
+    );
+    assert!(
+        loaded.meshes.is_empty(),
+        "pre-v9 files have no meshes section"
+    );
+}
+
+#[test]
+fn meshes_round_trip_preserves_all_properties() {
+    let state = sample_state();
+    let loaded = round_trip(&state);
+
+    assert_eq!(loaded.meshes.len(), 2);
+
+    assert_eq!(loaded.meshes[0].name, "Chair");
+    assert_eq!(loaded.meshes[0].asset_id, 789);
+    assert_eq!(loaded.meshes[0].normalize, false);
+    assert_eq!(loaded.meshes[0].parent_name, None);
+    assert_transform_eq(&loaded.meshes[0].transform, &state.meshes[0].transform);
+    assert_eq!(loaded.meshes[0].physics_enabled, true);
+    assert_f32_eq(loaded.meshes[0].bounciness, 0.2);
+    assert_eq!(loaded.meshes[0].player_can_collide, true);
+    assert_f32_eq(loaded.meshes[0].friction, 0.6);
+    assert_f32_eq(loaded.meshes[0].gravity_scale, 1.5);
+    assert_f32_eq(loaded.meshes[0].mass, 8.0);
+
+    assert_eq!(loaded.meshes[1].name, "Rocks");
+    assert_eq!(loaded.meshes[1].asset_id, 321);
+    assert_eq!(loaded.meshes[1].normalize, true);
+    assert_eq!(loaded.meshes[1].parent_name, Some("Baseplate".to_string()));
+    assert_transform_eq(&loaded.meshes[1].transform, &state.meshes[1].transform);
+    assert_eq!(loaded.meshes[1].physics_enabled, false);
+    assert_f32_eq(loaded.meshes[1].bounciness, 0.0);
+    assert_eq!(loaded.meshes[1].player_can_collide, false);
+    assert_f32_eq(loaded.meshes[1].friction, 0.9);
+    assert_f32_eq(loaded.meshes[1].gravity_scale, 0.0);
+    assert_f32_eq(loaded.meshes[1].mass, 100.0);
+}
+
+#[test]
+fn textures_round_trip_preserves_all_properties() {
+    let state = sample_state();
+    let loaded = round_trip(&state);
+
+    assert_eq!(loaded.textures.len(), 2);
+
+    assert_eq!(loaded.textures[0].name, "Texture");
+    assert_eq!(loaded.textures[0].id_string, "mesh/789");
+    assert_eq!(loaded.textures[0].parent_name, Some("Chair".to_string()));
+
+    assert_eq!(loaded.textures[1].name, "CustomSkin");
+    assert_eq!(loaded.textures[1].id_string, "image/42");
+    assert_eq!(loaded.textures[1].parent_name, Some("Chair".to_string()));
 }
 
 #[test]
@@ -315,16 +455,20 @@ fn empty_state_round_trip() {
             bloom: false,
         },
         lighting: VrtxLighting::default(),
+        players: VrtxPlayers::default(),
         camera_transform: Transform::IDENTITY,
         bricks: Vec::new(),
         scripts: Vec::new(),
         images: Vec::new(),
+        meshes: Vec::new(),
+        textures: Vec::new(),
     };
     let loaded = round_trip(&state);
     assert_eq!(loaded.version, FORMAT_VERSION);
     assert!(loaded.bricks.is_empty());
     assert!(loaded.scripts.is_empty());
     assert!(loaded.images.is_empty());
+    assert!(loaded.meshes.is_empty());
     assert_eq!(loaded.settings.bloom, false);
 }
 
@@ -546,7 +690,10 @@ fn godot_parser_handles_primitive_variants() {
     write_u32_to(&mut bool_bytes, 1);
     write_u32_to(&mut bool_bytes, 1);
     let mut p = GodotParser::new(&bool_bytes);
-    assert!(matches!(p.parse_variant().unwrap(), GodotVariant::Bool(true)));
+    assert!(matches!(
+        p.parse_variant().unwrap(),
+        GodotVariant::Bool(true)
+    ));
 
     let mut int_bytes = Vec::new();
     write_u32_to(&mut int_bytes, 2);
@@ -574,7 +721,9 @@ fn godot_parser_handles_primitive_variants() {
     write_f32_to(&mut vec3_bytes, 2.0);
     write_f32_to(&mut vec3_bytes, 3.0);
     let mut p = GodotParser::new(&vec3_bytes);
-    assert!(matches!(p.parse_variant().unwrap(), GodotVariant::Vector3(v) if v == Vec3::new(1.0, 2.0, 3.0)));
+    assert!(
+        matches!(p.parse_variant().unwrap(), GodotVariant::Vector3(v) if v == Vec3::new(1.0, 2.0, 3.0))
+    );
 
     let mut color_bytes = Vec::new();
     write_u32_to(&mut color_bytes, 20);
@@ -617,7 +766,9 @@ fn godot_parser_handles_dictionary_and_array() {
     write_u32_to(&mut dict_bytes, 3);
     let mut p = GodotParser::new(&dict_bytes);
     let parsed = p.parse_variant().unwrap();
-    assert!(matches!(&parsed, GodotVariant::Dictionary(d) if d.get("v") == Some(&GodotVariant::Int(3))));
+    assert!(
+        matches!(&parsed, GodotVariant::Dictionary(d) if d.get("v") == Some(&GodotVariant::Int(3)))
+    );
 }
 
 #[test]

@@ -1,12 +1,12 @@
-use bevy::prelude::*;
-use mlua::prelude::*;
 use crate::scripting::userdata::cframe::CFrame;
 use crate::scripting::userdata::color3::Color3;
 use crate::scripting::userdata::vector3::Vector3;
-use crate::scripting::vm::scheduler::{SchedulerRef, LuaTask, yielded_to_wake};
 use crate::scripting::vm::sandbox::{
-    current_caller_frame, set_caller_frame, try_print, try_spawn_entity, MAX_PENDING_TASKS,
+    MAX_PENDING_TASKS, current_caller_frame, set_caller_frame, try_print, try_spawn_entity,
 };
+use crate::scripting::vm::scheduler::{LuaTask, SchedulerRef, yielded_to_wake};
+use bevy::prelude::*;
+use mlua::prelude::*;
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
     let h = h.rem_euclid(360.0) / 60.0;
@@ -44,14 +44,20 @@ fn caller_source(lua: &Lua) -> (String, Option<u32>) {
 pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     let task_table = lua.create_table()?;
 
-    let wait_fn: LuaFunction = lua.load("function(seconds) return coroutine.yield(seconds or 0) end").eval()?;
+    let wait_fn: LuaFunction = lua
+        .load("function(seconds) return coroutine.yield(seconds or 0) end")
+        .eval()?;
     task_table.set("wait", wait_fn.clone())?;
 
     let spawn_fn = lua.create_function(|lua, val: LuaValue| {
         let thread = match val {
             LuaValue::Function(f) => lua.create_thread(f)?,
             LuaValue::Thread(t) => t,
-            _ => return Err(mlua::Error::RuntimeError("task.spawn expects function or thread".to_string())),
+            _ => {
+                return Err(mlua::Error::RuntimeError(
+                    "task.spawn expects function or thread".to_string(),
+                ));
+            }
         };
         let (source, line) = current_caller_frame(lua);
         {
@@ -118,7 +124,9 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
         let key = lua.create_registry_value(thread)?;
         scheduler.tasks.push(LuaTask {
             thread_key: key,
-            wake_time: Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds as f64)),
+            wake_time: Some(
+                std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds as f64),
+            ),
             callback_key: None,
             source,
         });
@@ -174,84 +182,125 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     lua.globals().set("warn", warn_fn)?;
 
     let vector3_class = lua.create_table()?;
-    vector3_class.set("new", lua.create_function(|_, (x, y, z): (f32, f32, f32)| {
-        Ok(Vector3(Vec3::new(x, y, z)))
-    })?)?;
+    vector3_class.set(
+        "new",
+        lua.create_function(|_, (x, y, z): (f32, f32, f32)| Ok(Vector3(Vec3::new(x, y, z))))?,
+    )?;
     lua.globals().set("Vector3", vector3_class)?;
 
     let color3_class = lua.create_table()?;
-    color3_class.set("new", lua.create_function(|_, (r, g, b): (f32, f32, f32)| {
-        Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
-    })?)?;
-    color3_class.set("fromRGB", lua.create_function(|_, (r, g, b): (f32, f32, f32)| {
-        Ok(Color3(Color::Srgba(Srgba::new(r / 255.0, g / 255.0, b / 255.0, 1.0))))
-    })?)?;
-    color3_class.set("fromHSV", lua.create_function(|_, (h, s, v): (f32, f32, f32)| {
-        let (r, g, b) = hsv_to_rgb(h, s, v);
-        Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
-    })?)?;
-    color3_class.set("fromHex", lua.create_function(|_, hex: String| {
-        let hex = hex.trim_start_matches('#');
-        let value = u32::from_str_radix(hex, 16)
-            .map_err(|_| mlua::Error::RuntimeError(format!("Color3.fromHex: invalid hex color '{}'", hex)))?;
-        let r = ((value >> 16) & 0xFF) as f32 / 255.0;
-        let g = ((value >> 8) & 0xFF) as f32 / 255.0;
-        let b = (value & 0xFF) as f32 / 255.0;
-        Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
-    })?)?;
+    color3_class.set(
+        "new",
+        lua.create_function(|_, (r, g, b): (f32, f32, f32)| {
+            Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
+        })?,
+    )?;
+    color3_class.set(
+        "fromRGB",
+        lua.create_function(|_, (r, g, b): (f32, f32, f32)| {
+            Ok(Color3(Color::Srgba(Srgba::new(
+                r / 255.0,
+                g / 255.0,
+                b / 255.0,
+                1.0,
+            ))))
+        })?,
+    )?;
+    color3_class.set(
+        "fromHSV",
+        lua.create_function(|_, (h, s, v): (f32, f32, f32)| {
+            let (r, g, b) = hsv_to_rgb(h, s, v);
+            Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
+        })?,
+    )?;
+    color3_class.set(
+        "fromHex",
+        lua.create_function(|_, hex: String| {
+            let hex = hex.trim_start_matches('#');
+            let value = u32::from_str_radix(hex, 16).map_err(|_| {
+                mlua::Error::RuntimeError(format!("Color3.fromHex: invalid hex color '{}'", hex))
+            })?;
+            let r = ((value >> 16) & 0xFF) as f32 / 255.0;
+            let g = ((value >> 8) & 0xFF) as f32 / 255.0;
+            let b = (value & 0xFF) as f32 / 255.0;
+            Ok(Color3(Color::Srgba(Srgba::new(r, g, b, 1.0))))
+        })?,
+    )?;
     lua.globals().set("Color3", color3_class)?;
 
     let cframe_class = lua.create_table()?;
-    cframe_class.set("new", lua.create_function(|lua, args: LuaMultiValue| {
-        if args.is_empty() {
-            return lua.create_userdata(CFrame {
-                position: Vec3::ZERO,
+    cframe_class.set(
+        "new",
+        lua.create_function(|lua, args: LuaMultiValue| {
+            if args.is_empty() {
+                return lua
+                    .create_userdata(CFrame {
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    })
+                    .map(LuaValue::UserData);
+            }
+            if let Some(LuaValue::UserData(ud)) = args.get(0) {
+                if let Ok(vector) = ud.borrow::<Vector3>() {
+                    return lua
+                        .create_userdata(CFrame {
+                            position: vector.0,
+                            rotation: Quat::IDENTITY,
+                        })
+                        .map(LuaValue::UserData);
+                }
+            }
+            let (x, y, z): (f32, f32, f32) = match (args.get(0), args.get(1), args.get(2)) {
+                (
+                    Some(LuaValue::Number(x)),
+                    Some(LuaValue::Number(y)),
+                    Some(LuaValue::Number(z)),
+                ) => (*x as f32, *y as f32, *z as f32),
+                (
+                    Some(LuaValue::Integer(x)),
+                    Some(LuaValue::Integer(y)),
+                    Some(LuaValue::Integer(z)),
+                ) => (*x as f32, *y as f32, *z as f32),
+                _ => {
+                    return Err(mlua::Error::RuntimeError(
+                        "CFrame.new expects (Vector3) or (x, y, z)".to_string(),
+                    ));
+                }
+            };
+            lua.create_userdata(CFrame {
+                position: Vec3::new(x, y, z),
                 rotation: Quat::IDENTITY,
-            }).map(LuaValue::UserData);
-        }
-        if let Some(LuaValue::UserData(ud)) = args.get(0) {
-            if let Ok(vector) = ud.borrow::<Vector3>() {
-                return lua.create_userdata(CFrame {
-                    position: vector.0,
-                    rotation: Quat::IDENTITY,
-                }).map(LuaValue::UserData);
-            }
-        }
-        let (x, y, z): (f32, f32, f32) = match (args.get(0), args.get(1), args.get(2)) {
-            (Some(LuaValue::Number(x)), Some(LuaValue::Number(y)), Some(LuaValue::Number(z))) => {
-                (*x as f32, *y as f32, *z as f32)
-            }
-            (Some(LuaValue::Integer(x)), Some(LuaValue::Integer(y)), Some(LuaValue::Integer(z))) => {
-                (*x as f32, *y as f32, *z as f32)
-            }
-            _ => {
-                return Err(mlua::Error::RuntimeError(
-                    "CFrame.new expects (Vector3) or (x, y, z)".to_string(),
-                ))
-            }
-        };
-        lua.create_userdata(CFrame {
-            position: Vec3::new(x, y, z),
-            rotation: Quat::IDENTITY,
-        }).map(LuaValue::UserData)
-    })?)?;
-    cframe_class.set("angles", lua.create_function(|lua, (rx, ry, rz): (f32, f32, f32)| {
-        lua.create_userdata(CFrame {
-            position: Vec3::ZERO,
-            rotation: Quat::from_euler(EulerRot::XYZ, rx, ry, rz),
-        }).map(LuaValue::UserData)
-    })?)?;
-    cframe_class.set("lookAt", lua.create_function(|lua, (from, to): (LuaAnyUserData, LuaAnyUserData)| {
-        let from = from.borrow::<Vector3>()
-            .map_err(|_| mlua::Error::RuntimeError("CFrame.lookAt expects two Vector3s".to_string()))?;
-        let to = to.borrow::<Vector3>()
-            .map_err(|_| mlua::Error::RuntimeError("CFrame.lookAt expects two Vector3s".to_string()))?;
-        let dir = (to.0 - from.0).normalize_or_zero();
-        lua.create_userdata(CFrame {
-            position: from.0,
-            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir),
-        }).map(LuaValue::UserData)
-    })?)?;
+            })
+            .map(LuaValue::UserData)
+        })?,
+    )?;
+    cframe_class.set(
+        "angles",
+        lua.create_function(|lua, (rx, ry, rz): (f32, f32, f32)| {
+            lua.create_userdata(CFrame {
+                position: Vec3::ZERO,
+                rotation: Quat::from_euler(EulerRot::XYZ, rx, ry, rz),
+            })
+            .map(LuaValue::UserData)
+        })?,
+    )?;
+    cframe_class.set(
+        "lookAt",
+        lua.create_function(|lua, (from, to): (LuaAnyUserData, LuaAnyUserData)| {
+            let from = from.borrow::<Vector3>().map_err(|_| {
+                mlua::Error::RuntimeError("CFrame.lookAt expects two Vector3s".to_string())
+            })?;
+            let to = to.borrow::<Vector3>().map_err(|_| {
+                mlua::Error::RuntimeError("CFrame.lookAt expects two Vector3s".to_string())
+            })?;
+            let dir = (to.0 - from.0).normalize_or_zero();
+            lua.create_userdata(CFrame {
+                position: from.0,
+                rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir),
+            })
+            .map(LuaValue::UserData)
+        })?,
+    )?;
     lua.globals().set("CFrame", cframe_class)?;
 
     let instance_class = lua.create_table()?;
@@ -291,9 +340,29 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
                     ))
                     .id()
             }
+            "Mesh" => {
+                world
+                    .spawn((
+                        Name::new(class_name),
+                        Transform::default(),
+                        crate::common::game::assets::components::Mesh::default(),
+                        lightyear::prelude::Replicate::default(),
+                    ))
+                    .id()
+            }
+            "Texture" => {
+                world
+                    .spawn((
+                        Name::new(class_name),
+                        Transform::default(),
+                        crate::common::game::assets::components::Texture::default(),
+                        lightyear::prelude::Replicate::default(),
+                    ))
+                    .id()
+            }
             _ => {
                 return Err(mlua::Error::RuntimeError(format!(
-                    "Instance.new: unsupported class '{}' (supported: Part, Folder, Image)",
+                    "Instance.new: unsupported class '{}' (supported: Part, Folder, Image, Mesh, Texture)",
                     class_name
                 )))
             }
@@ -302,8 +371,9 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
     })?)?;
     lua.globals().set("Instance", instance_class)?;
 
-    let wait_for_child_impl: LuaFunction = lua.load(
-        "return function(self, name, timeout)
+    let wait_for_child_impl: LuaFunction = lua
+        .load(
+            "return function(self, name, timeout)
             local waited = 0
             timeout = timeout or 5
             while waited < timeout do
@@ -316,8 +386,10 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
             end
             error('WaitForChild timed out: ' .. name, 0)
         end",
-    ).eval()?;
-    lua.globals().set("__vertigo_waitforchild", wait_for_child_impl)?;
+        )
+        .eval()?;
+    lua.globals()
+        .set("__vertigo_waitforchild", wait_for_child_impl)?;
 
     Ok(())
 }
@@ -328,7 +400,6 @@ mod tests {
     use crate::scripting::testing::{
         advance, entity_of, eval, global, run_script, test_vm, test_world, tick,
     };
-
 
     #[test]
     fn task_spawn_runs_functions_immediately() {
@@ -342,10 +413,13 @@ mod tests {
     fn task_spawn_accepts_threads() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             local th = coroutine.create(function() _G.from_thread = true end)
             task.spawn(th)
-        "#);
+        "#,
+        );
         assert!(global::<bool>(&vm, "from_thread"));
     }
 
@@ -361,8 +435,14 @@ mod tests {
     fn task_spawn_swallows_spawned_errors() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        let ok: bool = eval(&vm, "return pcall(task.spawn, function() error('boom') end)");
-        assert!(ok, "errors inside spawned functions must not propagate to the caller");
+        let ok: bool = eval(
+            &vm,
+            "return pcall(task.spawn, function() error('boom') end)",
+        );
+        assert!(
+            ok,
+            "errors inside spawned functions must not propagate to the caller"
+        );
     }
 
     #[test]
@@ -370,7 +450,10 @@ mod tests {
         let mut world = test_world();
         let vm = test_vm(&mut world);
         run_script(&vm, "task.defer(function() _G.deferred = true end)");
-        assert!(!global::<bool>(&vm, "deferred"), "deferred must not run before the next tick");
+        assert!(
+            !global::<bool>(&vm, "deferred"),
+            "deferred must not run before the next tick"
+        );
         tick(&vm);
         assert!(global::<bool>(&vm, "deferred"));
     }
@@ -390,13 +473,19 @@ mod tests {
     fn task_wait_yields_until_wake_time() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.before = true
             task.wait(0.01)
             _G.after = true
-        "#);
+        "#,
+        );
         assert!(global::<bool>(&vm, "before"));
-        assert!(!global::<bool>(&vm, "after"), "script must yield on task.wait");
+        assert!(
+            !global::<bool>(&vm, "after"),
+            "script must yield on task.wait"
+        );
         advance(&vm, 20, 1);
         assert!(global::<bool>(&vm, "after"));
     }
@@ -414,39 +503,51 @@ mod tests {
     fn global_delay_forwards_arguments() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             delay(0.01, function(a, b, c)
                 _G.dargs = tostring(a) .. b .. c
             end, "x", 2, "y")
-        "#);
+        "#,
+        );
         advance(&vm, 20, 1);
         assert_eq!(global::<String>(&vm, "dargs"), "x2y");
     }
-
 
     #[test]
     fn print_and_warn_accept_any_argument_mix() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             print("a", 1, 2.5, true, nil, Vector3.new(1, 2, 3), tostring)
             warn("w", nil, false)
-        "#);
+        "#,
+        );
     }
 
     #[test]
     fn print_warn_and_errors_feed_the_output_buffer() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        let before = crate::scripting::output::buffer().lock().unwrap().entries.len();
+        let before = crate::scripting::output::buffer()
+            .lock()
+            .unwrap()
+            .entries
+            .len();
 
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             print("buffer hello", 42)
             warn("buffer warn")
             task.spawn(function()
                 error("buffer boom")
             end)
-        "#);
+        "#,
+        );
 
         let buf = crate::scripting::output::buffer().lock().unwrap();
         let new: Vec<_> = buf.entries.iter().skip(before).collect();
@@ -457,21 +558,30 @@ mod tests {
                 .join("\n")
         };
         assert!(
-            new.iter().any(|e| e.level == crate::scripting::output::OutputLevel::Info && e.message.contains("buffer hello")),
+            new.iter()
+                .any(|e| e.level == crate::scripting::output::OutputLevel::Info
+                    && e.message.contains("buffer hello")),
             "missing print entry:\n{}",
             describe()
         );
         assert!(
-            new.iter().any(|e| e.level == crate::scripting::output::OutputLevel::Warn && e.message.contains("buffer warn")),
+            new.iter()
+                .any(|e| e.level == crate::scripting::output::OutputLevel::Warn
+                    && e.message.contains("buffer warn")),
             "missing warn entry:\n{}",
             describe()
         );
         assert!(
-            new.iter().any(|e| e.level == crate::scripting::output::OutputLevel::Error && e.message.contains("buffer boom")),
+            new.iter()
+                .any(|e| e.level == crate::scripting::output::OutputLevel::Error
+                    && e.message.contains("buffer boom")),
             "missing error entry:\n{}",
             describe()
         );
-        let info = new.iter().find(|e| e.message.contains("buffer hello")).unwrap();
+        let info = new
+            .iter()
+            .find(|e| e.message.contains("buffer hello"))
+            .unwrap();
         assert!(
             info.source.contains("test"),
             "print must be attributed to the calling chunk, got: {}",
@@ -485,8 +595,14 @@ mod tests {
         let vm = test_vm(&mut world);
 
         assert_eq!(lua_value_to_string(&vm.lua, &LuaValue::Nil), "nil");
-        assert_eq!(lua_value_to_string(&vm.lua, &LuaValue::Boolean(true)), "true");
-        assert_eq!(lua_value_to_string(&vm.lua, &LuaValue::Boolean(false)), "false");
+        assert_eq!(
+            lua_value_to_string(&vm.lua, &LuaValue::Boolean(true)),
+            "true"
+        );
+        assert_eq!(
+            lua_value_to_string(&vm.lua, &LuaValue::Boolean(false)),
+            "false"
+        );
         assert_eq!(lua_value_to_string(&vm.lua, &LuaValue::Number(3.5)), "3.5");
 
         let vec: LuaValue = eval(&vm, "return Vector3.new(1, 2, 3)");
@@ -554,7 +670,6 @@ mod tests {
         assert!(run);
     }
 
-
     #[test]
     fn vector3_construction_and_properties() {
         let mut world = test_world();
@@ -594,7 +709,15 @@ mod tests {
         let mut world = test_world();
         let vm = test_vm(&mut world);
         let (dot, cross_x, cross_y, cross_z, lerp_x, lerp_z, eq, ne, str): (
-            f64, f64, f64, f64, f64, f64, bool, bool, String,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            bool,
+            bool,
+            String,
         ) = eval(
             &vm,
             r#"
@@ -618,10 +741,12 @@ mod tests {
     fn vector3_errors_on_wrong_operands() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        let ok: bool = eval(&vm, "return pcall(function() return Vector3.new(1, 2, 3) + 5 end)");
+        let ok: bool = eval(
+            &vm,
+            "return pcall(function() return Vector3.new(1, 2, 3) + 5 end)",
+        );
         assert!(!ok);
     }
-
 
     #[test]
     fn color3_construction_channels_and_strings() {
@@ -669,7 +794,6 @@ mod tests {
         let ok: bool = eval(&vm, "return pcall(Color3.fromHex, 'not-hex')");
         assert!(!ok);
     }
-
 
     #[test]
     fn cframe_construction_forms() {
@@ -729,7 +853,18 @@ mod tests {
     fn cframe_axes_and_lerp() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        let (lx, ly, lz, ux, uy, rx, rz, mx, my, mz): (f64, f64, f64, f64, f64, f64, f64, f64, f64, f64) = eval(
+        let (lx, ly, lz, ux, uy, rx, rz, mx, my, mz): (
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+            f64,
+        ) = eval(
             &vm,
             r#"
                 local id = CFrame.new()
@@ -752,7 +887,10 @@ mod tests {
         let vm = test_vm(&mut world);
         let s: String = eval(&vm, "return tostring(CFrame.new())");
         assert!(!s.contains("-0"), "got: {s}");
-        let e: String = eval(&vm, "return tostring(CFrame.angles(0, 0, 0):ToEulerAnglesXYZ())");
+        let e: String = eval(
+            &vm,
+            "return tostring(CFrame.angles(0, 0, 0):ToEulerAnglesXYZ())",
+        );
         assert!(!e.contains("-0"), "got: {e}");
     }
 
@@ -766,20 +904,30 @@ mod tests {
         assert!(!ok);
     }
 
-
     #[test]
     fn instance_new_creates_parts_and_folders() {
         let mut world = test_world();
         let vm = test_vm(&mut world);
-        run_script(&vm, r#"
+        run_script(
+            &vm,
+            r#"
             _G.part = Instance.new("Part")
             _G.folder = Instance.new("Folder")
-        "#);
+        "#,
+        );
         let part = entity_of(&vm, "part");
         let folder = entity_of(&vm, "folder");
-        assert!(world.get::<crate::common::game::bricks::components::Brick>(part).is_some());
+        assert!(
+            world
+                .get::<crate::common::game::bricks::components::Brick>(part)
+                .is_some()
+        );
         assert!(world.get::<Name>(folder).is_some());
-        assert!(world.get::<crate::common::game::bricks::components::Brick>(folder).is_none());
+        assert!(
+            world
+                .get::<crate::common::game::bricks::components::Brick>(folder)
+                .is_none()
+        );
         assert!(world.get::<lightyear::prelude::Replicate>(part).is_some());
         assert!(world.get::<avian3d::prelude::RigidBody>(part).is_some());
     }

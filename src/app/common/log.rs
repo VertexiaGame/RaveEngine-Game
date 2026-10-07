@@ -5,7 +5,9 @@ pub fn setup_app_logging(app_name: &str) -> LogPlugin {
 
     let default_filter = match app_name {
         "studio" => "info,wgpu=warn,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off",
-        _ => "debug,wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=debug,lightyear_udp=trace,lightyear_netcode=trace,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off",
+        _ => {
+            "info,wgpu=error,bevy_render=error,bevy_ecs=warn,lightyear=error,lightyear_udp=error,lightyear_netcode=error,naga=warn,wgpu_hal=warn,wgpu_core=warn,offset_allocator=off"
+        }
     };
 
     let new_rust_log = if rust_log.is_empty() {
@@ -23,7 +25,7 @@ pub fn setup_app_logging(app_name: &str) -> LogPlugin {
 
     let level = match app_name {
         "studio" => bevy::log::Level::INFO,
-        _ => bevy::log::Level::DEBUG,
+        _ => bevy::log::Level::INFO,
     };
 
     LogPlugin {

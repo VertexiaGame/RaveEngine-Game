@@ -12,10 +12,9 @@ use bevy::prelude::*;
 
 use self::{
     compute::{CameraMatrices, CloudsComputePlugin},
-    config::{adapt_clouds_quality, CloudsQuality},
-    images::{build_images, build_render_images_with_size, RENDER_HEIGHT, RENDER_WIDTH},
+    images::{RENDER_HEIGHT, RENDER_WIDTH, build_images, build_render_images_with_size},
     render::{CloudsMaterial, CloudsShaderPlugin},
-    skybox::{init_skybox_mesh, update_skybox_transform, SkyboxMaterials},
+    skybox::{SkyboxMaterials, init_skybox_mesh, update_skybox_transform},
     ui::ui_system,
     uniforms::CloudsImage,
 };
@@ -28,17 +27,9 @@ pub struct CloudsPlugin;
 impl Plugin for CloudsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CloudsConfig::default())
-            .init_resource::<CloudsQuality>()
             .add_plugins((CloudsComputePlugin, CloudsShaderPlugin))
             .add_systems(Startup, clouds_setup)
-            .add_systems(
-                Update,
-                update_clouds_resolution,
-            )
-            .add_systems(
-                Update,
-                adapt_clouds_quality.after(crate::client::sky::sync_lighting_system),
-            )
+            .add_systems(Update, update_clouds_resolution)
             .add_systems(
                 PostUpdate,
                 (update_skybox_transform, update_camera_matrices)
@@ -54,8 +45,13 @@ fn clouds_setup(
     meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CloudsMaterial>>,
 ) {
-    let (cloud_render_image, cloud_atlas_image, cloud_worley_image, cloud_render_previous_image, sky_image) =
-        build_images(images);
+    let (
+        cloud_render_image,
+        cloud_atlas_image,
+        cloud_worley_image,
+        cloud_render_previous_image,
+        sky_image,
+    ) = build_images(images);
 
     let material = materials.add(CloudsMaterial {
         cloud_render_image: cloud_render_image.clone(),
@@ -92,6 +88,9 @@ fn update_clouds_resolution(
     material_handle: Option<Res<CloudsMaterialHandle>>,
     clouds_image: Option<Res<CloudsImage>>,
 ) {
+    if !config.enabled {
+        return;
+    }
     let Ok(window) = windows.single() else {
         return;
     };
@@ -155,7 +154,11 @@ fn update_camera_matrices(
             config.inverse_camera_projection = camera.computed.clip_from_view.inverse();
             return;
         }
-        fallback.get_or_insert((camera_transform.translation(), camera_transform.to_matrix(), camera.computed.clip_from_view.inverse()));
+        fallback.get_or_insert((
+            camera_transform.translation(),
+            camera_transform.to_matrix(),
+            camera.computed.clip_from_view.inverse(),
+        ));
     }
     if let Some((translation, inverse_camera_view, inverse_camera_projection)) = fallback {
         config.translation = translation;

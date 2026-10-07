@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy_egui::egui;
-use bevy::pbr::ExtendedMaterial;
 use crate::common::game::bricks::data::spawn_brick;
 use avian3d::prelude::CollisionLayers;
+use bevy::pbr::ExtendedMaterial;
+use bevy::prelude::*;
+use bevy_egui::egui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SelectedTemplate {
@@ -42,13 +42,17 @@ pub fn draw_onboarding(
     onboarding_data: &mut OnboardingData,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
-    studs_materials: &mut Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>,
+    studs_materials: &mut Assets<
+        ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>,
+    >,
     studs_assets: &crate::common::game::bricks::studs::StudsAssets,
     count: &mut crate::common::game::bricks::data::BrickSpawnerCount,
     lighting_config: &mut ResMut<crate::client::sky::LightingConfig>,
     thumb_empty_tex: egui::TextureId,
     thumb_baseplate_tex: egui::TextureId,
     file_dialog_state: &crate::studio::ui::resources::FileDialogState,
+    auth_flow: &mut crate::studio::auth::StudioAuthFlow,
+    auth_store: &mut crate::studio::auth::StudioAuthStore,
 ) {
     #[allow(deprecated)]
     let center = ctx.available_rect().center();
@@ -293,10 +297,13 @@ pub fn draw_onboarding(
                                     bloom: true,
                                 },
                                 lighting: crate::common::core::vrtx::VrtxLighting::from(&**lighting_config),
+                                players: crate::common::core::vrtx::VrtxPlayers::default(),
                                 camera_transform: Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
                                 bricks,
                                 scripts: Vec::new(),
                                 images: Vec::new(),
+                                meshes: Vec::new(),
+                                textures: Vec::new(),
                             };
 
                             let _ = state.save_to_file(&onboarding_data.save_path);
@@ -334,60 +341,145 @@ pub fn draw_onboarding(
                     });
                     ui.add_space(24.0);
 
-                    ui.vertical_centered(|ui| {
-                        let login_btn = ui.scope(|ui| {
-                            let purple_normal = egui::Color32::from_rgb(116, 35, 203);
-                            let purple_hover = egui::Color32::from_rgb(138, 55, 225);
-                            let purple_active = egui::Color32::from_rgb(96, 25, 183);
-                            let white_text = egui::Color32::from_rgb(255, 255, 255);
+                    if let Some(creds) = auth_store.credentials.clone() {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(egui::RichText::new(format!("Logged in as {} (ID {})", creds.username, creds.uid)).size(13.0).color(egui::Color32::from_rgb(30, 120, 40)).strong());
+                            ui.add_space(4.0);
+                            ui.label(egui::RichText::new("You are already authenticated.").size(11.0).color(egui::Color32::from_rgb(100, 100, 100)));
+                            ui.add_space(12.0);
+                            let cont_btn = ui.scope(|ui| {
+                                ui.visuals_mut().widgets.inactive.bg_fill = egui::Color32::from_rgb(116, 35, 203);
+                                ui.visuals_mut().widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(116, 35, 203);
+                                ui.visuals_mut().widgets.inactive.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+                                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                                ui.visuals_mut().widgets.hovered.bg_fill = egui::Color32::from_rgb(138, 55, 225);
+                                ui.visuals_mut().widgets.hovered.weak_bg_fill = egui::Color32::from_rgb(138, 55, 225);
+                                ui.visuals_mut().widgets.hovered.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+                                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                                ui.visuals_mut().widgets.active.bg_fill = egui::Color32::from_rgb(96, 25, 183);
+                                ui.visuals_mut().widgets.active.weak_bg_fill = egui::Color32::from_rgb(96, 25, 183);
+                                ui.visuals_mut().widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+                                ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                                ui.add(egui::Button::new(egui::RichText::new("Continue to Studio").size(15.0).strong().color(egui::Color32::WHITE)).min_size(egui::vec2(220.0, 42.0)))
+                            }).inner;
+                            if cont_btn.clicked() {
+                                next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
+                            }
+                            ui.add_space(10.0);
+                            let logout_btn = ui.add(egui::Label::new(egui::RichText::new("Logout and switch account").size(11.0).underline()).sense(egui::Sense::click()));
+                            if logout_btn.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+                            if logout_btn.clicked() {
+                                crate::studio::auth::clear_studio_credentials();
+                                auth_store.credentials = None;
+                                auth_flow.error = None;
+                            }
+                            ui.add_space(12.0);
+                            let reauth_btn = ui.add(egui::Button::new(egui::RichText::new("Re-authenticate").size(11.0)));
+                            if reauth_btn.clicked() {
+                                let _ = crate::studio::auth::start_studio_auth_flow(auth_flow);
+                            }
+                        });
+                    } else if auth_flow.state.is_some() {
+                        ui.vertical_centered(|ui| {
+                            ui.add(egui::Spinner::new().size(28.0).color(egui::Color32::from_rgb(116, 35, 203)));
+                            ui.add_space(10.0);
+                            ui.label(egui::RichText::new("Waiting for browser authentication...").size(13.0).strong());
+                            ui.label(egui::RichText::new("Complete login in your browser, then return here.").size(11.0).color(egui::Color32::from_rgb(100,100,100)));
+                            if let Some(uri) = auth_flow.redirect_uri.clone() {
+                                ui.add_space(6.0);
+                                ui.label(egui::RichText::new(format!("Redirect: {}", uri)).size(9.0).color(egui::Color32::from_rgb(140,140,140)));
+                            }
+                            if let Some(err) = auth_flow.error.clone() {
+                                ui.add_space(8.0);
+                                ui.label(egui::RichText::new(err).size(11.0).color(egui::Color32::from_rgb(200,40,40)));
+                            }
+                            ui.add_space(12.0);
+                            if ui.add(egui::Button::new("Cancel")).clicked() {
+                                auth_flow.state = None;
+                                auth_flow.redirect_uri = None;
+                                auth_flow.receiver = None;
+                                auth_flow.error = None;
+                                auth_flow.waiting_since = None;
+                                auth_flow.is_polling = false;
+                            }
+                            ui.add_space(8.0);
+                            if ui.add(egui::Button::new(egui::RichText::new("Open browser again").size(11.0))).clicked() {
+                                if let (Some(state), Some(uri)) = (auth_flow.state.clone(), auth_flow.redirect_uri.clone()) {
+                                    let website = crate::studio::auth::website_base();
+                                    let url = format!(
+                                        "{website}/studio/auth?state={}&redirect_uri={}",
+                                        crate::studio::auth::urlencoding(&state),
+                                        crate::studio::auth::urlencoding(&uri)
+                                    );
+                                    crate::studio::auth::open_browser(&url);
+                                }
+                            }
+                        });
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            let login_btn = ui.scope(|ui| {
+                                let purple_normal = egui::Color32::from_rgb(116, 35, 203);
+                                let purple_hover = egui::Color32::from_rgb(138, 55, 225);
+                                let purple_active = egui::Color32::from_rgb(96, 25, 183);
+                                let white_text = egui::Color32::from_rgb(255, 255, 255);
 
-                            ui.visuals_mut().widgets.inactive.bg_fill = purple_normal;
-                            ui.visuals_mut().widgets.inactive.weak_bg_fill = purple_normal;
-                            ui.visuals_mut().widgets.inactive.fg_stroke = egui::Stroke::new(1.5, white_text);
-                            ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                                ui.visuals_mut().widgets.inactive.bg_fill = purple_normal;
+                                ui.visuals_mut().widgets.inactive.weak_bg_fill = purple_normal;
+                                ui.visuals_mut().widgets.inactive.fg_stroke = egui::Stroke::new(1.5, white_text);
+                                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
 
-                            ui.visuals_mut().widgets.hovered.bg_fill = purple_hover;
-                            ui.visuals_mut().widgets.hovered.weak_bg_fill = purple_hover;
-                            ui.visuals_mut().widgets.hovered.fg_stroke = egui::Stroke::new(1.5, white_text);
-                            ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                                ui.visuals_mut().widgets.hovered.bg_fill = purple_hover;
+                                ui.visuals_mut().widgets.hovered.weak_bg_fill = purple_hover;
+                                ui.visuals_mut().widgets.hovered.fg_stroke = egui::Stroke::new(1.5, white_text);
+                                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
 
-                            ui.visuals_mut().widgets.active.bg_fill = purple_active;
-                            ui.visuals_mut().widgets.active.weak_bg_fill = purple_active;
-                            ui.visuals_mut().widgets.active.fg_stroke = egui::Stroke::new(1.5, white_text);
-                            ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                                ui.visuals_mut().widgets.active.bg_fill = purple_active;
+                                ui.visuals_mut().widgets.active.weak_bg_fill = purple_active;
+                                ui.visuals_mut().widgets.active.fg_stroke = egui::Stroke::new(1.5, white_text);
+                                ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
 
-                            ui.add(
-                                egui::Button::new(
-                                    egui::RichText::new("Login to VERTEXIA ↗")
-                                        .size(16.0)
-                                        .strong()
+                                ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Login to VERTEXIA ↗")
+                                            .size(16.0)
+                                            .strong()
+                                    )
+                                    .min_size(egui::vec2(220.0, 42.0))
                                 )
-                                .min_size(egui::vec2(220.0, 42.0))
-                            )
-                        }).inner;
+                            }).inner;
 
-                        if login_btn.clicked() {
-                        }
+                            if login_btn.clicked() {
+                                if let Err(e) = crate::studio::auth::start_studio_auth_flow(auth_flow) {
+                                    auth_flow.error = Some(e);
+                                }
+                            }
 
-                        ui.add_space(14.0);
+                            if let Some(err) = auth_flow.error.clone() {
+                                ui.add_space(8.0);
+                                ui.label(egui::RichText::new(err).size(11.0).color(egui::Color32::from_rgb(200,40,40)).strong());
+                            }
 
-                        let skip_btn = ui.add(
-                            egui::Label::new(
-                                egui::RichText::new("No thanks, use without login")
-                                    .size(12.0)
-                                    .underline()
-                            )
-                            .sense(egui::Sense::click())
-                        );
+                            ui.add_space(14.0);
 
-                        if skip_btn.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
+                            let skip_btn = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new("No thanks, use without login")
+                                        .size(12.0)
+                                        .underline()
+                                )
+                                .sense(egui::Sense::click())
+                            );
 
-                        if skip_btn.clicked() {
-                            next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
-                        }
-                    });
+                            if skip_btn.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            if skip_btn.clicked() {
+                                next_onboarding_state.set(crate::studio::tools::OnboardingState::Inactive);
+                            }
+                        });
+                    }
                 }
                 _ => {}
             }

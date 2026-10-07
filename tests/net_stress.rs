@@ -1,17 +1,16 @@
+use RaveEngineLib::common::net::messages::{GameChannel, HelloMessage};
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
-use lightyear::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
-use RaveEngineLib::common::net::messages::{GameChannel, HelloMessage};
+use lightyear::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 //a lil explanation
 //this will stress test with a bunch of clients connecting to the server
 //if it reaches the PING_THRESHOLD_MS, it will stop and report the number of clients connected at that time (the "maximum", meaning it reached a high ping)
-
 
 const PING_THRESHOLD_MS: f32 = 100.0;
 const MAX_CLIENTS: usize = 100;
@@ -58,7 +57,7 @@ fn free_port() -> u16 {
 fn build_server_app(port: u16) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(16))));
-    app.add_plugins(AssetPlugin::default());
+    app.add_plugins(RaveEngineLib::common::assets_path::asset_plugin());
     app.init_asset::<bevy::render::mesh::Mesh>();
     app.add_plugins(StatesPlugin);
     app.add_plugins(TransformPlugin);
@@ -186,7 +185,11 @@ fn server_ping_degrades_under_client_load() {
             let snapshot = server.world().resource::<PingSnapshot>();
             worst_ever_ms = worst_ever_ms.max(snapshot.worst_rtt_ms);
             if snapshot.samples_ready && snapshot.worst_rtt_ms > PING_THRESHOLD_MS {
-                exceeded_at = Some((clients.len(), snapshot.worst_rtt_ms, snapshot.connected_clients));
+                exceeded_at = Some((
+                    clients.len(),
+                    snapshot.worst_rtt_ms,
+                    snapshot.connected_clients,
+                ));
                 break;
             }
         }

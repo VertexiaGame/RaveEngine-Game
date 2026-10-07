@@ -1,9 +1,9 @@
-use bevy::prelude::*;
 use bevy::camera::visibility::RenderLayers;
-use bevy::picking::backend::{ray::RayMap, HitData, PointerHits};
+use bevy::picking::backend::{HitData, PointerHits, ray::RayMap};
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::picking::mesh_picking::{MeshPickingCamera, MeshPickingSettings};
 use bevy::picking::{Pickable, PickingSettings, PickingSystems};
+use bevy::prelude::*;
 
 pub struct GatedMeshPickingPlugin;
 

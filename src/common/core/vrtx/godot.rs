@@ -31,7 +31,10 @@ impl<'a> GodotParser<'a> {
 
     fn read_u32(&mut self) -> std::io::Result<u32> {
         if self.offset + 4 > self.data.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Unexpected EOF"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected EOF",
+            ));
         }
         let val = u32::from_le_bytes([
             self.data[self.offset],
@@ -45,7 +48,10 @@ impl<'a> GodotParser<'a> {
 
     fn read_f32(&mut self) -> std::io::Result<f32> {
         if self.offset + 4 > self.data.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Unexpected EOF"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected EOF",
+            ));
         }
         let val = f32::from_le_bytes([
             self.data[self.offset],
@@ -59,7 +65,10 @@ impl<'a> GodotParser<'a> {
 
     fn read_f64(&mut self) -> std::io::Result<f64> {
         if self.offset + 8 > self.data.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Unexpected EOF"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected EOF",
+            ));
         }
         let val = f64::from_le_bytes([
             self.data[self.offset],
@@ -77,7 +86,10 @@ impl<'a> GodotParser<'a> {
 
     fn read_bytes(&mut self, len: usize) -> std::io::Result<&'a [u8]> {
         if self.offset + len > self.data.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Unexpected EOF"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected EOF",
+            ));
         }
         let slice = &self.data[self.offset..self.offset + len];
         self.offset += len;
@@ -91,7 +103,10 @@ impl<'a> GodotParser<'a> {
         let flags = (type_header >> 16) & 0xFF;
         let is_64 = flags == 1;
 
-        trace!("parse_variant at offset {}: type_id={}, flags={}, is_64={}", start_offset, type_id, flags, is_64);
+        trace!(
+            "parse_variant at offset {}: type_id={}, flags={}, is_64={}",
+            start_offset, type_id, flags, is_64
+        );
 
         let var = match type_id {
             0 | 25 | 26 => Ok(GodotVariant::Nil),
@@ -130,8 +145,16 @@ impl<'a> GodotParser<'a> {
                 Ok(GodotVariant::String(string))
             }
             5 => {
-                let x = if is_64 { self.read_f64()? as f32 } else { self.read_f32()? };
-                let y = if is_64 { self.read_f64()? as f32 } else { self.read_f32()? };
+                let x = if is_64 {
+                    self.read_f64()? as f32
+                } else {
+                    self.read_f32()?
+                };
+                let y = if is_64 {
+                    self.read_f64()? as f32
+                } else {
+                    self.read_f32()?
+                };
                 Ok(GodotVariant::Vector2(Vec2::new(x, y)))
             }
             6 => {
@@ -148,9 +171,21 @@ impl<'a> GodotParser<'a> {
                 Ok(GodotVariant::Nil)
             }
             9 => {
-                let x = if is_64 { self.read_f64()? as f32 } else { self.read_f32()? };
-                let y = if is_64 { self.read_f64()? as f32 } else { self.read_f32()? };
-                let z = if is_64 { self.read_f64()? as f32 } else { self.read_f32()? };
+                let x = if is_64 {
+                    self.read_f64()? as f32
+                } else {
+                    self.read_f32()?
+                };
+                let y = if is_64 {
+                    self.read_f64()? as f32
+                } else {
+                    self.read_f32()?
+                };
+                let z = if is_64 {
+                    self.read_f64()? as f32
+                } else {
+                    self.read_f32()?
+                };
                 Ok(GodotVariant::Vector3(Vec3::new(x, y, z)))
             }
             10 => {
@@ -158,31 +193,59 @@ impl<'a> GodotParser<'a> {
                 Ok(GodotVariant::Nil)
             }
             11 => {
-                let _bytes = if is_64 { self.read_bytes(32)? } else { self.read_bytes(16)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(32)?
+                } else {
+                    self.read_bytes(16)?
+                };
                 Ok(GodotVariant::Nil)
             }
             12 => {
-                let _bytes = if is_64 { self.read_bytes(32)? } else { self.read_bytes(16)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(32)?
+                } else {
+                    self.read_bytes(16)?
+                };
                 Ok(GodotVariant::Nil)
             }
             13 => {
-                let _bytes = if is_64 { self.read_bytes(32)? } else { self.read_bytes(16)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(32)?
+                } else {
+                    self.read_bytes(16)?
+                };
                 Ok(GodotVariant::Nil)
             }
             14 => {
-                let _bytes = if is_64 { self.read_bytes(48)? } else { self.read_bytes(24)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(48)?
+                } else {
+                    self.read_bytes(24)?
+                };
                 Ok(GodotVariant::Nil)
             }
             15 => {
-                let _bytes = if is_64 { self.read_bytes(72)? } else { self.read_bytes(36)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(72)?
+                } else {
+                    self.read_bytes(36)?
+                };
                 Ok(GodotVariant::Nil)
             }
             16 => {
-                let _bytes = if is_64 { self.read_bytes(96)? } else { self.read_bytes(48)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(96)?
+                } else {
+                    self.read_bytes(48)?
+                };
                 Ok(GodotVariant::Nil)
             }
             17 => {
-                let _bytes = if is_64 { self.read_bytes(128)? } else { self.read_bytes(64)? };
+                let _bytes = if is_64 {
+                    self.read_bytes(128)?
+                } else {
+                    self.read_bytes(64)?
+                };
                 Ok(GodotVariant::Nil)
             }
             18 => {
@@ -226,12 +289,18 @@ impl<'a> GodotParser<'a> {
             27 => {
                 let count_header = self.read_u32()?;
                 let count = count_header & 0x7FFFFFFF;
-                trace!("parse_variant at offset {}: parsing dictionary with {} elements", start_offset, count);
+                trace!(
+                    "parse_variant at offset {}: parsing dictionary with {} elements",
+                    start_offset, count
+                );
                 let mut dict = HashMap::new();
                 for i in 0..count {
                     let key_var = self.parse_variant()?;
                     let val_var = self.parse_variant()?;
-                    trace!("parse_variant dictionary element {}: key={:?}, val_type={:?}", i, key_var, val_var);
+                    trace!(
+                        "parse_variant dictionary element {}: key={:?}, val_type={:?}",
+                        i, key_var, val_var
+                    );
                     if let GodotVariant::String(key_str) = key_var {
                         dict.insert(key_str, val_var);
                     }
@@ -241,7 +310,10 @@ impl<'a> GodotParser<'a> {
             28 => {
                 let count_header = self.read_u32()?;
                 let count = count_header & 0x7FFFFFFF;
-                trace!("parse_variant at offset {}: parsing array with {} elements", start_offset, count);
+                trace!(
+                    "parse_variant at offset {}: parsing array with {} elements",
+                    start_offset, count
+                );
                 let mut arr = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     let val_var = self.parse_variant()?;
@@ -250,7 +322,10 @@ impl<'a> GodotParser<'a> {
                 Ok(GodotVariant::Array(arr))
             }
             _ => {
-                error!("parse_variant at offset {}: Unsupported Godot variant type: {}", start_offset, type_id);
+                error!(
+                    "parse_variant at offset {}: Unsupported Godot variant type: {}",
+                    start_offset, type_id
+                );
                 Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!("Unsupported Godot variant type: {}", type_id),
@@ -259,7 +334,10 @@ impl<'a> GodotParser<'a> {
         };
 
         if let Ok(ref _value) = var {
-            trace!("parse_variant at offset {} successfully parsed", start_offset);
+            trace!(
+                "parse_variant at offset {} successfully parsed",
+                start_offset
+            );
         }
         var
     }
@@ -267,34 +345,57 @@ impl<'a> GodotParser<'a> {
 
 pub(crate) fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
     if data.len() < 16 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: File too short"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "GCPF: File too short",
+        ));
     }
     if &data[0..4] != b"GCPF" {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: Invalid magic"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "GCPF: Invalid magic",
+        ));
     }
 
     let comp_mode = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     let block_size = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
     let uncompressed_size = u32::from_le_bytes([data[12], data[13], data[14], data[15]]) as usize;
 
-    debug!("GCPF decompress: mode={}, block_size={}, uncompressed_size={}", comp_mode, block_size, uncompressed_size);
+    debug!(
+        "GCPF decompress: mode={}, block_size={}, uncompressed_size={}",
+        comp_mode, block_size, uncompressed_size
+    );
 
     if block_size == 0 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: Block size is zero"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "GCPF: Block size is zero",
+        ));
     }
 
     let num_blocks = (uncompressed_size + block_size - 1) / block_size;
     let header_size = 16 + num_blocks * 4;
-    debug!("GCPF decompress: num_blocks={}, header_size={}", num_blocks, header_size);
+    debug!(
+        "GCPF decompress: num_blocks={}, header_size={}",
+        num_blocks, header_size
+    );
 
     if data.len() < header_size {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GCPF: Header size exceeds file length"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "GCPF: Header size exceeds file length",
+        ));
     }
 
     let mut block_sizes = Vec::with_capacity(num_blocks);
     for i in 0..num_blocks {
         let offset = 16 + i * 4;
-        let size = u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as usize;
+        let size = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as usize;
         block_sizes.push(size);
     }
 
@@ -302,32 +403,36 @@ pub(crate) fn decompress_gcpf_file(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut uncompressed_data = Vec::with_capacity(uncompressed_size);
 
     for (i, size) in block_sizes.into_iter().enumerate() {
-        trace!("GCPF decompressing block {}: offset={}, size={}", i, current_offset, size);
+        trace!(
+            "GCPF decompressing block {}: offset={}, size={}",
+            i, current_offset, size
+        );
         if current_offset + size > data.len() {
-            if current_offset + 4 == data.len() && &data[current_offset..current_offset + 4] == b"GCPF" {
+            if current_offset + 4 == data.len()
+                && &data[current_offset..current_offset + 4] == b"GCPF"
+            {
                 debug!("GCPF footer magic reached, stopping decompression cleanly");
                 break;
             }
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "GCPF: Block data truncated"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "GCPF: Block data truncated",
+            ));
         }
         let compressed_block = &data[current_offset..current_offset + size];
         current_offset += size;
 
         let decompressed_block = match comp_mode {
-            0 | 2 => {
-                zstd::decode_all(compressed_block)?
-            }
-            _ => {
-                match zstd::decode_all(compressed_block) {
-                    Ok(decoded) => decoded,
-                    Err(_) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("GCPF: Unsupported compression mode {}", comp_mode),
-                        ));
-                    }
+            0 | 2 => zstd::decode_all(compressed_block)?,
+            _ => match zstd::decode_all(compressed_block) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("GCPF: Unsupported compression mode {}", comp_mode),
+                    ));
                 }
-            }
+            },
         };
         uncompressed_data.extend_from_slice(&decompressed_block);
     }
@@ -386,6 +491,20 @@ fn collect_bricks_recursive(
                 _ => 0.3,
             };
 
+            let player_can_collide = match data.get(13) {
+                Some(GodotVariant::Bool(b)) => *b,
+                Some(GodotVariant::Int(i)) => *i != 0,
+                Some(GodotVariant::Float(f)) => *f != 0.0,
+                _ => true,
+            };
+
+            let show_studs = match data.get(14) {
+                Some(GodotVariant::Bool(b)) => *b,
+                Some(GodotVariant::Int(i)) => *i != 0,
+                Some(GodotVariant::Float(f)) => *f != 0.0,
+                _ => true,
+            };
+
             let shape_type = if data.len() > 10 {
                 match &data[10] {
                     GodotVariant::String(s) => s.as_str(),
@@ -395,30 +514,35 @@ fn collect_bricks_recursive(
                 "Cube"
             };
 
-            let shape = if shape_type == "Sphere" {
-                crate::common::game::bricks::components::BrickShape::Sphere
-            } else {
-                crate::common::game::bricks::components::BrickShape::Block
-            };
+            let shape =
+                crate::common::game::bricks::components::BrickShape::from_name(shape_type)
+                    .unwrap_or(
+                        crate::common::game::bricks::components::BrickShape::Block,
+                    );
 
-            let is_standard_brick = data.len() >= 15 && match &data[0] {
-                GodotVariant::String(s) => {
-                    s != "NPC" && s != "UIImage" && s != "UIButton" && s != "UIText" && s != "Decal" &&
-                    s != "RemoteEvent" && s != "Terrain" && s != "Model" && s != "Weld" &&
-                    s != "Hinge" && s != "Label3D" && s != "Sound" && s != "Script" && s != "LocalScript"
-                }
-                _ => false,
-            };
+            let is_standard_brick = data.len() >= 15
+                && match &data[0] {
+                    GodotVariant::String(s) => {
+                        s != "NPC"
+                            && s != "UIImage"
+                            && s != "UIButton"
+                            && s != "UIText"
+                            && s != "Decal"
+                            && s != "RemoteEvent"
+                            && s != "Terrain"
+                            && s != "Model"
+                            && s != "Weld"
+                            && s != "Hinge"
+                            && s != "Label3D"
+                            && s != "Sound"
+                            && s != "Script"
+                            && s != "LocalScript"
+                    }
+                    _ => false,
+                };
 
             let bevy_scale = if is_standard_brick {
-                match shape {
-                    crate::common::game::bricks::components::BrickShape::Block => {
-                        Vec3::new(local_scale.x / 4.0, local_scale.y / 1.0, local_scale.z / 2.0)
-                    }
-                    crate::common::game::bricks::components::BrickShape::Sphere => {
-                        local_scale / 2.0
-                    }
-                }
+                local_scale / shape.base_size_studs()
             } else {
                 local_scale
             };
@@ -429,7 +553,10 @@ fn collect_bricks_recursive(
                 scale: bevy_scale,
             };
 
-            let global_translation = parent_transform.translation + parent_transform.rotation.mul_vec3(local_transform.translation * 0.28);
+            let global_translation = parent_transform.translation
+                + parent_transform
+                    .rotation
+                    .mul_vec3(local_transform.translation * 0.28);
             let global_rotation = parent_transform.rotation * local_transform.rotation;
             let global_scale = parent_transform.scale * local_transform.scale;
 
@@ -447,18 +574,28 @@ fn collect_bricks_recursive(
                     color,
                     physics_enabled,
                     bounciness,
-                    player_can_collide: true,
+                    player_can_collide,
                     friction: 0.3,
                     gravity_scale: 1.0,
                     mass: 1.0,
-                    show_studs: true,
+                    show_studs,
                 });
             }
 
             let is_custom_node = match &data[0] {
                 GodotVariant::String(s) => {
-                    s == "RemoteEvent" || s == "Terrain" || s == "NPC" || s == "Model" || s == "Weld" ||
-                    s == "Decal" || s == "Terrain" || s == "Hinge" || s == "Label3D" || s == "Sound" || s == "Script" || s == "LocalScript"
+                    s == "RemoteEvent"
+                        || s == "Terrain"
+                        || s == "NPC"
+                        || s == "Model"
+                        || s == "Weld"
+                        || s == "Decal"
+                        || s == "Terrain"
+                        || s == "Hinge"
+                        || s == "Label3D"
+                        || s == "Sound"
+                        || s == "Script"
+                        || s == "LocalScript"
                 }
                 _ => false,
             };
@@ -466,13 +603,21 @@ fn collect_bricks_recursive(
             let children_var = if is_custom_node {
                 match &data[0] {
                     GodotVariant::String(s) => {
-                        if s == "Model" { data.get(5) }
-                        else if s == "Script" || s == "LocalScript" { data.get(4) }
-                        else if s == "Weld" { data.get(8) }
-                        else if s == "Decal" || s == "Terrain" { data.get(7) }
-                        else if s == "NPC" { data.get(16) }
-                        else if s == "Hinge" || s == "Label3D" || s == "Sound" { data.get(10) }
-                        else { None }
+                        if s == "Model" {
+                            data.get(5)
+                        } else if s == "Script" || s == "LocalScript" {
+                            data.get(4)
+                        } else if s == "Weld" {
+                            data.get(8)
+                        } else if s == "Decal" || s == "Terrain" {
+                            data.get(7)
+                        } else if s == "NPC" {
+                            data.get(16)
+                        } else if s == "Hinge" || s == "Label3D" || s == "Sound" {
+                            data.get(10)
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
                 }
@@ -488,18 +633,37 @@ fn collect_bricks_recursive(
 }
 
 pub(crate) fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileState> {
-    debug!("Parsing Godot VRTX, decompressed length={}", decompressed.len());
+    debug!(
+        "Parsing Godot VRTX, decompressed length={}",
+        decompressed.len()
+    );
     if decompressed.len() >= 4 {
-        let first_u32 = u32::from_le_bytes([decompressed[0], decompressed[1], decompressed[2], decompressed[3]]);
-        debug!("First 4 bytes of decompressed payload: {} (0x{:X})", first_u32, first_u32);
+        let first_u32 = u32::from_le_bytes([
+            decompressed[0],
+            decompressed[1],
+            decompressed[2],
+            decompressed[3],
+        ]);
+        debug!(
+            "First 4 bytes of decompressed payload: {} (0x{:X})",
+            first_u32, first_u32
+        );
     }
 
     let mut parser = GodotParser::new(decompressed);
 
     if decompressed.len() >= 8 {
-        let prefix = u32::from_le_bytes([decompressed[0], decompressed[1], decompressed[2], decompressed[3]]) as usize;
+        let prefix = u32::from_le_bytes([
+            decompressed[0],
+            decompressed[1],
+            decompressed[2],
+            decompressed[3],
+        ]) as usize;
         if prefix == decompressed.len() - 4 {
-            debug!("Detected Godot store_var length prefix: {} bytes. Skipping prefix.", prefix);
+            debug!(
+                "Detected Godot store_var length prefix: {} bytes. Skipping prefix.",
+                prefix
+            );
             parser.offset = 4;
         }
     }
@@ -524,18 +688,26 @@ pub(crate) fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileS
             bloom: true,
         };
 
-        let camera_transform = Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y);
+        let camera_transform =
+            Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y);
 
-        debug!("Parsing complete: version={}, bricks={}", version, bricks.len());
+        debug!(
+            "Parsing complete: version={}, bricks={}",
+            version,
+            bricks.len()
+        );
         Ok(VrtxFileState {
             version,
             gravity,
             settings,
             lighting: VrtxLighting::default(),
+            players: VrtxPlayers::default(),
             camera_transform,
             bricks,
             scripts: Vec::new(),
             images: Vec::new(),
+            meshes: Vec::new(),
+            textures: Vec::new(),
         })
     } else {
         error!("Parsing failed: Root element is not a Godot dictionary");

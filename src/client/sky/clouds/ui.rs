@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{
-    egui::{self, Pos2, Ui},
     EguiContexts,
+    egui::{self, Pos2, Ui},
 };
 
 use super::config::CloudsConfig;
@@ -81,8 +81,7 @@ pub fn clouds_ui(config: &mut CloudsConfig, ui: &mut Ui) {
     ui.end_row();
     ui.label(format!(
         "Cloud resolution: {}x{}",
-        config.render_resolution.x as u32,
-        config.render_resolution.y as u32
+        config.render_resolution.x as u32, config.render_resolution.y as u32
     ));
     ui.end_row();
     ui.add(egui::Label::new("wind_velocity"));

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy::winit::{WinitSettings, UpdateMode};
 use bevy::window::{PresentMode, PrimaryWindow, WindowMode};
+use bevy::winit::{UpdateMode, WinitSettings};
 use std::time::Duration;
 
 #[derive(Component)]
@@ -22,6 +22,10 @@ impl MsaaQuality {
             MsaaQuality::Sample4 => 4,
             MsaaQuality::Sample8 => 8,
         }
+    }
+
+    pub fn to_msaa(self) -> Msaa {
+        Msaa::from_samples(self.samples())
     }
 }
 
@@ -94,9 +98,9 @@ impl CloudQuality {
     pub fn preset(self) -> (bool, f32, u32, u32) {
         match self {
             CloudQuality::Off => (false, 0.5, 6, 3),
-            CloudQuality::Low => (true, 0.5, 6, 3),
-            CloudQuality::Medium => (true, 0.75, 9, 4),
-            CloudQuality::High => (true, 1.0, 12, 6),
+            CloudQuality::Low => (true, 0.5, 10, 4),
+            CloudQuality::Medium => (true, 0.75, 16, 8),
+            CloudQuality::High => (true, 1.0, 24, 8),
         }
     }
 }
@@ -109,11 +113,11 @@ pub enum ViewDistance {
 }
 
 impl ViewDistance {
-    pub fn brick_lod_distances(self) -> (f32, f32, f32) {
+    pub fn brick_lod_distances(self) -> (f32, f32) {
         match self {
-            ViewDistance::Low => (12.0, 48.0, 96.0),
-            ViewDistance::Medium => (20.0, 64.0, 128.0),
-            ViewDistance::High => (28.0, 80.0, 160.0),
+            ViewDistance::Low => (48.0, 96.0),
+            ViewDistance::Medium => (64.0, 128.0),
+            ViewDistance::High => (80.0, 160.0),
         }
     }
 }
@@ -133,16 +137,21 @@ pub struct GraphicsSettings {
 
 impl Default for GraphicsSettings {
     fn default() -> Self {
+        let cloud_quality = if crate::client::sky::clouds::config::clouds_disabled_by_env() {
+            CloudQuality::Off
+        } else {
+            CloudQuality::Medium
+        };
         Self {
             ssao: false,
             contact_shadows: false,
-            bloom: true,
-            msaa: MsaaQuality::Sample4,
+            bloom: false,
+            msaa: MsaaQuality::Sample2,
             shadow_quality: ShadowQuality::Medium,
-            shadow_filter: ShadowFilter::HighQuality,
+            shadow_filter: ShadowFilter::Fast,
             vsync: VsyncMode::On,
-            cloud_quality: CloudQuality::High,
-            view_distance: ViewDistance::High,
+            cloud_quality,
+            view_distance: ViewDistance::Medium,
         }
     }
 }
@@ -163,17 +172,25 @@ impl Plugin for PerformancePlugin {
 
 pub fn apply_graphics_settings(
     settings: Res<GraphicsSettings>,
-    mut cameras: Query<&mut Msaa>,
+    mut commands: Commands,
+    mut cameras: Query<&mut Msaa, With<Camera>>,
+    missing_msaa: Query<Entity, (With<Camera>, Without<Msaa>)>,
     mut shadow_filter_methods: Query<&mut bevy::light::ShadowFilteringMethod, With<Camera3d>>,
     mut directional_light_shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut directional_lights: Query<&mut bevy::light::DirectionalLight>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut lighting_config: Option<ResMut<crate::client::sky::LightingConfig>>,
 ) {
-    if settings.is_changed() {
-        let msaa = Msaa::from_samples(settings.msaa.samples());
-        for mut camera_msaa in &mut cameras {
-            *camera_msaa = msaa;
+    let target_msaa = settings.msaa.to_msaa();
+    for mut camera_msaa in &mut cameras {
+        if *camera_msaa != target_msaa {
+            *camera_msaa = target_msaa;
         }
+    }
+    for entity in &missing_msaa {
+        commands.entity(entity).insert(target_msaa);
+    }
+    if settings.is_changed() {
         let shadow_filtering = settings.shadow_filter.method();
         for mut filtering in &mut shadow_filter_methods {
             *filtering = shadow_filtering;
@@ -188,11 +205,13 @@ pub fn apply_graphics_settings(
         for mut window in &mut windows {
             window.present_mode = present_mode;
         }
-    }
 
-    if settings.shadow_quality == ShadowQuality::Off {
-        for mut light in &mut directional_lights {
-            light.shadow_maps_enabled = false;
+        if settings.shadow_quality == ShadowQuality::Off {
+            for mut light in &mut directional_lights {
+                light.shadow_maps_enabled = false;
+            }
+        } else if let Some(mut lighting) = lighting_config {
+            lighting.set_changed();
         }
     }
 }
@@ -213,10 +232,10 @@ pub fn manage_winit_performance(
     keys: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     let current_time = time.elapsed_secs();
-    
+
     let mut is_hovered = false;
     let mut is_fullscreen = false;
-    
+
     if let Ok(window) = windows.single() {
         if !matches!(window.mode, WindowMode::Windowed) {
             is_fullscreen = true;
@@ -240,20 +259,34 @@ pub fn manage_winit_performance(
     let time_since_last_move = current_time - *last_mouse_movement_time;
     let is_mouse_active = is_hovered && (time_since_last_move < 3.0);
 
-    let buttons_pressed = mouse_buttons.is_some_and(|b| b.any_pressed([
-        MouseButton::Left,
-        MouseButton::Right,
-        MouseButton::Middle,
-        MouseButton::Back,
-        MouseButton::Forward,
-    ]));
-    let keys_pressed = keys.is_some_and(|k| k.any_pressed([
-        KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD,
-        KeyCode::KeyQ, KeyCode::KeyE, KeyCode::ArrowUp, KeyCode::ArrowDown,
-        KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Space,
-        KeyCode::ShiftLeft, KeyCode::ShiftRight,
-        KeyCode::ControlLeft, KeyCode::ControlRight,
-    ]));
+    let buttons_pressed = mouse_buttons.is_some_and(|b| {
+        b.any_pressed([
+            MouseButton::Left,
+            MouseButton::Right,
+            MouseButton::Middle,
+            MouseButton::Back,
+            MouseButton::Forward,
+        ])
+    });
+    let keys_pressed = keys.is_some_and(|k| {
+        k.any_pressed([
+            KeyCode::KeyW,
+            KeyCode::KeyA,
+            KeyCode::KeyS,
+            KeyCode::KeyD,
+            KeyCode::KeyQ,
+            KeyCode::KeyE,
+            KeyCode::ArrowUp,
+            KeyCode::ArrowDown,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::Space,
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+        ])
+    });
 
     let mut is_active = is_fullscreen || is_mouse_active || buttons_pressed || keys_pressed;
 
@@ -285,7 +318,9 @@ pub fn manage_winit_performance(
             }
             prev.0 = *transform;
         } else {
-            commands.entity(entity).insert(PreviousTransform(*transform));
+            commands
+                .entity(entity)
+                .insert(PreviousTransform(*transform));
             is_active = true;
         }
     }

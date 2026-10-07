@@ -1,12 +1,13 @@
+pub mod auth;
 pub mod camera;
 pub mod gizmos;
 pub mod picking;
 pub mod tools;
 pub mod ui;
 
+use bevy::camera_controller::free_camera::FreeCameraPlugin;
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
-use bevy::camera_controller::free_camera::FreeCameraPlugin;
 
 pub struct StudioPlugin;
 
@@ -21,7 +22,11 @@ impl Plugin for StudioPlugin {
         if !app.is_plugin_added::<bevy::render::occlusion_culling::OcclusionCullingPlugin>() {
             app.add_plugins(bevy::render::occlusion_culling::OcclusionCullingPlugin);
         }
-        app.init_state::<tools::ToolState>()
+        app.init_resource::<auth::StudioAuthStore>()
+            .init_resource::<auth::StudioAuthFlow>()
+            .add_systems(Startup, auth::init_studio_auth)
+            .add_systems(Update, (auth::poll_studio_auth_flow, auth::check_uri_auth_on_update))
+            .init_state::<tools::ToolState>()
             .init_state::<tools::OnboardingState>()
             .init_resource::<tools::Selection>()
             .init_resource::<tools::DragState>()
@@ -49,15 +54,20 @@ impl Plugin for StudioPlugin {
             .add_message::<tools::UndoRedoAction>()
             .insert_resource(bevy::picking::mesh_picking::MeshPickingSettings {
                 require_markers: false,
-                ray_cast_visibility: bevy::picking::mesh_picking::ray_cast::RayCastVisibility::Visible,
+                ray_cast_visibility:
+                    bevy::picking::mesh_picking::ray_cast::RayCastVisibility::Visible,
             })
             .add_plugins(picking::GatedMeshPickingPlugin)
             .add_plugins(FreeCameraPlugin)
-            .add_systems(Startup, (
-                crate::studio::camera::setup_studio.after(crate::common::game::bricks::studs::setup_studs),
-                ui::setup_ui_assets,
-                ui::configure_visuals,
-            ))
+            .add_systems(
+                Startup,
+                (
+                    crate::studio::camera::setup_studio
+                        .after(crate::common::game::bricks::studs::setup_studs),
+                    ui::setup_ui_assets,
+                    ui::configure_visuals,
+                ),
+            )
             .add_systems(
                 Update,
                 (
@@ -77,7 +87,8 @@ impl Plugin for StudioPlugin {
                     tools::handle_delete_keys,
                     tools::handle_undo_redo_action,
                     tools::handle_marquee_selection,
-                ).run_if(in_state(tools::OnboardingState::Inactive)),
+                )
+                    .run_if(in_state(tools::OnboardingState::Inactive)),
             )
             .add_systems(
                 Update,
@@ -111,12 +122,15 @@ impl Plugin for StudioPlugin {
 }
 
 #[cfg(feature = "bench")]
-fn spawn_studio_benchmark(mut commands: Commands) {    let target = commands.spawn((
-        Name::new("BenchBrick"),
-        Transform::default(),
-        GlobalTransform::default(),
-        crate::common::game::bricks::components::Brick,
-    )).id();
+fn spawn_studio_benchmark(mut commands: Commands) {
+    let target = commands
+        .spawn((
+            Name::new("BenchBrick"),
+            Transform::default(),
+            GlobalTransform::default(),
+            crate::common::game::bricks::components::Brick,
+        ))
+        .id();
     commands.insert_resource(tools::Selection {
         entity: Some(target),
         entities: vec![target],
@@ -156,6 +170,12 @@ pub fn add_studio_benchmark(app: &mut App) {
         .init_resource::<tools::Selection>()
         .init_asset::<StandardMaterial>()
         .add_systems(Startup, spawn_studio_benchmark)
-        .add_systems(Update, (update_studio_benchmark, gizmos::update_gizmos).chain())
-        .add_systems(Last, record_studio_assets.before(crate::common::core::bench::bench_finish_frame));
+        .add_systems(
+            Update,
+            (update_studio_benchmark, gizmos::update_gizmos).chain(),
+        )
+        .add_systems(
+            Last,
+            record_studio_assets.before(crate::common::core::bench::bench_finish_frame),
+        );
 }

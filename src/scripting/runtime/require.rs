@@ -1,8 +1,8 @@
-﻿use bevy::prelude::*;
-use mlua::prelude::*;
 use crate::scripting::userdata::instance::Instance;
-use std::sync::{Arc, Mutex};
+use bevy::prelude::*;
+use mlua::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 pub struct ModuleCache {
     pub cached_results: HashMap<Entity, LuaValue>,
@@ -15,21 +15,31 @@ pub fn register_require(lua: &Lua) -> Result<(), mlua::Error> {
     let require_fn = lua.create_function(|lua, value: LuaValue| {
         let instance = match value {
             LuaValue::UserData(ref ud) => ud.borrow::<Instance>().map_err(|_| {
-                mlua::Error::RuntimeError("require expects an Instance representing a ModuleScript".to_string())
+                mlua::Error::RuntimeError(
+                    "require expects an Instance representing a ModuleScript".to_string(),
+                )
             })?,
-            _ => return Err(mlua::Error::RuntimeError(
-                "require expects an Instance representing a ModuleScript".to_string(),
-            )),
+            _ => {
+                return Err(mlua::Error::RuntimeError(
+                    "require expects an Instance representing a ModuleScript".to_string(),
+                ));
+            }
         };
 
-        let world_ref = lua.app_data_ref::<crate::scripting::vm::server_vm::WorldRef>().unwrap();
+        let world_ref = lua
+            .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+            .unwrap();
         let world = unsafe { &*world_ref.0 };
 
         let module_comp = world
             .get::<crate::scripting::ecs::ModuleScript>(instance.entity)
-            .ok_or_else(|| mlua::Error::RuntimeError("Provided Instance is not a ModuleScript".to_string()))?;
+            .ok_or_else(|| {
+                mlua::Error::RuntimeError("Provided Instance is not a ModuleScript".to_string())
+            })?;
 
-        let cache_ref = lua.app_data_ref::<crate::scripting::runtime::require::ModuleCacheRef>().unwrap();
+        let cache_ref = lua
+            .app_data_ref::<crate::scripting::runtime::require::ModuleCacheRef>()
+            .unwrap();
         {
             let mut cache = cache_ref.0.lock().unwrap();
             if let Some(val) = cache.cached_results.get(&instance.entity) {
@@ -68,7 +78,14 @@ pub fn register_require(lua: &Lua) -> Result<(), mlua::Error> {
         if let Err(e) = meta
             .set("__index", lua.globals())
             .and_then(|_| script_env.set_metatable(Some(meta)))
-            .and_then(|_| script_env.set("script", Instance { entity: instance.entity }))
+            .and_then(|_| {
+                script_env.set(
+                    "script",
+                    Instance {
+                        entity: instance.entity,
+                    },
+                )
+            })
             .and_then(|_| func.set_environment(script_env))
         {
             let mut cache = cache_ref.0.lock().unwrap();
@@ -82,7 +99,9 @@ pub fn register_require(lua: &Lua) -> Result<(), mlua::Error> {
                 format!("ModuleScript[{}]", instance.entity),
                 None,
             );
-            match func.call::<LuaValue>(Instance { entity: instance.entity }) {
+            match func.call::<LuaValue>(Instance {
+                entity: instance.entity,
+            }) {
                 Ok(v) => v,
                 Err(e) => {
                     let mut cache = cache_ref.0.lock().unwrap();
@@ -115,12 +134,17 @@ mod tests {
         world
             .spawn((
                 Name::new(name.to_string()),
-                crate::scripting::ecs::ModuleScript { code: code.to_string() },
+                crate::scripting::ecs::ModuleScript {
+                    code: code.to_string(),
+                },
             ))
             .id()
     }
 
-    fn require_of(vm: &crate::scripting::vm::server_vm::ServerScriptVM, entity: Entity) -> mlua::Result<LuaValue> {
+    fn require_of(
+        vm: &crate::scripting::vm::server_vm::ServerScriptVM,
+        entity: Entity,
+    ) -> mlua::Result<LuaValue> {
         let require: LuaFunction = vm.lua.globals().get("require").unwrap();
         let inst = vm.lua.create_userdata(Instance { entity }).unwrap();
         require.call(inst)
@@ -129,7 +153,11 @@ mod tests {
     #[test]
     fn module_results_are_cached() {
         let mut world = test_world();
-        let module = spawn_module(&mut world, "M", "_G.runs = (_G.runs or 0) + 1 return { value = 42 }");
+        let module = spawn_module(
+            &mut world,
+            "M",
+            "_G.runs = (_G.runs or 0) + 1 return { value = 42 }",
+        );
         let vm = test_vm(&mut world);
 
         let inst = vm.lua.create_userdata(Instance { entity: module }).unwrap();
@@ -179,11 +207,16 @@ mod tests {
 
         assert!(require_of(&vm, module).is_err());
 
-        world.entity_mut(module).insert(crate::scripting::ecs::ModuleScript {
-            code: "return 'fixed'".to_string(),
-        });
+        world
+            .entity_mut(module)
+            .insert(crate::scripting::ecs::ModuleScript {
+                code: "return 'fixed'".to_string(),
+            });
         let res = require_of(&vm, module).unwrap();
-        assert_eq!(res, LuaValue::String(vm.lua.create_string("fixed").unwrap()));
+        assert_eq!(
+            res,
+            LuaValue::String(vm.lua.create_string("fixed").unwrap())
+        );
     }
 
     #[test]
@@ -195,7 +228,10 @@ mod tests {
         require_of(&vm, module).unwrap();
 
         assert_eq!(
-            vm.lua.globals().get::<LuaValue>("module_side_effect").unwrap(),
+            vm.lua
+                .globals()
+                .get::<LuaValue>("module_side_effect")
+                .unwrap(),
             LuaValue::Nil
         );
     }
@@ -213,8 +249,16 @@ mod tests {
     fn cyclic_require_is_rejected() {
         let mut world = test_world();
         let folder = world.spawn(Name::new("F")).id();
-        let a = spawn_module(&mut world, "A", "return require(script.Parent:FindFirstChild('B'))");
-        let b = spawn_module(&mut world, "B", "return require(script.Parent:FindFirstChild('A'))");
+        let a = spawn_module(
+            &mut world,
+            "A",
+            "return require(script.Parent:FindFirstChild('B'))",
+        );
+        let b = spawn_module(
+            &mut world,
+            "B",
+            "return require(script.Parent:FindFirstChild('A'))",
+        );
         world.entity_mut(folder).add_child(a);
         world.entity_mut(folder).add_child(b);
 

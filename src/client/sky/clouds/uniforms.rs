@@ -41,6 +41,8 @@ pub(crate) struct CloudsUniform {
     pub inverse_camera_projection: Mat4,
     pub wind_displacement: Vec3,
     pub atlas_seed: f32,
+    pub init_base_y: u32,
+    pub init_rows: u32,
 }
 
 impl Default for CloudsUniform {
@@ -72,12 +74,14 @@ impl Default for CloudsUniform {
             camera_translation: Vec3::ZERO,
             time: 0.0,
             reprojection_strength: 0.95,
-            render_resolution: Vec2::new(1280.0, 720.0),
+            render_resolution: Vec2::new(1920.0, 1080.0),
             inverse_camera_view: Mat4::IDENTITY,
             previous_inverse_camera_view: Mat4::IDENTITY,
             inverse_camera_projection: Mat4::IDENTITY,
             wind_displacement: Vec3::new(-11.0, 0.0, 23.0),
             atlas_seed: 0.0,
+            init_base_y: 0,
+            init_rows: 0,
         }
     }
 }

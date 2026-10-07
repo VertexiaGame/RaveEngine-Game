@@ -1,11 +1,11 @@
-use bevy::prelude::*;
-use mlua::prelude::*;
 use crate::common::net::components::{LightingServiceContainer, Player, PlayersServiceContainer};
 use crate::scripting::ecs::ServerScript;
 use crate::scripting::plugin::ScriptingPlugin;
 use crate::scripting::testing::*;
 use crate::scripting::userdata::instance::Instance;
 use crate::scripting::vm::server_vm::ServerScriptVM;
+use bevy::prelude::*;
+use mlua::prelude::*;
 
 fn service_world() -> World {
     let mut world = test_world();
@@ -19,9 +19,11 @@ fn service_world() -> World {
 fn script_app() -> App {
     let mut app = App::new();
     app.add_plugins(ScriptingPlugin);
-    app.world_mut().insert_resource(bevy::time::Time::<()>::default());
+    app.world_mut()
+        .insert_resource(bevy::time::Time::<()>::default());
     app.world_mut().insert_resource(ServerScriptVM::new());
-    app.world_mut().insert_resource(crate::scripting::vm::client_vm::ClientScriptVM::new());
+    app.world_mut()
+        .insert_resource(crate::scripting::vm::client_vm::ClientScriptVM::new());
     app
 }
 
@@ -31,7 +33,12 @@ fn app_script(app: &App, code: &str) {
 }
 
 fn app_global<T: FromLua>(app: &App, name: &str) -> T {
-    app.world().resource::<ServerScriptVM>().lua.globals().get(name).unwrap()
+    app.world()
+        .resource::<ServerScriptVM>()
+        .lua
+        .globals()
+        .get(name)
+        .unwrap()
 }
 
 fn app_entity(app: &App, global_name: &str) -> Entity {
@@ -42,14 +49,40 @@ fn app_entity(app: &App, global_name: &str) -> Entity {
 fn players_service_lists_all_players_as_instances() {
     let mut world = service_world();
     let alice = world
-        .spawn((Name::new("Alice"), Player { client_id: 1, username: "Alice".to_string(), ..default() }))
+        .spawn((
+            Name::new("Alice"),
+            Player {
+                client_id: 1,
+                username: "Alice".to_string(),
+                ..default()
+            },
+        ))
         .id();
     let bob = world
-        .spawn((Name::new("Bob"), Player { client_id: 2, username: "Bob".to_string(), ..default() }))
+        .spawn((
+            Name::new("Bob"),
+            Player {
+                client_id: 2,
+                username: "Bob".to_string(),
+                ..default()
+            },
+        ))
         .id();
     let vm = test_vm(&mut world);
-    vm.lua.globals().set("alice", vm.lua.create_userdata(Instance { entity: alice }).unwrap()).unwrap();
-    vm.lua.globals().set("bob", vm.lua.create_userdata(Instance { entity: bob }).unwrap()).unwrap();
+    vm.lua
+        .globals()
+        .set(
+            "alice",
+            vm.lua.create_userdata(Instance { entity: alice }).unwrap(),
+        )
+        .unwrap();
+    vm.lua
+        .globals()
+        .set(
+            "bob",
+            vm.lua.create_userdata(Instance { entity: bob }).unwrap(),
+        )
+        .unwrap();
 
     let (count, names, eq, class): (usize, Vec<String>, bool, String) = eval(
         &vm,
@@ -148,9 +181,15 @@ fn script_environment_exposes_script_instance() {
 #[test]
 fn workspace_children_include_parts_scripts_and_folders() {
     let mut world = service_world();
-    world.spawn((Name::new("Baseplate"), crate::common::game::bricks::components::Brick));
+    world.spawn((
+        Name::new("Baseplate"),
+        crate::common::game::bricks::components::Brick,
+    ));
     world.spawn((Name::new("Loop"), ServerScript::default()));
-    world.spawn((Name::new("Init"), crate::scripting::ecs::ModuleScript::default()));
+    world.spawn((
+        Name::new("Init"),
+        crate::scripting::ecs::ModuleScript::default(),
+    ));
     world.spawn(Name::new("IgnoredBystander"));
 
     let vm = test_vm(&mut world);
@@ -174,11 +213,14 @@ fn workspace_children_include_parts_scripts_and_folders() {
 fn part_velocity_reads_zero_without_physics() {
     let mut world = service_world();
     let vm = test_vm(&mut world);
-    run_script(&vm, r#"
+    run_script(
+        &vm,
+        r#"
         _G.p = Instance.new("Part")
         local v = _G.p.Velocity
         _G.vx, _G.vy, _G.vz = v.X, v.Y, v.Z
-    "#);
+    "#,
+    );
     let (x, y, z): (f64, f64, f64) = (global(&vm, "vx"), global(&vm, "vy"), global(&vm, "vz"));
     assert_eq!((x, y, z), (0.0, 0.0, 0.0));
 }
@@ -197,7 +239,8 @@ fn yielding_heartbeat_callback_does_not_accumulate_threads() {
                         task.wait(0.02)
                     end
                 end)
-            "#.to_string(),
+            "#
+            .to_string(),
             ..default()
         },
     ));
@@ -213,7 +256,10 @@ fn yielding_heartbeat_callback_does_not_accumulate_threads() {
         let sched = vm.scheduler.lock().unwrap();
         sched.tasks.len() + sched.deferred.len()
     };
-    assert_eq!(pending, 1, "yielding callback must not spawn duplicate threads");
+    assert_eq!(
+        pending, 1,
+        "yielding callback must not spawn duplicate threads"
+    );
 
     std::thread::sleep(std::time::Duration::from_millis(30));
     app.update();
@@ -253,7 +299,8 @@ fn heartbeat_and_stepped_fire_with_delta_and_disconnect_stops_one() {
                 end)
                 _G.hb_conn = hb
                 _G.st_conn = st
-            "#.to_string(),
+            "#
+            .to_string(),
             ..default()
         },
     ));
@@ -266,13 +313,18 @@ fn heartbeat_and_stepped_fire_with_delta_and_disconnect_stops_one() {
     app_script(&app, "_G.st_conn:Disconnect()");
     app.update();
     assert_eq!(app_global::<i32>(&app, "hb"), 2);
-    assert_eq!(app_global::<i32>(&app, "st"), 1, "disconnected callback must not fire");
+    assert_eq!(
+        app_global::<i32>(&app, "st"),
+        1,
+        "disconnected callback must not fire"
+    );
 }
 
 #[test]
 fn player_added_fires_once_per_joining_player() {
     let mut app = script_app();
-    app.world_mut().spawn((Name::new("Players"), PlayersServiceContainer));
+    app.world_mut()
+        .spawn((Name::new("Players"), PlayersServiceContainer));
     app.world_mut().spawn((
         Name::new("Connector"),
         ServerScript {
@@ -281,14 +333,27 @@ fn player_added_fires_once_per_joining_player() {
                     _G.added = (_G.added or 0) + 1
                     _G.last = p.Name
                 end)
-            "#.to_string(),
+            "#
+            .to_string(),
             ..default()
         },
     ));
     app.update();
 
-    app.world_mut().spawn((Name::new("A"), Player { client_id: 1, ..default() }));
-    app.world_mut().spawn((Name::new("B"), Player { client_id: 2, ..default() }));
+    app.world_mut().spawn((
+        Name::new("A"),
+        Player {
+            client_id: 1,
+            ..default()
+        },
+    ));
+    app.world_mut().spawn((
+        Name::new("B"),
+        Player {
+            client_id: 2,
+            ..default()
+        },
+    ));
     app.update();
     assert_eq!(app_global::<i32>(&app, "added"), 2);
     assert_eq!(app_global::<String>(&app, "last"), "B");
@@ -308,24 +373,37 @@ fn touched_disconnect_prevents_future_events() {
                 _G.conn = _G.p.Touched:Connect(function()
                     _G.count = (_G.count or 0) + 1
                 end)
-            "#.to_string(),
+            "#
+            .to_string(),
             ..default()
         },
     ));
     app.update();
     let part = app_entity(&app, "p");
 
-    app.world_mut().entity_mut(part)
-        .insert(avian3d::prelude::CollidingEntities(bevy::ecs::entity::EntityHashSet::from([Entity::PLACEHOLDER])));
+    app.world_mut()
+        .entity_mut(part)
+        .insert(avian3d::prelude::CollidingEntities(
+            bevy::ecs::entity::EntityHashSet::from([Entity::PLACEHOLDER]),
+        ));
     app.update();
     assert_eq!(app_global::<i32>(&app, "count"), 1);
 
     app_script(&app, "_G.conn:Disconnect()");
-    app.world_mut().entity_mut(part).remove::<avian3d::prelude::CollidingEntities>();
-    app.world_mut().entity_mut(part)
-        .insert(avian3d::prelude::CollidingEntities(bevy::ecs::entity::EntityHashSet::from([Entity::PLACEHOLDER])));
+    app.world_mut()
+        .entity_mut(part)
+        .remove::<avian3d::prelude::CollidingEntities>();
+    app.world_mut()
+        .entity_mut(part)
+        .insert(avian3d::prelude::CollidingEntities(
+            bevy::ecs::entity::EntityHashSet::from([Entity::PLACEHOLDER]),
+        ));
     app.update();
-    assert_eq!(app_global::<i32>(&app, "count"), 1, "disconnected signal must not fire");
+    assert_eq!(
+        app_global::<i32>(&app, "count"),
+        1,
+        "disconnected signal must not fire"
+    );
 }
 
 #[test]
@@ -386,12 +464,21 @@ fn lighting_reads_return_defaults_without_config_resource() {
 fn require_caches_across_script_invocations_in_one_vm() {
     let mut world = service_world();
     let module = world
-        .spawn((Name::new("M"), crate::scripting::ecs::ModuleScript {
-            code: "return { value = 7 }".to_string(),
-        }))
+        .spawn((
+            Name::new("M"),
+            crate::scripting::ecs::ModuleScript {
+                code: "return { value = 7 }".to_string(),
+            },
+        ))
         .id();
     let vm = test_vm(&mut world);
-    vm.lua.globals().set("mod", vm.lua.create_userdata(Instance { entity: module }).unwrap()).unwrap();
+    vm.lua
+        .globals()
+        .set(
+            "mod",
+            vm.lua.create_userdata(Instance { entity: module }).unwrap(),
+        )
+        .unwrap();
 
     run_script(&vm, "_G.first = require(_G.mod)");
     run_script(&vm, "_G.second = require(_G.mod)");
@@ -405,7 +492,9 @@ fn require_caches_across_script_invocations_in_one_vm() {
 fn task_composition_runs_spawn_wait_and_delay() {
     let mut world = service_world();
     let vm = test_vm(&mut world);
-    run_script(&vm, r#"
+    run_script(
+        &vm,
+        r#"
         _G.ticks = 0
         task.spawn(function()
             for _ = 1, 3 do
@@ -414,7 +503,8 @@ fn task_composition_runs_spawn_wait_and_delay() {
             end
         end)
         task.delay(0.02, function() _G.delayed = true end)
-    "#);
+    "#,
+    );
     assert_eq!(global::<i32>(&vm, "ticks"), 1);
     advance(&vm, 15, 6);
     assert_eq!(global::<i32>(&vm, "ticks"), 3);
@@ -425,12 +515,15 @@ fn task_composition_runs_spawn_wait_and_delay() {
 fn destroy_removes_instance_from_workspace_children() {
     let mut world = service_world();
     let vm = test_vm(&mut world);
-    run_script(&vm, r#"
+    run_script(
+        &vm,
+        r#"
         _G.p = Instance.new("Part")
         _G.before = #workspace:GetChildren()
         _G.p:Destroy()
         _G.after = #workspace:GetChildren()
-    "#);
+    "#,
+    );
     let before: usize = global(&vm, "before");
     let after: usize = global(&vm, "after");
     assert_eq!(after, before - 1);
@@ -441,17 +534,26 @@ fn world_reflection_finds_players_by_class_across_services() {
     let mut world = test_world();
     let workspace = world.spawn(Name::new("Workspace")).id();
     let alice = world
-        .spawn((Name::new("Alice"), Player { client_id: 1, ..default() }))
+        .spawn((
+            Name::new("Alice"),
+            Player {
+                client_id: 1,
+                ..default()
+            },
+        ))
         .id();
     world.entity_mut(workspace).add_child(alice);
     let vm = test_vm(&mut world);
 
-    let found: bool = eval(&vm, r#"
+    let found: bool = eval(
+        &vm,
+        r#"
         local ps = workspace:GetDescendants()
         for _, p in ipairs(ps) do
             if p.ClassName == "Player" and p.Name == "Alice" then return true end
         end
         return false
-    "#);
+    "#,
+    );
     assert!(found);
 }

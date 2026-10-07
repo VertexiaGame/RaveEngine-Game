@@ -1,9 +1,9 @@
 use bevy::{
-    asset::{embedded_asset, embedded_path, AssetPath},
+    asset::{AssetPath, embedded_asset, embedded_path},
     prelude::*,
     reflect::TypePath,
     render::render_resource::{AsBindGroup, Face},
-    shader::{load_shader_library, ShaderRef},
+    shader::{ShaderRef, load_shader_library},
 };
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]

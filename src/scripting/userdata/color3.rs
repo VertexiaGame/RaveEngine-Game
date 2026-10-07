@@ -25,15 +25,17 @@ impl LuaUserData for Color3 {
                 "R" | "r" => Ok(Some(LuaValue::Number(srgba.red as f64))),
                 "G" | "g" => Ok(Some(LuaValue::Number(srgba.green as f64))),
                 "B" | "b" => Ok(Some(LuaValue::Number(srgba.blue as f64))),
-                "ToHex" => Ok(Some(LuaValue::Function(lua.create_function(move |_, _: ()| {
-                    let srgba = this.0.to_srgba();
-                    Ok(format!(
-                        "#{:02X}{:02X}{:02X}",
-                        (srgba.red * 255.0).round() as u32,
-                        (srgba.green * 255.0).round() as u32,
-                        (srgba.blue * 255.0).round() as u32
-                    ))
-                })?))),
+                "ToHex" => Ok(Some(LuaValue::Function(lua.create_function(
+                    move |_, _: ()| {
+                        let srgba = this.0.to_srgba();
+                        Ok(format!(
+                            "#{:02X}{:02X}{:02X}",
+                            (srgba.red * 255.0).round() as u32,
+                            (srgba.green * 255.0).round() as u32,
+                            (srgba.blue * 255.0).round() as u32
+                        ))
+                    },
+                )?))),
                 _ => Ok(None),
             }
         });

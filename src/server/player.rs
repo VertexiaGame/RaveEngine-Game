@@ -1,15 +1,21 @@
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
-use avian3d::prelude::*;
 use crate::common::game::movement::{
-    validate_client_move, ClientMoveClaim, MoveValidationConfig, PlayerMovementPlan,
-    ValidatedMove, VALIDATION_VIOLATION_LOG_THRESHOLD,
+    ClientMoveClaim, MoveValidationConfig, PlayerMovementPlan, VALIDATION_VIOLATION_LOG_THRESHOLD,
+    ValidatedMove, validate_client_move,
 };
-use crate::common::net::components::{Player, NetworkTransform};
+use crate::common::net::components::{NetworkTransform, Player};
 use crate::common::net::messages::PlayerMoveMessage;
 use crate::server::ClientPlayerMap;
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 use std::time::Instant;
+#[derive(Resource, Default)]
+pub struct ChatCooldowns(pub std::collections::HashMap<u64, Instant>);
+
+#[derive(Resource, Default)]
+pub struct PlayerSoundCooldowns(pub std::collections::HashMap<u64, (Option<Instant>, Option<Instant>)>);
+
 #[derive(Component)]
 pub struct ServerMoveState {
     pub last: Option<ValidatedMove>,
@@ -29,13 +35,27 @@ impl Default for ServerMoveState {
     }
 }
 
+pub fn gravity_scale_for_avian(player_gravity: f32, world_gravity_mag: f32) -> f32 {
+    if world_gravity_mag > f32::EPSILON {
+        player_gravity / world_gravity_mag
+    } else {
+        1.0
+    }
+}
+
 pub fn handle_new_client(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
-    _players_service_query: Query<Entity, With<crate::common::net::components::PlayersServiceContainer>>,
+    _players_service_query: Query<
+        Entity,
+        With<crate::common::net::components::PlayersServiceContainer>,
+    >,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
-        warn!("handle_new_client failed: RemoteId missing on entity {:?}", trigger.entity);
+        warn!(
+            "handle_new_client failed: RemoteId missing on entity {:?}",
+            trigger.entity
+        );
         return;
     };
     let _client_id = remote_id.0.to_bits();
@@ -47,7 +67,12 @@ pub fn handle_hello_messages(
     mut pending: ResMut<crate::server::PendingAuths>,
     mut auth_pool: ResMut<crate::server::AuthWorkerPool>,
     settings: Res<crate::server::ServerSettings>,
-    mut receivers: Query<(Entity, &RemoteId, &mut MessageReceiver<crate::common::net::messages::HelloMessage>, Option<&ReplicationSender>)>,
+    mut receivers: Query<(
+        Entity,
+        &RemoteId,
+        &mut MessageReceiver<crate::common::net::messages::HelloMessage>,
+        Option<&ReplicationSender>,
+    )>,
 ) {
     auth_pool.ensure_started(settings.allow_unauthenticated);
     for (client_entity, remote_id, mut receiver, rep_sender) in receivers.iter_mut() {
@@ -60,14 +85,23 @@ pub fn handle_hello_messages(
                 continue;
             }
             if pending.0.len() >= MAX_PENDING_AUTHS {
-                warn!("Pending auth queue full; dropping hello from client {}", client_id);
+                warn!(
+                    "Pending auth queue full; dropping hello from client {}",
+                    client_id
+                );
                 break;
             }
-            if !auth_pool.submit(client_id, hello.ukey.clone()) {
-                warn!("Auth worker queue full; dropping hello from client {}", client_id);
+            if !auth_pool.submit(client_id, hello.ukey) {
+                warn!(
+                    "Auth worker queue full; dropping hello from client {}",
+                    client_id
+                );
                 continue;
             }
-            debug!("Received HelloMessage from client {}, queued async auth", client_id);
+            debug!(
+                "Received HelloMessage from client {}, queued async auth",
+                client_id
+            );
             pending.0.insert(client_id, client_entity);
         }
     }
@@ -78,12 +112,21 @@ pub fn handle_auth_results(
     mut player_map: ResMut<crate::server::ClientPlayerMap>,
     mut pending: ResMut<crate::server::PendingAuths>,
     auth_pool: Res<crate::server::AuthWorkerPool>,
+    world_gravity: Res<Gravity>,
     mut sender_query: Query<&mut MessageSender<crate::common::net::messages::KickMessage>>,
-    mut success_sender_query: Query<&mut MessageSender<crate::common::net::messages::AuthSuccessMessage>>,
+    mut success_sender_query: Query<
+        &mut MessageSender<crate::common::net::messages::AuthSuccessMessage>,
+    >,
+    mut results: Local<
+        Vec<(
+            u64,
+            Result<crate::common::net::auth::ValidateResponse, String>,
+        )>,
+    >,
 ) {
-    let results = auth_pool.drain_results();
+    auth_pool.drain_results_into(&mut results);
 
-    for (client_id, result) in results {
+    for (client_id, result) in results.drain(..) {
         let Some(&client_entity) = pending.0.get(&client_id) else {
             continue;
         };
@@ -91,7 +134,10 @@ pub fn handle_auth_results(
         match result {
             Ok(response) => {
                 if commands.get_entity(client_entity).is_err() {
-                    warn!("Authentication completed for disconnected client {}, skipping spawn", client_id);
+                    warn!(
+                        "Authentication completed for disconnected client {}, skipping spawn",
+                        client_id
+                    );
                     continue;
                 }
                 if let Ok(mut success_sender) = success_sender_query.get_mut(client_entity) {
@@ -99,63 +145,95 @@ pub fn handle_auth_results(
                         crate::common::net::messages::AuthSuccessMessage {
                             uid: response.uid,
                             username: response.username.clone(),
-                        }
+                        },
                     );
                 }
 
                 commands.entity(client_entity).insert(ReplicationSender);
 
-                let (speed, jump_power, gravity_scale, friction, bounciness) = if let Ok(shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.read() {
-                    (shared.speed, shared.jump_power, shared.gravity_scale, shared.friction, shared.bounciness)
-                } else {
-                    (16.0 * 0.28, 50.0 * 0.28, 1.0, 0.0, 0.0)
-                };
+                let shared_cloned = crate::studio::tools::SHARED_PLAYERS_SERVICE
+                    .read()
+                    .ok()
+                    .map(|shared| shared.clone())
+                    .unwrap_or_default();
+                let (
+                    speed,
+                    jump_power,
+                    player_gravity,
+                    speed_response,
+                    friction,
+                    bounciness,
+                ) = (
+                    shared_cloned.speed,
+                    shared_cloned.jump_power,
+                    shared_cloned.gravity,
+                    shared_cloned.speed_response,
+                    shared_cloned.friction,
+                    shared_cloned.bounciness,
+                );
 
-                let player_entity = commands.spawn((
-                    Name::new(response.username.clone()),
-                    Player {
-                        client_id,
-                        speed,
-                        jump_power,
-                        username: response.username.clone(),
-                    },
-                    Transform::from_xyz(0.0, 5.0, 0.0),
-                    NetworkTransform {
-                        translation: Vec3::new(0.0, 5.0, 0.0),
-                        rotation: Quat::IDENTITY,
-                        scale: Vec3::ONE,
-                        velocity: Vec3::ZERO,
-                    },
-                    ControlledBy {
-                        owner: client_entity,
-                        lifetime: Default::default(),
-                    },
-                    RigidBody::Kinematic,
-                    Collider::cuboid(2.0 * 0.28, 5.0 * 0.28, 1.17 * 0.28),
-                    CollisionLayers::from_bits(0b0010, 0b0011),
-                    LockedAxes::ROTATION_LOCKED,
-                    CustomPositionIntegration,
-                )).insert((
-                    Friction::new(friction),
-                    Restitution::new(bounciness),
-                    GravityScale(gravity_scale),
-                    CollidingEntities::default(),
-                    SleepingDisabled,
-                    ServerMoveState::default(),
-                    crate::common::game::movement::PlayerMovementPlan::default(),
-                    Replicate::default(),
-                )).id();
+                let username = response.username;
+                let player_entity = commands
+                    .spawn((
+                        Name::new(username.clone()),
+                        Player {
+                            client_id,
+                            speed,
+                            jump_power,
+                            gravity: player_gravity,
+                            speed_response,
+                            friction,
+                            bounciness,
+                            username,
+                        },
+                        Transform::from_xyz(0.0, 5.0, 0.0),
+                        NetworkTransform {
+                            translation: Vec3::new(0.0, 5.0, 0.0),
+                            rotation: Quat::IDENTITY,
+                            scale: Vec3::ONE,
+                            velocity: Vec3::ZERO,
+                        },
+                        ControlledBy {
+                            owner: client_entity,
+                            lifetime: Default::default(),
+                        },
+                        RigidBody::Kinematic,
+                        Collider::cuboid(2.0 * 0.28, 5.0 * 0.28, 1.17 * 0.28),
+                        CollisionLayers::from_bits(0b0010, 0b0011),
+                        LockedAxes::ROTATION_LOCKED,
+                        CustomPositionIntegration,
+                    ))
+                    .insert((
+                        Friction::new(friction),
+                        Restitution::new(bounciness),
+                        GravityScale(crate::server::player::gravity_scale_for_avian(
+                            player_gravity,
+                            world_gravity.0.y.abs(),
+                        )),
+                        CollidingEntities::default(),
+                        SleepingDisabled,
+                        ServerMoveState::default(),
+                        crate::common::game::movement::PlayerMovementPlan::default(),
+                        Replicate::default(),
+                    ))
+                    .id();
 
-                info!("Server successfully spawned player entity {:?} for client {}", player_entity, response.username);
+                info!(
+                    "Server successfully spawned player entity {:?} for client {}",
+                    player_entity, client_id
+                );
                 player_map.0.insert(client_id, player_entity);
             }
             Err(e) => {
-                warn!("Authentication failed for client {}: {}. Sending KickMessage...", client_id, e);
+                warn!(
+                    "Authentication failed for client {}: {}. Sending KickMessage...",
+                    client_id, e
+                );
                 if let Ok(mut sender) = sender_query.get_mut(client_entity) {
                     let _ = sender.send::<crate::common::net::messages::GameChannel>(
                         crate::common::net::messages::KickMessage {
                             reason: format!("Authentication failed: {}", e),
-                        }
+                        },
                     );
                 }
             }
@@ -166,8 +244,7 @@ pub fn handle_auth_results(
 pub fn handle_player_moves(
     mut receivers: Query<(Entity, &RemoteId, &mut MessageReceiver<PlayerMoveMessage>)>,
     player_map: Res<ClientPlayerMap>,
-    mut players: Query<(&Player, &mut ServerMoveState, &mut PlayerMovementPlan, &GravityScale)>,
-    gravity: Res<Gravity>,
+    mut players: Query<(&Player, &mut ServerMoveState, &mut PlayerMovementPlan)>,
 ) {
     let now = Instant::now();
     for (client_entity, remote_id, mut receiver) in receivers.iter_mut() {
@@ -181,12 +258,14 @@ pub fn handle_player_moves(
         };
 
         let Some(&player_entity) = player_map.0.get(&client_id) else {
-            warn!("handle_player_moves: No player entity found for client_id: {} / entity: {:?}", client_id, client_entity);
+            warn!(
+                "handle_player_moves: No player entity found for client_id: {} / entity: {:?}",
+                client_id, client_entity
+            );
             continue;
         };
 
-        let Ok((player, mut state, mut plan, gravity_scale)) = players.get_mut(player_entity)
-        else {
+        let Ok((player, mut state, mut plan)) = players.get_mut(player_entity) else {
             continue;
         };
 
@@ -197,10 +276,12 @@ pub fn handle_player_moves(
         state.last_move_at = Some(now);
 
         let config = MoveValidationConfig::new(
-            crate::common::game::movement::HARD_SPEED_LIMIT,
+            player
+                .speed
+                .max(crate::common::game::movement::HARD_SPEED_LIMIT),
             crate::common::game::movement::MAX_FALL_SPEED,
             player.jump_power,
-            gravity.0.y.abs() * gravity_scale.0,
+            player.gravity,
         );
 
         let last = state.last;
@@ -223,8 +304,12 @@ pub fn handle_player_moves(
             if state.violations % VALIDATION_VIOLATION_LOG_THRESHOLD == 0 {
                 warn!(
                     "Client {} move rejected ({} violations): claimed pos {:?} / vel {:?}, applied {:?} / {:?}",
-                    client_id, state.violations, message.position, message.velocity,
-                    validated.position, validated.velocity
+                    client_id,
+                    state.violations,
+                    message.position,
+                    message.velocity,
+                    validated.position,
+                    validated.velocity
                 );
             }
         }
@@ -244,7 +329,9 @@ fn server_rotation_from_move(move_: &ValidatedMove) -> Option<Quat> {
         let horizontal = Vec2::new(move_.velocity.x, move_.velocity.z);
         if horizontal.length() > 0.1 {
             let target_angle = horizontal.y.atan2(horizontal.x);
-            Some(Quat::from_rotation_y(-target_angle + std::f32::consts::FRAC_PI_2))
+            Some(Quat::from_rotation_y(
+                -target_angle + std::f32::consts::FRAC_PI_2,
+            ))
         } else {
             None
         }
@@ -266,6 +353,7 @@ pub fn apply_player_movement(
             &Transform,
             &RigidBody,
             &mut LinearVelocity,
+            &mut AngularVelocity,
             &ComputedMass,
             &Collider,
         ),
@@ -298,26 +386,46 @@ pub fn apply_player_movement(
 
 pub fn sync_players_service_properties(
     mut last_service: Local<crate::studio::tools::PlayersService>,
-    mut query: Query<(&mut Player, &mut Friction, &mut Restitution, &mut GravityScale)>,
+    gravity: Res<Gravity>,
+    mut query: Query<(
+        &mut Player,
+        &mut Friction,
+        &mut Restitution,
+        &mut GravityScale,
+    )>,
 ) {
-    let current_service = if let Ok(shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.read() {
-        shared.clone()
-    } else {
+    let Ok(shared) = crate::studio::tools::SHARED_PLAYERS_SERVICE.read() else {
         return;
     };
 
-    if current_service.speed != last_service.speed
-        || current_service.jump_power != last_service.jump_power
-        || current_service.gravity_scale != last_service.gravity_scale
-        || current_service.friction != last_service.friction
-        || current_service.bounciness != last_service.bounciness
+    if shared.speed != last_service.speed
+        || shared.jump_power != last_service.jump_power
+        || shared.gravity != last_service.gravity
+        || shared.speed_response != last_service.speed_response
+        || shared.friction != last_service.friction
+        || shared.bounciness != last_service.bounciness
     {
+        let current_service = shared.clone();
+        drop(shared);
+        let world_gravity_mag = gravity.0.y.abs();
         for (mut player, mut friction, mut restitution, mut gravity_scale) in &mut query {
             if player.speed != current_service.speed {
                 player.speed = current_service.speed;
             }
             if player.jump_power != current_service.jump_power {
                 player.jump_power = current_service.jump_power;
+            }
+            if player.gravity != current_service.gravity {
+                player.gravity = current_service.gravity;
+            }
+            if player.speed_response != current_service.speed_response {
+                player.speed_response = current_service.speed_response;
+            }
+            if player.friction != current_service.friction {
+                player.friction = current_service.friction;
+            }
+            if player.bounciness != current_service.bounciness {
+                player.bounciness = current_service.bounciness;
             }
             let new_friction = Friction::new(current_service.friction);
             if *friction != new_friction {
@@ -327,7 +435,10 @@ pub fn sync_players_service_properties(
             if *restitution != new_restitution {
                 *restitution = new_restitution;
             }
-            let new_gravity_scale = GravityScale(current_service.gravity_scale);
+            let new_gravity_scale = GravityScale(gravity_scale_for_avian(
+                current_service.gravity,
+                world_gravity_mag,
+            ));
             if *gravity_scale != new_gravity_scale {
                 *gravity_scale = new_gravity_scale;
             }
@@ -341,34 +452,202 @@ pub fn handle_client_disconnect(
     query: Query<&RemoteId, With<ClientOf>>,
     mut player_map: ResMut<ClientPlayerMap>,
     mut pending: ResMut<crate::server::PendingAuths>,
-    players_query: Query<(Entity, &Player)>,
+    mut cooldowns: ResMut<ChatCooldowns>,
+    mut sound_cooldowns: ResMut<PlayerSoundCooldowns>,
     mut commands: Commands,
 ) {
-    let Ok(remote_id) = query.get(trigger.entity) else { return };
+    let Ok(remote_id) = query.get(trigger.entity) else {
+        return;
+    };
     let client_id = remote_id.0.to_bits();
     info!("Client disconnected: {}", client_id);
-    player_map.0.remove(&client_id);
     pending.0.remove(&client_id);
-    for (player_entity, player) in &players_query {
-        if player.client_id == client_id {
+    cooldowns.0.remove(&client_id);
+    sound_cooldowns.0.remove(&client_id);
+    if let Some(player_entity) = player_map.0.remove(&client_id) {
+        if commands.get_entity(player_entity).is_ok() {
             commands.entity(player_entity).despawn();
         }
     }
 }
 
+pub fn handle_chat_messages(
+    mut receivers: Query<(
+        Entity,
+        &RemoteId,
+        &mut MessageReceiver<crate::common::net::messages::ChatSendMessage>,
+    )>,
+    player_map: Res<ClientPlayerMap>,
+    players: Query<&Player>,
+    mut broadcasters: Query<&mut MessageSender<crate::common::net::messages::ChatBroadcastMessage>>,
+    mut cooldowns: ResMut<ChatCooldowns>,
+) {
+    let now = Instant::now();
+    let cooldown = std::time::Duration::from_secs_f64(
+        crate::common::net::messages::CHAT_COOLDOWN_SECS,
+    );
+    for (client_entity, remote_id, mut receiver) in receivers.iter_mut() {
+        let client_id = remote_id.0.to_bits();
+        let Some(&player_entity) = player_map.0.get(&client_id) else {
+            for _ in receiver.receive() {}
+            continue;
+        };
+        let Ok(player) = players.get(player_entity) else {
+            for _ in receiver.receive() {}
+            continue;
+        };
+        let username = player.username.clone();
+        for incoming in receiver.receive() {
+            let Some(text) = crate::common::net::messages::sanitize_chat_text(&incoming.text)
+            else {
+                continue;
+            };
+            if let Some(last) = cooldowns.0.get(&client_id) {
+                if now.duration_since(*last) < cooldown {
+                    continue;
+                }
+            }
+            cooldowns.0.insert(client_id, now);
+            let broadcast = crate::common::net::messages::ChatBroadcastMessage {
+                username: username.clone(),
+                text: text.clone(),
+            };
+            for mut sender in broadcasters.iter_mut() {
+                let _ = sender.send::<crate::common::net::messages::GameChannel>(
+                    broadcast.clone(),
+                );
+            }
+            info!("CHAT {}: {}", username, text);
+            let _ = client_entity;
+        }
+    }
+}
+
+pub fn handle_sound_requests(
+    mut receivers: Query<(
+        Entity,
+        &RemoteId,
+        &mut MessageReceiver<crate::common::net::messages::PlayerSoundRequest>,
+    )>,
+    player_map: Res<ClientPlayerMap>,
+    players: Query<&Transform>,
+    mut broadcasters: Query<(
+        Entity,
+        &mut MessageSender<crate::common::net::messages::PlayerSoundBroadcast>,
+    )>,
+    mut cooldowns: ResMut<PlayerSoundCooldowns>,
+) {
+    let now = Instant::now();
+    let step_cooldown = std::time::Duration::from_secs_f64(
+        crate::common::game::sounds::SERVER_STEP_MIN_INTERVAL_SECS,
+    );
+    let jump_cooldown = std::time::Duration::from_secs_f64(
+        crate::common::game::sounds::SERVER_JUMP_MIN_INTERVAL_SECS,
+    );
+    for (client_entity, remote_id, mut receiver) in receivers.iter_mut() {
+        let client_id = remote_id.0.to_bits();
+        let Some(&player_entity) = player_map.0.get(&client_id) else {
+            for _ in receiver.receive() {}
+            continue;
+        };
+        let Ok(transform) = players.get(player_entity) else {
+            for _ in receiver.receive() {}
+            continue;
+        };
+        let position = transform.translation;
+        if !position.is_finite() {
+            for _ in receiver.receive() {}
+            continue;
+        }
+        for request in receiver.receive() {
+            let (last_step, last_jump) = cooldowns
+                .0
+                .get(&client_id)
+                .copied()
+                .unwrap_or((None, None));
+            let allowed = match request.kind {
+                crate::common::net::messages::PlayerSoundKind::StepStart => last_step
+                    .map_or(true, |last| now.duration_since(last) >= step_cooldown),
+                crate::common::net::messages::PlayerSoundKind::StepStop => true,
+                crate::common::net::messages::PlayerSoundKind::Jump => last_jump
+                    .map_or(true, |last| now.duration_since(last) >= jump_cooldown),
+            };
+            if !allowed {
+                continue;
+            }
+            let entry = cooldowns.0.entry(client_id).or_insert((None, None));
+            match request.kind {
+                crate::common::net::messages::PlayerSoundKind::StepStart => entry.0 = Some(now),
+                crate::common::net::messages::PlayerSoundKind::StepStop => {}
+                crate::common::net::messages::PlayerSoundKind::Jump => entry.1 = Some(now),
+            }
+            let broadcast = crate::common::net::messages::PlayerSoundBroadcast {
+                kind: request.kind,
+                position,
+                source_client_id: client_id,
+            };
+            for (sender_entity, mut sender) in broadcasters.iter_mut() {
+                if sender_entity == client_entity {
+                    continue;
+                }
+                let _ = sender.send::<crate::common::net::messages::GameChannel>(
+                    broadcast,
+                );
+            }
+        }
+    }
+}
+
+pub const NET_SYNC_POSITION_EPSILON_SQ: f32 = 0.000_001;
+pub const NET_SYNC_SCALE_EPSILON_SQ: f32 = 0.000_001;
+pub const NET_SYNC_VELOCITY_EPSILON_SQ: f32 = 0.000_1;
+pub const NET_SYNC_ROTATION_EPSILON: f32 = 0.002;
+
+pub fn network_transform_needs_sync(
+    previous: &NetworkTransform,
+    transform: &Transform,
+    velocity: Vec3,
+) -> bool {
+    if previous
+        .translation
+        .distance_squared(transform.translation)
+        > NET_SYNC_POSITION_EPSILON_SQ
+    {
+        return true;
+    }
+    if previous.rotation.angle_between(transform.rotation) > NET_SYNC_ROTATION_EPSILON {
+        return true;
+    }
+    if previous.scale.distance_squared(transform.scale) > NET_SYNC_SCALE_EPSILON_SQ {
+        return true;
+    }
+    if previous.velocity.distance_squared(velocity) > NET_SYNC_VELOCITY_EPSILON_SQ {
+        return true;
+    }
+    false
+}
+
 pub fn sync_transforms_to_network(
-    mut query: Query<(&Transform, Option<&LinearVelocity>, &mut NetworkTransform), Changed<Transform>>,
+    mut query: Query<
+        (&Transform, Option<&LinearVelocity>, &mut NetworkTransform),
+        Changed<Transform>,
+    >,
 ) {
     for (transform, lin_vel_opt, mut net_transform) in &mut query {
+        let velocity = lin_vel_opt.map_or(Vec3::ZERO, |v| v.0);
+        if !network_transform_needs_sync(&net_transform, transform, velocity) {
+            continue;
+        }
         net_transform.translation = transform.translation;
         net_transform.rotation = transform.rotation;
         net_transform.scale = transform.scale;
-        net_transform.velocity = lin_vel_opt.map_or(Vec3::ZERO, |v| v.0);
+        net_transform.velocity = velocity;
     }
 }
 
 #[cfg(test)]
-mod test_movement_simulation { //END MY LIFE.
+mod test_movement_simulation {
+    //END MY LIFE.
     use super::*;
 
     pub const INPUT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
@@ -405,14 +684,12 @@ mod test_movement_simulation { //END MY LIFE.
             &Position,
             &Rotation,
             &LinearVelocity,
-            &GravityScale,
             &PlayerInputTracker,
             &mut PlayerMovementState,
             &mut crate::common::game::movement::PlayerMovementPlan,
         )>,
         support_velocities: Query<&LinearVelocity>,
         move_and_slide: MoveAndSlide,
-        gravity: Res<Gravity>,
         time: Res<Time>,
     ) {
         use crate::common::game::movement::*;
@@ -421,9 +698,24 @@ mod test_movement_simulation { //END MY LIFE.
         let elapsed = time.elapsed_secs();
         let now = Instant::now();
 
-        for (player_entity, player, collider, position, rotation, lin_vel, gravity_scale, tracker, mut state, mut plan) in &mut players {
+        for (
+            player_entity,
+            player,
+            collider,
+            position,
+            rotation,
+            lin_vel,
+            tracker,
+            mut state,
+            mut plan,
+        ) in &mut players
+        {
             let has_input = now.duration_since(tracker.last_input) <= tracker.input_timeout;
-            let wish_direction = if has_input { state.wish_direction } else { Vec2::ZERO };
+            let wish_direction = if has_input {
+                state.wish_direction
+            } else {
+                Vec2::ZERO
+            };
             let jump_held = has_input && state.jump_held;
 
             let support_velocity = state
@@ -441,8 +733,8 @@ mod test_movement_simulation { //END MY LIFE.
                 jump_held,
                 speed: player.speed,
                 jump_power: player.jump_power,
-                gravity_y: gravity.0.y,
-                gravity_scale: gravity_scale.0,
+                gravity: player.gravity,
+                speed_response: player.speed_response,
                 dt,
                 elapsed,
             };
@@ -502,6 +794,7 @@ mod tests {
             1.0 / 60.0,
         )));
         app.init_resource::<Assets<Mesh>>();
+        app.init_resource::<crate::common::game::assets::MeshAssetCache>();
         app.add_message::<AssetEvent<Mesh>>();
         app.init_resource::<avian3d::collider_tree::ColliderTreeDiagnostics>();
         app.init_resource::<avian3d::collision::CollisionDiagnostics>();
@@ -528,6 +821,7 @@ mod tests {
                     speed: 16.0 * 0.28,
                     jump_power: 50.0 * 0.28,
                     username: "TestPlayer".to_string(),
+                    ..default()
                 },
                 Transform::from_translation(position),
                 RigidBody::Kinematic,
@@ -560,15 +854,34 @@ mod tests {
 
     #[test]
     fn diagnostic_sweep_math() {
-        fn intersect_sweep(aabb_min: bevy::math::Vec3A, aabb_max: bevy::math::Vec3A, sweep: bevy::math::Vec3A, probe_center: bevy::math::Vec3A, probe_half: bevy::math::Vec3A, tmin_sweep: f32) -> f32 {
+        fn intersect_sweep(
+            aabb_min: bevy::math::Vec3A,
+            aabb_max: bevy::math::Vec3A,
+            sweep: bevy::math::Vec3A,
+            probe_center: bevy::math::Vec3A,
+            probe_half: bevy::math::Vec3A,
+            tmin_sweep: f32,
+        ) -> f32 {
             let shift = -probe_center;
             let margin = probe_half + bevy::math::Vec3A::splat(tmin_sweep);
             let msum_min = aabb_min + shift - margin;
             let msum_max = aabb_max + shift + margin;
             let inv = bevy::math::Vec3A::new(
-                if sweep.x.abs() <= f32::EPSILON { 0.0 } else { 1.0 / sweep.x },
-                if sweep.y.abs() <= f32::EPSILON { 0.0 } else { 1.0 / sweep.y },
-                if sweep.z.abs() <= f32::EPSILON { 0.0 } else { 1.0 / sweep.z },
+                if sweep.x.abs() <= f32::EPSILON {
+                    0.0
+                } else {
+                    1.0 / sweep.x
+                },
+                if sweep.y.abs() <= f32::EPSILON {
+                    0.0
+                } else {
+                    1.0 / sweep.y
+                },
+                if sweep.z.abs() <= f32::EPSILON {
+                    0.0
+                } else {
+                    1.0 / sweep.z
+                },
             );
             let t1 = msum_min * inv;
             let t2 = msum_max * inv;
@@ -637,14 +950,15 @@ mod tests {
             ))
             .id();
 
-        for probe_y in [0.69, 0.692, 0.6925, 0.695, 0.699, 0.699985, 0.7, 0.71, 0.75, 0.85] {
+        for probe_y in [
+            0.69, 0.692, 0.6925, 0.695, 0.699, 0.699985, 0.7, 0.71, 0.75, 0.85,
+        ] {
             app.update();
             let target_y = probe_y;
-            app.world_mut().run_system_once(
-                move |spatial: avian3d::prelude::SpatialQuery| {
+            app.world_mut()
+                .run_system_once(move |spatial: avian3d::prelude::SpatialQuery| {
                     let center = Vec3::new(0.0, target_y, -4.0);
-                    let feet =
-                        center.y - crate::common::game::movement::PLAYER_HALF_HEIGHT;
+                    let feet = center.y - crate::common::game::movement::PLAYER_HALF_HEIGHT;
                     let origin = Vec3::new(center.x, feet + 0.1, center.z);
                     let probe = Collider::cuboid(
                         crate::common::game::movement::PLAYER_HALF_WIDTH * 1.8,
@@ -670,8 +984,7 @@ mod tests {
                         origin.y,
                         hit.map(|h| (h.distance, h.normal1))
                     );
-                },
-            );
+                });
         }
     }
 
@@ -717,7 +1030,8 @@ mod tests {
 
         app.add_systems(
             Update,
-            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>, mut frames: Local<u32>| {
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>,
+             mut frames: Local<u32>| {
                 for (mut tracker, mut state) in &mut q {
                     tracker.last_input = std::time::Instant::now();
                     state.wish_direction = Vec2::new(0.0, -1.0);
@@ -740,19 +1054,17 @@ mod tests {
                 .unwrap();
             let plan = app
                 .world_mut()
-                .query::<(&crate::common::game::movement::PlayerMovementPlan, &Position, &Name)>()
+                .query::<(
+                    &crate::common::game::movement::PlayerMovementPlan,
+                    &Position,
+                    &Name,
+                )>()
                 .iter(&app.world())
                 .filter(|(_, _, n)| n.as_str() == "TestPlayer")
                 .next()
                 .map(|(p, pos, _)| (p.velocity.y, p.grounded, pos.0.y))
                 .unwrap();
-            post_log.push((
-                tick as u32,
-                transform.0.y,
-                transform.1.y,
-                plan.0,
-                plan.1,
-            ));
+            post_log.push((tick as u32, transform.0.y, transform.1.y, plan.0, plan.1));
         }
         let phase_log = app.world_mut().resource::<MovementPhaseLog>().0.clone();
         println!(
@@ -761,7 +1073,9 @@ mod tests {
             phase_log.first(),
             phase_log.last()
         );
-        for tick in [50, 51, 52, 53, 54, 55, 56, 57, 178, 179, 180, 181, 182, 183, 184, 185] {
+        for tick in [
+            50, 51, 52, 53, 54, 55, 56, 57, 178, 179, 180, 181, 182, 183, 184, 185,
+        ] {
             let phase = phase_log
                 .iter()
                 .find(|(f, _, _)| *f == tick)
@@ -874,7 +1188,8 @@ mod tests {
 
         app.add_systems(
             Update,
-            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>, mut frames: Local<u32>| {
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>,
+             mut frames: Local<u32>| {
                 for (mut tracker, mut state) in &mut q {
                     tracker.last_input = std::time::Instant::now();
                     if *frames < 35 {
@@ -916,14 +1231,11 @@ mod tests {
         ));
         let player = spawn_player(&mut app, Vec3::new(0.0, 0.98, -3.0));
 
-        app.add_systems(
-            Update,
-            |mut q: Query<&mut PlayerInputTracker>| {
-                for mut tracker in &mut q {
-                    tracker.last_input = std::time::Instant::now();
-                }
-            },
-        );
+        app.add_systems(Update, |mut q: Query<&mut PlayerInputTracker>| {
+            for mut tracker in &mut q {
+                tracker.last_input = std::time::Instant::now();
+            }
+        });
 
         for _ in 0..240 {
             app.update();
@@ -948,6 +1260,154 @@ mod tests {
             (transform.translation.y - 0.98).abs() < 0.1,
             "player y: {}",
             transform.translation.y
+        );
+    }
+
+    #[test]
+    fn walking_off_an_edge_clears_grounded_and_ignores_late_jumps() {
+        let mut app = test_app();
+        register_movement(&mut app);
+        app.world_mut().spawn((
+            Transform::from_xyz(0.0, 0.14, 0.0),
+            RigidBody::Static,
+            Collider::cuboid(4.0, 0.28, 2.0),
+            CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+        ));
+        let player = spawn_player(&mut app, Vec3::new(0.0, 0.98, 0.5));
+
+        app.add_systems(
+            Update,
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>,
+             mut frames: Local<u32>| {
+                for (mut tracker, mut state) in &mut q {
+                    tracker.last_input = std::time::Instant::now();
+                    if *frames < 60 {
+                        state.wish_direction = Vec2::new(0.0, -1.0);
+                        state.jump_held = false;
+                    } else {
+                        state.wish_direction = Vec2::ZERO;
+                        state.jump_held = true;
+                    }
+                }
+                *frames += 1;
+            },
+        );
+
+        let mut grounded_after_edge = false;
+        let mut jump_start_y = 0.0;
+        let mut max_velocity_y_after_jump = f32::NEG_INFINITY;
+        for tick in 0..120 {
+            app.update();
+            let (plan_grounded, plan_vel_y, pos_y) = app
+                .world_mut()
+                .query::<(
+                    &crate::common::game::movement::PlayerMovementPlan,
+                    &Position,
+                    &Name,
+                )>()
+                .iter(&app.world())
+                .filter(|(_, _, n)| n.as_str() == "TestPlayer")
+                .map(|(p, pos, _)| (p.grounded, p.velocity.y, pos.0.y))
+                .next()
+                .unwrap();
+            if tick >= 80 {
+                grounded_after_edge |= plan_grounded;
+            }
+            if tick == 60 {
+                jump_start_y = pos_y;
+            }
+            if tick > 60 {
+                max_velocity_y_after_jump = max_velocity_y_after_jump.max(plan_vel_y);
+                assert!(
+                    pos_y <= jump_start_y + 0.05,
+                    "player gained height mid-air after walking off (tick {tick}: y {pos_y} > start {jump_start_y})"
+                );
+            }
+        }
+
+        let transform = app
+            .world_mut()
+            .query::<&Transform>()
+            .get(app.world(), player)
+            .unwrap();
+        assert!(
+            transform.translation.z < -1.5,
+            "player never walked off the edge, z: {}",
+            transform.translation.z
+        );
+        assert!(
+            transform.translation.y < 0.0,
+            "player never fell, y: {}",
+            transform.translation.y
+        );
+        assert!(
+            !grounded_after_edge,
+            "player stayed grounded after walking off the edge"
+        );
+        assert!(
+            max_velocity_y_after_jump < 0.5,
+            "late jump fired mid-air: velocity.y reached {max_velocity_y_after_jump}"
+        );
+    }
+
+    #[test]
+    fn holding_jump_lands_first_then_repeats() {
+        let mut app = test_app();
+        register_movement(&mut app);
+        spawn_floor(&mut app);
+        let _player = spawn_player(&mut app, Vec3::new(0.0, 8.0, 0.0));
+
+        app.add_systems(
+            Update,
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>| {
+                for (mut tracker, mut state) in &mut q {
+                    tracker.last_input = std::time::Instant::now();
+                    state.wish_direction = Vec2::ZERO;
+                    state.jump_held = true;
+                }
+            },
+        );
+
+        let mut touchdown_tick = None;
+        let mut vel_at_touchdown = 0.0;
+        let mut max_vel_after_beat = f32::NEG_INFINITY;
+        for tick in 0..200 {
+            app.update();
+            let (plan_grounded, plan_vel_y, pos_y) = app
+                .world_mut()
+                .query::<(
+                    &crate::common::game::movement::PlayerMovementPlan,
+                    &Position,
+                    &Name,
+                )>()
+                .iter(&app.world())
+                .filter(|(_, _, n)| n.as_str() == "TestPlayer")
+                .map(|(p, pos, _)| (p.grounded, p.velocity.y, pos.0.y))
+                .next()
+                .unwrap();
+            if plan_grounded && touchdown_tick.is_none() {
+                touchdown_tick = Some(tick);
+                vel_at_touchdown = plan_vel_y;
+                assert!(
+                    (pos_y - 0.7).abs() < 0.15,
+                    "touchdown at unexpected height: {pos_y}"
+                );
+            }
+            if let Some(touchdown) = touchdown_tick {
+                if tick > touchdown + 1 {
+                    max_vel_after_beat = max_vel_after_beat.max(plan_vel_y);
+                }
+            }
+        }
+
+        let touchdown = touchdown_tick.expect("player never landed");
+        assert!(
+            vel_at_touchdown < 2.0,
+            "held jump bounced instantly off the ground at tick {touchdown}: velocity.y was {vel_at_touchdown}"
+        );
+        assert!(
+            max_vel_after_beat > 5.0,
+            "held jump never repeated after landing (touchdown at tick {touchdown})"
         );
     }
 
@@ -1159,14 +1619,11 @@ mod tests {
             .id();
         let player = spawn_player(&mut app, Vec3::new(0.0, 0.98, 0.0));
 
-        app.add_systems(
-            Update,
-            |mut q: Query<&mut PlayerInputTracker>| {
-                for mut tracker in &mut q {
-                    tracker.last_input = std::time::Instant::now();
-                }
-            },
-        );
+        app.add_systems(Update, |mut q: Query<&mut PlayerInputTracker>| {
+            for mut tracker in &mut q {
+                tracker.last_input = std::time::Instant::now();
+            }
+        });
 
         for _ in 0..240 {
             app.update();
@@ -1249,7 +1706,8 @@ mod tests {
 
         app.add_systems(
             Update,
-            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>, mut frames: Local<u32>| {
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>,
+             mut frames: Local<u32>| {
                 for (mut tracker, mut state) in &mut q {
                     tracker.last_input = std::time::Instant::now();
                     if *frames < 60 {
@@ -1330,7 +1788,8 @@ mod tests {
 
         app.add_systems(
             Update,
-            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>, mut frames: Local<u32>| {
+            |mut q: Query<(&mut PlayerInputTracker, &mut PlayerMovementState)>,
+             mut frames: Local<u32>| {
                 for (mut tracker, mut state) in &mut q {
                     tracker.last_input = std::time::Instant::now();
                     if *frames < 30 {
@@ -1398,5 +1857,81 @@ mod tests {
             "player keeps falling into the step, vel.y: {}",
             vel.y
         );
+    }
+
+    fn synced_network_transform(transform: Transform) -> NetworkTransform {
+        NetworkTransform {
+            translation: transform.translation,
+            rotation: transform.rotation,
+            scale: transform.scale,
+            velocity: Vec3::ZERO,
+        }
+    }
+
+    #[test]
+    fn identical_transforms_need_no_sync() {
+        let transform = Transform::from_xyz(1.0, 2.0, 3.0);
+        let previous = synced_network_transform(transform);
+        assert!(!network_transform_needs_sync(
+            &previous,
+            &transform,
+            Vec3::ZERO
+        ));
+    }
+
+    #[test]
+    fn sub_millimeter_jitter_needs_no_sync() {
+        let transform = Transform::from_xyz(1.0, 2.0, 3.0);
+        let mut previous = synced_network_transform(transform);
+        previous.velocity = Vec3::new(0.005, 0.0, 0.0);
+        let jittered = Transform::from_xyz(1.0005, 2.0, 3.0);
+        assert!(!network_transform_needs_sync(
+            &previous,
+            &jittered,
+            Vec3::new(0.008, 0.0, 0.0)
+        ));
+    }
+
+    #[test]
+    fn visible_translation_triggers_sync() {
+        let transform = Transform::from_xyz(1.0, 2.0, 3.0);
+        let previous = synced_network_transform(transform);
+        let moved = Transform::from_xyz(1.01, 2.0, 3.0);
+        assert!(network_transform_needs_sync(&previous, &moved, Vec3::ZERO));
+    }
+
+    #[test]
+    fn visible_rotation_triggers_sync() {
+        let transform = Transform::IDENTITY;
+        let previous = synced_network_transform(transform);
+        let rotated = Transform::from_rotation(Quat::from_rotation_y(0.01));
+        assert!(network_transform_needs_sync(
+            &previous,
+            &rotated,
+            Vec3::ZERO
+        ));
+    }
+
+    #[test]
+    fn velocity_change_triggers_sync() {
+        let transform = Transform::from_xyz(1.0, 2.0, 3.0);
+        let previous = synced_network_transform(transform);
+        assert!(network_transform_needs_sync(
+            &previous,
+            &transform,
+            Vec3::new(1.0, 0.0, 0.0)
+        ));
+    }
+
+    #[test]
+    fn scale_change_triggers_sync() {
+        let transform = Transform::IDENTITY;
+        let previous = synced_network_transform(transform);
+        let scaled = Transform::from_scale(Vec3::splat(1.01));
+        assert!(network_transform_needs_sync(
+            &previous,
+            &scaled,
+            Vec3::ZERO
+        ));
     }
 }

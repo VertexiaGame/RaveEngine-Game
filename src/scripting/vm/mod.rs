@@ -1,15 +1,15 @@
-﻿pub mod server_vm;
 pub mod client_vm;
-pub mod scheduler;
 pub mod compiler;
 pub mod sandbox;
+pub mod scheduler;
+pub mod server_vm;
 
-use std::sync::{Arc, Mutex};
+use self::scheduler::{LuaScheduler, SchedulerRef, ScriptRegistry, ScriptRegistryRef};
+use crate::scripting::runtime::require::ModuleCacheRef;
+use crate::scripting::vm::sandbox::{VM_MEMORY_LIMIT, setup_sandbox};
 use mlua::prelude::*;
 use mlua::{LuaOptions, StdLib};
-use self::scheduler::{LuaScheduler, SchedulerRef, ScriptRegistryRef, ScriptRegistry};
-use crate::scripting::runtime::require::ModuleCacheRef;
-use crate::scripting::vm::sandbox::{setup_sandbox, VM_MEMORY_LIMIT};
+use std::sync::{Arc, Mutex};
 
 pub struct LuaVMs {
     pub lua: Lua,
@@ -37,10 +37,12 @@ pub fn create_vm() -> LuaVMs {
     }));
     lua.set_app_data(ScriptRegistryRef(registry.clone()));
 
-    let module_cache = Arc::new(Mutex::new(crate::scripting::runtime::require::ModuleCache {
-        cached_results: std::collections::HashMap::new(),
-        loading_modules: std::collections::HashSet::new(),
-    }));
+    let module_cache = Arc::new(Mutex::new(
+        crate::scripting::runtime::require::ModuleCache {
+            cached_results: std::collections::HashMap::new(),
+            loading_modules: std::collections::HashSet::new(),
+        },
+    ));
     lua.set_app_data(ModuleCacheRef(module_cache));
 
     crate::scripting::runtime::globals::setup_globals(&lua).unwrap();
@@ -55,7 +57,10 @@ pub fn create_vm() -> LuaVMs {
 }
 
 fn register_game_globals(lua: &Lua) -> mlua::Result<()> {
-    use crate::scripting::services::{asset_service::AssetService, lighting::LightingService, players::PlayersService, run_service::RunService, workspace::WorkspaceService};
+    use crate::scripting::services::{
+        asset_service::AssetService, lighting::LightingService, players::PlayersService,
+        run_service::RunService, workspace::WorkspaceService,
+    };
 
     lua.globals().set("workspace", WorkspaceService)?;
     lua.globals().set("Workspace", WorkspaceService)?;
@@ -72,25 +77,33 @@ fn register_game_globals(lua: &Lua) -> mlua::Result<()> {
     game_table.set("Lighting", LightingService)?;
     game_table.set("AssetService", AssetService)?;
 
-    game_table.set("GetService", lua.create_function(|lua, args: LuaMultiValue| {
-        let name = args
-            .iter()
-            .find_map(|v| match v {
-                LuaValue::String(s) => Some(s.to_string_lossy()),
-                _ => None,
-            })
-            .ok_or_else(|| mlua::Error::RuntimeError("GetService expects a service name".to_string()))?;
-        match name.as_str() {
-            "Workspace" | "workspace" => {
-                lua.create_userdata(WorkspaceService).map(LuaValue::UserData)
+    game_table.set(
+        "GetService",
+        lua.create_function(|lua, args: LuaMultiValue| {
+            let name = args
+                .iter()
+                .find_map(|v| match v {
+                    LuaValue::String(s) => Some(s.to_string_lossy()),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    mlua::Error::RuntimeError("GetService expects a service name".to_string())
+                })?;
+            match name.as_str() {
+                "Workspace" | "workspace" => lua
+                    .create_userdata(WorkspaceService)
+                    .map(LuaValue::UserData),
+                "Players" => lua.create_userdata(PlayersService).map(LuaValue::UserData),
+                "RunService" => lua.create_userdata(RunService).map(LuaValue::UserData),
+                "Lighting" => lua.create_userdata(LightingService).map(LuaValue::UserData),
+                "AssetService" => lua.create_userdata(AssetService).map(LuaValue::UserData),
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Unknown service '{}'",
+                    name
+                ))),
             }
-            "Players" => lua.create_userdata(PlayersService).map(LuaValue::UserData),
-            "RunService" => lua.create_userdata(RunService).map(LuaValue::UserData),
-            "Lighting" => lua.create_userdata(LightingService).map(LuaValue::UserData),
-            "AssetService" => lua.create_userdata(AssetService).map(LuaValue::UserData),
-            _ => Err(mlua::Error::RuntimeError(format!("Unknown service '{}'", name))),
-        }
-    })?)?;
+        })?,
+    )?;
 
     lua.globals().set("game", game_table)?;
     Ok(())
@@ -106,9 +119,27 @@ mod tests {
         let mut world = test_world();
         let vm = test_vm(&mut world);
 
-        for name in ["game", "workspace", "Workspace", "Players", "RunService", "Lighting", "AssetService", "task",
-                     "wait", "spawn", "delay", "require", "print", "warn", "error",
-                     "Vector3", "Color3", "CFrame", "Instance"] {
+        for name in [
+            "game",
+            "workspace",
+            "Workspace",
+            "Players",
+            "RunService",
+            "Lighting",
+            "AssetService",
+            "task",
+            "wait",
+            "spawn",
+            "delay",
+            "require",
+            "print",
+            "warn",
+            "error",
+            "Vector3",
+            "Color3",
+            "CFrame",
+            "Instance",
+        ] {
             assert_ne!(
                 vm.lua.globals().get::<LuaValue>(name).unwrap(),
                 LuaValue::Nil,
@@ -222,5 +253,3 @@ mod tests {
         assert_eq!(accepted, max);
     }
 }
-
-

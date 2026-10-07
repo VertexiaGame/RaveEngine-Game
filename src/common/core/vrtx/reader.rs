@@ -47,16 +47,14 @@ fn read_string_u16(r: &mut impl Read) -> std::io::Result<String> {
     let len = read_u16(r)? as usize;
     let mut bytes = vec![0u8; len];
     r.read_exact(&mut bytes)?;
-    String::from_utf8(bytes)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn read_string_u32(r: &mut impl Read) -> std::io::Result<String> {
     let len = read_u32(r)? as usize;
     let mut bytes = vec![0u8; len];
     r.read_exact(&mut bytes)?;
-    String::from_utf8(bytes)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn read_transform(r: &mut impl Read) -> std::io::Result<Transform> {
@@ -145,20 +143,56 @@ fn read_lighting(r: &mut impl Read) -> std::io::Result<VrtxLighting> {
     })
 }
 
+fn read_players_v12(r: &mut impl Read) -> std::io::Result<VrtxPlayers> {
+    let speed = read_f32(r)?;
+    let jump_power = read_f32(r)?;
+    let gravity = read_f32(r)?;
+    let friction = read_f32(r)?;
+    let bounciness = read_f32(r)?;
+    let speed_response = match read_u8(r)? {
+        1 => crate::common::game::movement::SpeedResponse::Exponential,
+        _ => crate::common::game::movement::SpeedResponse::Linear,
+    };
+    Ok(VrtxPlayers {
+        speed,
+        jump_power,
+        gravity,
+        speed_response,
+        friction,
+        bounciness,
+    })
+}
+
+fn read_players_v11(r: &mut impl Read) -> std::io::Result<VrtxPlayers> {
+    let speed = read_f32(r)?;
+    let jump_power = read_f32(r)?;
+    let gravity_scale = read_f32(r)?;
+    let friction = read_f32(r)?;
+    let bounciness = read_f32(r)?;
+    Ok(VrtxPlayers {
+        speed,
+        jump_power,
+        gravity: gravity_scale * 186.9 * 0.28,
+        speed_response: crate::common::game::movement::SpeedResponse::Linear,
+        friction,
+        bounciness,
+    })
+}
+
 fn read_brick(r: &mut impl Read, version: u32) -> std::io::Result<VrtxBrick> {
     let name = read_string_u16(r)?;
     let transform = read_transform(r)?;
 
-    let shape = match read_u8(r)? {
-        0 => crate::common::game::bricks::components::BrickShape::Block,
-        1 => crate::common::game::bricks::components::BrickShape::Sphere,
-        _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid brick shape enum value",
-            ));
-        }
-    };
+    let shape_byte = read_u8(r)?;
+    let shape =
+        crate::common::game::bricks::components::BrickShape::from_u8(shape_byte).ok_or_else(
+            || {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Invalid brick shape enum value",
+                )
+            },
+        )?;
 
     let color = Color::Srgba(Srgba::new(
         read_f32(r)?,
@@ -169,11 +203,7 @@ fn read_brick(r: &mut impl Read, version: u32) -> std::io::Result<VrtxBrick> {
     let physics_enabled = read_u8(r)? != 0;
     let bounciness = read_f32(r)?;
 
-    let player_can_collide = if version >= 2 {
-        read_u8(r)? != 0
-    } else {
-        true
-    };
+    let player_can_collide = if version >= 2 { read_u8(r)? != 0 } else { true };
 
     let (friction, gravity_scale, mass) = if version >= 3 {
         (read_f32(r)?, read_f32(r)?, read_f32(r)?)
@@ -181,11 +211,7 @@ fn read_brick(r: &mut impl Read, version: u32) -> std::io::Result<VrtxBrick> {
         (0.3, 1.0, 1.0)
     };
 
-    let show_studs = if version >= 6 {
-        read_u8(r)? != 0
-    } else {
-        true
-    };
+    let show_studs = if version >= 6 { read_u8(r)? != 0 } else { true };
 
     Ok(VrtxBrick {
         name,
@@ -216,11 +242,7 @@ fn read_script(r: &mut impl Read, version: u32) -> std::io::Result<VrtxScript> {
         None
     };
 
-    let enabled = if version >= 5 {
-        read_u8(r)? != 0
-    } else {
-        true
-    };
+    let enabled = if version >= 5 { read_u8(r)? != 0 } else { true };
 
     Ok(VrtxScript {
         name,
@@ -264,6 +286,64 @@ fn read_image(r: &mut impl Read) -> std::io::Result<VrtxImage> {
     })
 }
 
+fn read_mesh(r: &mut impl Read) -> std::io::Result<VrtxMesh> {
+    let name = read_string_u16(r)?;
+    let asset_id = read_u32(r)?;
+    let normalize = read_u8(r)? != 0;
+
+    let p_len = read_u16(r)? as usize;
+    let parent_name = if p_len > 0 {
+        let mut p_bytes = vec![0u8; p_len];
+        r.read_exact(&mut p_bytes)?;
+        Some(String::from_utf8(p_bytes).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let transform = read_transform(r)?;
+
+    let physics_enabled = read_u8(r)? != 0;
+    let bounciness = read_f32(r)?;
+    let player_can_collide = read_u8(r)? != 0;
+    let friction = read_f32(r)?;
+    let gravity_scale = read_f32(r)?;
+    let mass = read_f32(r)?;
+
+    Ok(VrtxMesh {
+        name,
+        asset_id,
+        normalize,
+        parent_name,
+        transform,
+        physics_enabled,
+        bounciness,
+        player_can_collide,
+        friction,
+        gravity_scale,
+        mass,
+    })
+}
+
+fn read_texture(r: &mut impl Read) -> std::io::Result<VrtxTexture> {
+    let name = read_string_u16(r)?;
+    let id_string = read_string_u16(r)?;
+
+    let p_len = read_u16(r)? as usize;
+    let parent_name = if p_len > 0 {
+        let mut p_bytes = vec![0u8; p_len];
+        r.read_exact(&mut p_bytes)?;
+        Some(String::from_utf8(p_bytes).unwrap_or_default())
+    } else {
+        None
+    };
+
+    Ok(VrtxTexture {
+        name,
+        id_string,
+        parent_name,
+    })
+}
+
 fn read_v1_header(r: &mut impl Read) -> std::io::Result<(Vec3, VrtxSettings, Transform, u32)> {
     let gravity = read_vec3(r)?;
     let mut settings_bytes = [0u8; 3];
@@ -286,7 +366,8 @@ fn read_v1_header(r: &mut impl Read) -> std::io::Result<(Vec3, VrtxSettings, Tra
 
 pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
     debug!("load_from_file: Attempting to open file: {}", path);
-    let mut file = File::open(path)?;
+    let resolved = crate::common::assets_path::resolve_vrtx_path(path);
+    let mut file = File::open(&resolved).or_else(|_| File::open(path))?;
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
     debug!("load_from_file: Read {} bytes from {}", data.len(), path);
@@ -332,6 +413,7 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
         let mut scripts = Vec::new();
         if version >= 4 {
             let script_count = read_u32(&mut reader)?;
+            scripts.reserve(script_count as usize);
             for _ in 0..script_count {
                 scripts.push(read_script(&mut reader, version)?);
             }
@@ -346,26 +428,58 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
         let mut images = Vec::new();
         if version >= 8 {
             let image_count = read_u32(&mut reader)?;
+            images.reserve(image_count as usize);
             for _ in 0..image_count {
                 images.push(read_image(&mut reader)?);
             }
         }
 
+        let mut meshes = Vec::new();
+        if version >= 9 {
+            let mesh_count = read_u32(&mut reader)?;
+            meshes.reserve(mesh_count as usize);
+            for _ in 0..mesh_count {
+                meshes.push(read_mesh(&mut reader)?);
+            }
+        }
+
+        let mut textures = Vec::new();
+        if version >= 10 {
+            let texture_count = read_u32(&mut reader)?;
+            textures.reserve(texture_count as usize);
+            for _ in 0..texture_count {
+                textures.push(read_texture(&mut reader)?);
+            }
+        }
+
+        let players = if version >= 12 {
+            read_players_v12(&mut reader)?
+        } else if version == 11 {
+            read_players_v11(&mut reader)?
+        } else {
+            VrtxPlayers::default()
+        };
+
         debug!(
-            "load_from_file: Successfully parsed {} bricks, {} scripts and {} images from standard VRTX file",
+            "load_from_file: Successfully parsed {} bricks, {} scripts, {} images, {} meshes and {} textures from standard VRTX file",
             bricks.len(),
             scripts.len(),
-            images.len()
+            images.len(),
+            meshes.len(),
+            textures.len()
         );
         Ok(VrtxFileState {
             version,
             gravity,
             settings,
             lighting,
+            players,
             camera_transform,
             bricks,
             scripts,
             images,
+            meshes,
+            textures,
         })
     } else if data.len() >= 4 && &data[0..4] == b"GCPF" {
         debug!("load_from_file: Detected legacy GCPF (Godot) file format");

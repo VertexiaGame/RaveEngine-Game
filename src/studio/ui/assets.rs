@@ -1,6 +1,6 @@
-use bevy::prelude::*;
-use bevy::image::{ImageType, CompressedImageFormats, ImageSampler};
 use bevy::asset::RenderAssetUsages;
+use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
+use bevy::prelude::*;
 
 #[derive(Resource)]
 pub struct StudioUiAssets {
@@ -21,6 +21,8 @@ pub struct StudioUiAssets {
     pub localscript_icon: Handle<Image>,
     pub modulescript_icon: Handle<Image>,
     pub image_icon: Handle<Image>,
+    pub mesh_icon: Handle<Image>,
+    pub texture_icon: Handle<Image>,
 }
 
 #[derive(Resource, Default)]
@@ -42,12 +44,13 @@ pub struct StudioUiTextureIds {
     pub localscript_tex: Option<bevy_egui::egui::TextureId>,
     pub modulescript_tex: Option<bevy_egui::egui::TextureId>,
     pub image_tex: Option<bevy_egui::egui::TextureId>,
+    pub mesh_tex: Option<bevy_egui::egui::TextureId>,
+    pub texture_tex: Option<bevy_egui::egui::TextureId>,
 }
 
 fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
-    let bytes = std::fs::read(path).unwrap_or_else(|_| {
-        std::fs::read(format!("assets/{}", path)).unwrap_or_default()
-    });
+    let bytes = std::fs::read(crate::common::assets_path::resolve_asset_path(path))
+        .unwrap_or_default();
     if bytes.is_empty() {
         return Handle::default();
     }
@@ -59,7 +62,8 @@ fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
         true,
         ImageSampler::Default,
         RenderAssetUsages::default(),
-    ).ok();
+    )
+    .ok();
 
     if image.is_none() {
         image = Image::from_buffer(
@@ -69,14 +73,15 @@ fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
             true,
             ImageSampler::Default,
             RenderAssetUsages::default(),
-        ).ok();
+        )
+        .ok();
     }
 
     let mut final_image = image.unwrap_or_else(|| Image::default());
 
     let format = final_image.texture_descriptor.format;
-    if format == bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb 
-        || format == bevy::render::render_resource::TextureFormat::Rgba8Unorm 
+    if format == bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb
+        || format == bevy::render::render_resource::TextureFormat::Rgba8Unorm
     {
         if let Some(ref mut data) = final_image.data {
             for chunk in data.chunks_exact_mut(4) {
@@ -99,10 +104,7 @@ fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
     images.add(final_image)
 }
 
-pub fn setup_ui_assets(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-) {
+pub fn setup_ui_assets(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let move_icon = load_icon_image("content/studio/icons/Tools/Move.png", &mut images);
     let rotate_icon = load_icon_image("content/studio/icons/Tools/Rotate.png", &mut images);
     let scale_icon = load_icon_image("content/studio/icons/Tools/Scale.png", &mut images);
@@ -117,12 +119,22 @@ pub fn setup_ui_assets(
     let playc_icon = load_icon_image("content/studio/icons/Tools/playc.png", &mut images);
     let stopp_icon = load_icon_image("content/studio/icons/Tools/stopp.png", &mut images);
     let script_icon = load_icon_image("content/studio/icons/Items/script.png", &mut images);
-    let localscript_icon = load_icon_image("content/studio/icons/Items/localscript.png", &mut images);
-    let mut modulescript_icon = load_icon_image("content/studio/icons/Items/modulescript.png", &mut images);
+    let localscript_icon =
+        load_icon_image("content/studio/icons/Items/localscript.png", &mut images);
+    let mut modulescript_icon =
+        load_icon_image("content/studio/icons/Items/modulescript.png", &mut images);
     if modulescript_icon == Handle::default() {
         modulescript_icon = script_icon.clone();
     }
     let image_icon = load_icon_image("content/studio/icons/Items/image.png", &mut images);
+    let mut mesh_icon = load_icon_image("content/studio/icons/Items/mesh.png", &mut images);
+    if mesh_icon == Handle::default() {
+        mesh_icon = image_icon.clone();
+    }
+    let mut texture_icon = load_icon_image("content/studio/icons/Items/texture.png", &mut images);
+    if texture_icon == Handle::default() {
+        texture_icon = image_icon.clone();
+    }
 
     commands.insert_resource(StudioUiAssets {
         move_icon,
@@ -142,5 +154,7 @@ pub fn setup_ui_assets(
         localscript_icon,
         modulescript_icon,
         image_icon,
+        mesh_icon,
+        texture_icon,
     });
 }

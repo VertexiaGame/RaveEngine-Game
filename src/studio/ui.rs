@@ -1,25 +1,33 @@
 pub mod assets;
 pub mod indicator;
 pub mod panels;
-pub mod visuals;
 pub mod resources;
+pub mod visuals;
 
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
-use crate::studio::tools::ToolState;
-use crate::studio::tools::Selection;
 use crate::common::game::bricks::components::Brick;
+use crate::studio::tools::Selection;
+use crate::studio::tools::ToolState;
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::ExtendedMaterial;
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
 
-pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
-pub use indicator::{CameraSpeedIndicator, updatecameraspeedindicator, FovIndicator, update_camera_fov};
-pub use visuals::configure_visuals;
-pub use resources::{CopiedEntityBuffer, HierarchyDraggedEntity, SettingsWindow, ActiveScriptEditor, FileDialogState, VrtxSaveSettings, StudioSettings};
 pub use crate::common::core::performance::GraphicsSettings;
+pub use assets::{StudioUiAssets, StudioUiTextureIds, setup_ui_assets};
+pub use indicator::{
+    CameraSpeedIndicator, FovIndicator, update_camera_fov, updatecameraspeedindicator,
+};
+pub use resources::{
+    ActiveScriptEditor, CopiedEntityBuffer, FileDialogState, HierarchyDraggedEntity,
+    SettingsWindow, StudioSettings, VrtxSaveSettings,
+};
+pub use visuals::configure_visuals;
 
 pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usize) -> &str {
-    if cache.as_ref().map_or(true, |cached| cached.0 != total_lines) {
+    if cache
+        .as_ref()
+        .map_or(true, |cached| cached.0 != total_lines)
+    {
         let max_digit_width = total_lines.to_string().len();
         let mut text = String::with_capacity(total_lines * (max_digit_width + 1));
         for line in 1..=total_lines {
@@ -34,8 +42,21 @@ pub(crate) fn line_numbers(cache: &mut Option<(usize, String)>, total_lines: usi
 pub struct UiResources<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
-    pub studs_materials: ResMut<'w, Assets<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+    pub materials: ResMut<
+        'w,
+        Assets<
+            ExtendedMaterial<
+                StandardMaterial,
+                crate::common::game::bricks::studs::ShadowOpacityExtension,
+            >,
+        >,
+    >,
+    pub studs_materials: ResMut<
+        'w,
+        Assets<
+            ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>,
+        >,
+    >,
     pub material_cache: ResMut<'w, crate::common::game::bricks::BrickMaterialCache>,
     pub studs_assets: Res<'w, crate::common::game::bricks::studs::StudsAssets>,
     pub count: ResMut<'w, crate::common::game::bricks::data::BrickSpawnerCount>,
@@ -43,12 +64,15 @@ pub struct UiResources<'w, 's> {
     pub history: ResMut<'w, crate::studio::tools::UndoRedoHistory>,
     pub action_writer: MessageWriter<'w, crate::studio::tools::UndoRedoAction>,
     pub physics_state: Res<'w, crate::common::game::physics::PhysicsSimulationState>,
-    pub physics_action_writer: MessageWriter<'w, crate::common::game::physics::PhysicsSimulationAction>,
+    pub physics_action_writer:
+        MessageWriter<'w, crate::common::game::physics::PhysicsSimulationAction>,
     pub gravity: Option<ResMut<'w, avian3d::prelude::Gravity>>,
-    pub brick_colors: Query<'w, 's, &'static mut crate::common::game::bricks::components::BrickColor>,
+    pub brick_colors:
+        Query<'w, 's, &'static mut crate::common::game::bricks::components::BrickColor>,
     pub players_service: Option<ResMut<'w, crate::studio::tools::PlayersService>>,
     pub lighting_config: ResMut<'w, crate::client::sky::LightingConfig>,
     pub workspace_studs: ResMut<'w, crate::common::game::bricks::WorkspaceShowStuds>,
+    pub asset_status: Res<'w, crate::common::game::assets::status::AssetStatusCache>,
     pub explorer_cache: Local<'s, panels::explorer::ExplorerRowCache>,
     pub explorer_expanded: Local<'s, std::collections::HashSet<Entity>>,
 }
@@ -81,6 +105,8 @@ pub struct UiStateResources<'w> {
     pub active_editor: ResMut<'w, ActiveScriptEditor>,
     pub file_dialog_state: ResMut<'w, FileDialogState>,
     pub output_panel: ResMut<'w, panels::output::OutputPanelState>,
+    pub auth_flow: ResMut<'w, crate::studio::auth::StudioAuthFlow>,
+    pub auth_store: ResMut<'w, crate::studio::auth::StudioAuthStore>,
 }
 
 #[derive(SystemParam)]
@@ -108,8 +134,22 @@ pub struct UiQueries<'w, 's> {
             Option<&'static mut crate::common::game::bricks::components::BrickShapeComponent>,
             &'static GlobalTransform,
             Option<&'static Mesh3d>,
-            Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::ShadowOpacityExtension>>>,
-            Option<&'static MeshMaterial3d<ExtendedMaterial<StandardMaterial, crate::common::game::bricks::studs::StudsExtension>>>,
+            Option<
+                &'static MeshMaterial3d<
+                    ExtendedMaterial<
+                        StandardMaterial,
+                        crate::common::game::bricks::studs::ShadowOpacityExtension,
+                    >,
+                >,
+            >,
+            Option<
+                &'static MeshMaterial3d<
+                    ExtendedMaterial<
+                        StandardMaterial,
+                        crate::common::game::bricks::studs::StudsExtension,
+                    >,
+                >,
+            >,
             Option<&'static mut crate::common::game::bricks::components::BrickPhysics>,
         ),
         Without<Camera3d>,
@@ -127,6 +167,8 @@ pub struct UiQueries<'w, 's> {
             Option<&'static crate::scripting::ecs::LocalScript>,
             Option<&'static crate::scripting::ecs::ModuleScript>,
             Option<&'static crate::common::game::assets::components::Image>,
+            Option<&'static crate::common::game::assets::components::Texture>,
+            Option<&'static crate::common::game::assets::components::Mesh>,
         ),
         Without<Camera3d>,
     >,
@@ -151,24 +193,38 @@ pub struct UiQueries<'w, 's> {
         ),
     >,
     pub studs_query: Query<'w, 's, &'static crate::common::game::bricks::components::BrickStuds>,
-    pub explorer_changes: Query<'w, 's, (), Or<(
-        Added<Name>,
-        Changed<Name>,
-        Added<ChildOf>,
-        Changed<ChildOf>,
-        Added<Children>,
-        Changed<Children>,
-        Added<Brick>,
-        Added<crate::scripting::ecs::ServerScript>,
-        Added<crate::scripting::ecs::LocalScript>,
-        Added<crate::scripting::ecs::ModuleScript>,
-        Added<crate::common::game::assets::components::Image>,
-    )>>,
+    pub mesh_asset_query: Query<'w, 's, &'static crate::common::game::assets::components::Mesh>,
+    pub texture_asset_query:
+        Query<'w, 's, &'static crate::common::game::assets::components::Texture>,
+    pub explorer_changes: Query<
+        'w,
+        's,
+        (),
+        Or<(
+            Added<Name>,
+            Changed<Name>,
+            Added<ChildOf>,
+            Changed<ChildOf>,
+            Added<Children>,
+            Changed<Children>,
+            Added<Brick>,
+            Added<crate::scripting::ecs::ServerScript>,
+            Added<crate::scripting::ecs::LocalScript>,
+            Added<crate::scripting::ecs::ModuleScript>,
+            Added<crate::common::game::assets::components::Image>,
+            Added<crate::common::game::assets::components::Texture>,
+            Added<crate::common::game::assets::components::Mesh>,
+        )>,
+    >,
     pub removed_children: RemovedComponents<'w, 's, Children>,
     pub removed_child_of: RemovedComponents<'w, 's, ChildOf>,
     pub removed_brick: RemovedComponents<'w, 's, Brick>,
     pub removed_images: RemovedComponents<'w, 's, crate::common::game::assets::components::Image>,
-    pub playtest_client_query: Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
+    pub removed_textures:
+        RemovedComponents<'w, 's, crate::common::game::assets::components::Texture>,
+    pub removed_meshes: RemovedComponents<'w, 's, crate::common::game::assets::components::Mesh>,
+    pub playtest_client_query:
+        Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
     pub playtest_cameras: Query<'w, 's, Entity, With<crate::client::player::PlayerCamera>>,
     pub playtest_visuals: Query<'w, 's, Entity, With<crate::client::PlayerVisualChild>>,
@@ -181,14 +237,19 @@ pub fn studio_ui(
     mut ui_state: UiStateResources<'_>,
     mut queries: UiQueries<'_, '_>,
 ) {
-    let Some(assets) = &ui_state.ui_assets else { return; };
+    let Some(assets) = &ui_state.ui_assets else {
+        return;
+    };
 
     let thumb_empty_tex = *ui_state.texture_ids.thumb_empty_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.thumb_empty.clone()))
     });
-    let thumb_baseplate_tex = *ui_state.texture_ids.thumb_baseplate_tex.get_or_insert_with(|| {
-        contexts.add_image(EguiTextureHandle::Strong(assets.thumb_baseplate.clone()))
-    });
+    let thumb_baseplate_tex = *ui_state
+        .texture_ids
+        .thumb_baseplate_tex
+        .get_or_insert_with(|| {
+            contexts.add_image(EguiTextureHandle::Strong(assets.thumb_baseplate.clone()))
+        });
     let move_tex = *ui_state.texture_ids.move_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.move_icon.clone()))
     });
@@ -228,17 +289,29 @@ pub fn studio_ui(
     let localscript_tex = *ui_state.texture_ids.localscript_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.localscript_icon.clone()))
     });
-    let modulescript_tex = *ui_state.texture_ids.modulescript_tex.get_or_insert_with(|| {
-        contexts.add_image(EguiTextureHandle::Strong(assets.modulescript_icon.clone()))
-    });
+    let modulescript_tex = *ui_state
+        .texture_ids
+        .modulescript_tex
+        .get_or_insert_with(|| {
+            contexts.add_image(EguiTextureHandle::Strong(assets.modulescript_icon.clone()))
+        });
     let image_tex = *ui_state.texture_ids.image_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.image_icon.clone()))
     });
+    let mesh_tex = *ui_state.texture_ids.mesh_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.mesh_icon.clone()))
+    });
+    let texture_tex = *ui_state.texture_ids.texture_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.texture_icon.clone()))
+    });
 
-    let Ok(ctx) = contexts.ctx_mut() else { return; };
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
     ctx.set_visuals(egui::Visuals::light());
 
-    let onboarding_active = *ui_state.onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
+    let onboarding_active =
+        *ui_state.onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
 
     if ui_state.playtest_state.active {
         egui::Area::new(egui::Id::new("stop_playtest_overlay"))
@@ -262,7 +335,7 @@ pub fn studio_ui(
                             if stop_btn.clicked() {
                                 ui_state.playtest_state.active = false;
 
-                                crate::app::server::bootstrap::SHUTDOWN_SERVER.store(true, std::sync::atomic::Ordering::Relaxed);
+                                crate::app::server::bootstrap::request_playtest_server_shutdown();
 
                                 for e in queries.playtest_client_query.iter() {
                                     ui_res.commands.trigger(lightyear::prelude::client::Disconnect { entity: e });
@@ -291,13 +364,13 @@ pub fn studio_ui(
                                 for (entity, _, name, child_of_opt, _, brick_opt, _, _, _, _, _, _) in queries.entities_query.iter() {
                                     if child_of_opt.is_none() && brick_opt.is_none() {
                                         let n = name.as_str();
-                                        if n.contains("Armature") || n == "LocalPlayer" || n.starts_with("Player_") {
+                                        if n == "LocalPlayer" || n.starts_with("Player_") {
                                             ui_res.commands.entity(entity).try_despawn();
                                         }
                                     }
                                 }
 
-                                for (entity, _, _, _, _, s_opt, l_opt, m_opt, _) in queries.explorer_query.iter() {
+                                for (entity, _, _, _, _, s_opt, l_opt, m_opt, _, _, _) in queries.explorer_query.iter() {
                                     if s_opt.is_some() || l_opt.is_some() || m_opt.is_some() {
                                         ui_res.commands.entity(entity).try_despawn();
                                     }
@@ -305,6 +378,16 @@ pub fn studio_ui(
 
                                 for (entity, _, _, _) in queries.image_entities_query.iter() {
                                     ui_res.commands.entity(entity).try_despawn();
+                                }
+
+                                // Replicated mesh entities are not covered by
+                                // the brick/player cleanup above; remove any
+                                // that are still around so they don't leak or
+                                // duplicate the restored ones below.
+                                for (entity, _, _, _, _, _, _, _, _, _, mesh_opt) in queries.explorer_query.iter() {
+                                    if mesh_opt.is_some() {
+                                        ui_res.commands.entity(entity).try_despawn();
+                                    }
                                 }
 
                                 let mut named_entities = std::collections::HashMap::new();
@@ -355,7 +438,7 @@ pub fn studio_ui(
 
                                 for image_data in ui_state.playtest_backup.images.drain(..) {
                                     let face = image_data.face.as_deref().and_then(crate::common::game::assets::components::ImageFace::from_str);
-                                    let mut cmd = ui_res.commands.spawn((
+                                    let cmd = ui_res.commands.spawn((
                                         image_data.transform,
                                         Name::new(image_data.name),
                                         crate::common::game::assets::components::Image {
@@ -371,6 +454,94 @@ pub fn studio_ui(
                                             ui_res.commands.entity(parent_entity).add_child(new_image_entity);
                                         }
                                     }
+                                }
+
+                                // Restore meshes that were backed up when the
+                                // playtest started. Without this every mesh
+                                // would vanish after ending a playtest.
+                                let mut restored_meshes: Vec<(Entity, u32)> = Vec::new();
+                                for mesh_data in ui_state.playtest_backup.meshes.drain(..) {
+                                    let cmd = ui_res.commands.spawn((
+                                        mesh_data.transform,
+                                        Name::new(mesh_data.name.clone()),
+                                        crate::common::game::assets::components::Mesh {
+                                            asset_id: mesh_data.asset_id,
+                                            normalize: mesh_data.normalize,
+                                        },
+                                        crate::common::game::bricks::components::BrickPhysics {
+                                            enabled: mesh_data.physics_enabled,
+                                            bounciness: mesh_data.bounciness,
+                                            player_can_collide: mesh_data.player_can_collide,
+                                            friction: mesh_data.friction,
+                                            gravity_scale: mesh_data.gravity_scale,
+                                            mass: mesh_data.mass,
+                                        },
+                                        avian3d::prelude::CollisionLayers::from_bits(0b0001, 0xFFFF_FFFF),
+                                        Pickable::default(),
+                                        Visibility::Visible,
+                                    ));
+                                    let new_mesh_entity = cmd.id();
+                                    named_entities.insert(mesh_data.name, new_mesh_entity);
+                                    restored_meshes.push((new_mesh_entity, mesh_data.asset_id));
+                                    if let Some(ref p_name) = mesh_data.parent_name {
+                                        if let Some(&parent_entity) = named_entities.get(p_name) {
+                                            ui_res.commands.entity(parent_entity).add_child(new_mesh_entity);
+                                        }
+                                    }
+                                }
+
+                                // Restore texture children of meshes, then give
+                                // any mesh without one a fresh default texture.
+                                let mut textured_meshes = std::collections::HashSet::new();
+                                for texture_data in ui_state.playtest_backup.textures.drain(..) {
+                                    let parsed = crate::common::game::assets::components::Texture::parse_content_id(&texture_data.id_string);
+                                    let cmd = ui_res.commands.spawn((
+                                        Name::new(texture_data.name),
+                                        crate::common::game::assets::components::Texture {
+                                            asset_id: parsed.map(|(id, _)| id).unwrap_or(0),
+                                            is_decal: parsed.map(|(_, decal)| decal).unwrap_or(false),
+                                        },
+                                    ));
+                                    let new_texture_entity = cmd.id();
+                                    if let Some(ref p_name) = texture_data.parent_name {
+                                        if let Some(&parent_entity) = named_entities.get(p_name) {
+                                            ui_res.commands.entity(parent_entity).add_child(new_texture_entity);
+                                            textured_meshes.insert(parent_entity);
+                                        }
+                                    }
+                                }
+                                for (mesh_entity, mesh_asset_id) in restored_meshes {
+                                    if !textured_meshes.contains(&mesh_entity) {
+                                        let texture_entity = ui_res.commands
+                                            .spawn((
+                                                Name::new("Texture"),
+                                                crate::common::game::assets::components::Texture {
+                                                    asset_id: mesh_asset_id,
+                                                    is_decal: false,
+                                                },
+                                            ))
+                                            .id();
+                                        ui_res.commands.entity(mesh_entity).add_child(texture_entity);
+                                    }
+                                }
+
+                                // Make sure the restored edit-mode world carries
+                                // no transient simulation state (the studio
+                                // physics state is only restored next frame).
+                                for (entity, _, _, _, _, _, _, _, _, _, _, _) in queries.entities_query.iter() {
+                                    ui_res.commands.entity(entity).remove::<(
+                                        avian3d::prelude::RigidBody,
+                                        avian3d::prelude::Collider,
+                                        crate::common::game::physics::TransformBackup,
+                                        crate::common::game::physics::PhysicsAttached,
+                                        avian3d::prelude::Friction,
+                                        avian3d::prelude::Restitution,
+                                        avian3d::prelude::GravityScale,
+                                        avian3d::prelude::Mass,
+                                        avian3d::prelude::LinearDamping,
+                                        avian3d::prelude::AngularDamping,
+                                        avian3d::prelude::SleepThreshold,
+                                    )>();
                                 }
 
                                 if let Some(gravity_val) = ui_state.playtest_backup.gravity.take() {
@@ -399,66 +570,69 @@ pub fn studio_ui(
 
     let camera_transform_val = queries.camera_transform_query.iter().next().map(|t| *t);
 
-    let top_bar_res = egui::Panel::top("topbar")
-        .frame(frame)
-        .show(ctx, |ui| {
-            panels::draw_top_bar(
-                ui,
-                &mut ui_state.next_tool,
-                &ui_state.current_tool,
-                &mut ui_res.commands,
-                &mut ui_res.meshes,
-                &mut ui_res.materials,
-                &mut ui_res.studs_materials,
-                &ui_res.studs_assets,
-                &mut ui_res.count,
-                &mut ui_res.snap_config,
-                move_tex,
-                rotate_tex,
-                scale_tex,
-                add_tex,
-                play_tex,
-                playc_tex,
-                stopp_tex,
-                image_tex,
-                brick_tex,
-                script_tex,
-                localscript_tex,
-                modulescript_tex,
-                &ui_state.diagnostics,
-                camera_transform_val.as_ref(),
-                &mut ui_res.action_writer,
-                &mut ui_res.history,
-                *ui_res.physics_state,
-                &mut ui_res.physics_action_writer,
-                &mut ui_state.settings_window,
-                &mut ui_state.graphics_settings,
-                &mut ui_res.lighting_config,
-                &mut ui_res.gravity,
-                &mut queries.camera_transform_query,
-                &mut queries.entities_query,
-                &mut ui_state.onboarding_data,
-                &mut ui_state.play_processes,
-                &mut ui_state.playtest_state,
-                &mut ui_state.playtest_backup,
-                &queries.playtest_client_query,
-                &mut ui_state.selection,
-                &queries.explorer_query,
-                onboarding_active,
-                &mut ui_res.players_service,
-                &ui_state.file_dialog_state,
-                &queries.studs_query,
-                &ui_res.brick_colors,
-                &ui_res.workspace_studs,
-                &queries.image_entities_query,
-                &queries.replicated_images_query,
-            );
-        });
+    let top_bar_res = egui::Panel::top("topbar").frame(frame).show(ctx, |ui| {
+        panels::draw_top_bar(
+            ui,
+            &mut ui_state.next_tool,
+            &ui_state.current_tool,
+            &mut ui_res.commands,
+            &mut ui_res.meshes,
+            &mut ui_res.materials,
+            &mut ui_res.studs_materials,
+            &ui_res.studs_assets,
+            &mut ui_res.count,
+            &mut ui_res.snap_config,
+            move_tex,
+            rotate_tex,
+            scale_tex,
+            add_tex,
+            play_tex,
+            playc_tex,
+            stopp_tex,
+            image_tex,
+            mesh_tex,
+            brick_tex,
+            script_tex,
+            localscript_tex,
+            modulescript_tex,
+            &ui_state.diagnostics,
+            camera_transform_val.as_ref(),
+            &mut ui_res.action_writer,
+            &mut ui_res.history,
+            *ui_res.physics_state,
+            &mut ui_res.physics_action_writer,
+            &mut ui_state.settings_window,
+            &mut ui_state.graphics_settings,
+            &mut ui_res.lighting_config,
+            &mut ui_res.gravity,
+            &mut queries.camera_transform_query,
+            &mut queries.entities_query,
+            &mut ui_state.onboarding_data,
+            &mut ui_state.play_processes,
+            &mut ui_state.playtest_state,
+            &mut ui_state.playtest_backup,
+            &queries.playtest_client_query,
+            &mut ui_state.selection,
+            &queries.explorer_query,
+            onboarding_active,
+            &mut ui_res.players_service,
+            &ui_state.file_dialog_state,
+            &queries.studs_query,
+            &ui_res.brick_colors,
+            &queries.mesh_asset_query,
+            &mut ui_res.workspace_studs,
+            &queries.image_entities_query,
+            &queries.replicated_images_query,
+            &mut ui_state.copiedbuffer,
+            &queries.texture_asset_query,
+        );
+    });
 
     let panel_res = egui::SidePanel::left("explorer")
-        .frame(egui::Frame::none()
-            .fill(egui::Color32::from_rgb(245, 246, 247))
-            .inner_margin(egui::Margin::symmetric(12, 12))
+        .frame(
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(245, 246, 247))
+                .inner_margin(egui::Margin::symmetric(12, 12)),
         )
         .default_width(220.0)
         .show(ctx, |ui| {
@@ -467,24 +641,49 @@ pub fn studio_ui(
 
                 let mut selected_bricks = Vec::new();
                 for &entity in &ui_state.selection.entities {
-                    if let Ok((_, _, _, _, _, Some(_), _, _, _, _, _, _)) = queries.entities_query.get(entity) {
+                    if let Ok((_, _, _, _, _, Some(_), _, _, _, _, _, _)) =
+                        queries.entities_query.get(entity)
+                    {
                         selected_bricks.push(entity);
                     }
                 }
 
                 let mut selected_scripts = Vec::new();
                 for &entity in &ui_state.selection.entities {
-                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, image_opt)) = queries.explorer_query.get(entity) {
+                    if let Ok((
+                        _,
+                        _,
+                        _,
+                        _,
+                        _,
+                        server_opt,
+                        local_opt,
+                        module_opt,
+                        image_opt,
+                        texture_opt,
+                        mesh_opt,
+                    )) = queries.explorer_query.get(entity)
+                    {
                         if server_opt.is_some() || local_opt.is_some() || module_opt.is_some() {
                             selected_scripts.push(entity);
                         }
                         if image_opt.is_some() {
                             selected_scripts.push(entity);
                         }
+                        if texture_opt.is_some() {
+                            selected_scripts.push(entity);
+                        }
+                        if mesh_opt.is_some() {
+                            selected_scripts.push(entity);
+                        }
                     }
                 }
 
-                let has_selection = !selected_bricks.is_empty() || !selected_scripts.is_empty() || ui_state.selection.workspace_selected || ui_state.selection.players_selected || ui_state.selection.lighting_selected;
+                let has_selection = !selected_bricks.is_empty()
+                    || !selected_scripts.is_empty()
+                    || ui_state.selection.workspace_selected
+                    || ui_state.selection.players_selected
+                    || ui_state.selection.lighting_selected;
                 let mut explorer_height = if has_selection {
                     let id = ui.make_persistent_id("explorer_height_split");
                     ui.data_mut(|d| d.get_temp::<f32>(id).unwrap_or(180.0))
@@ -500,7 +699,9 @@ pub fn studio_ui(
                             || !queries.removed_children.is_empty()
                             || !queries.removed_child_of.is_empty()
                             || !queries.removed_brick.is_empty()
-                            || !queries.removed_images.is_empty();
+                            || !queries.removed_images.is_empty()
+                            || !queries.removed_textures.is_empty()
+                            || !queries.removed_meshes.is_empty();
                         panels::draw_explorer(
                             ui,
                             &mut ui_res.commands,
@@ -519,19 +720,24 @@ pub fn studio_ui(
                             localscript_tex,
                             modulescript_tex,
                             image_tex,
+                            mesh_tex,
+                            texture_tex,
                             &queries.studs_query,
                             &ui_res.brick_colors,
+                            &queries.mesh_asset_query,
+                            &queries.texture_asset_query,
                             &mut ui_res.explorer_cache,
                             &mut ui_res.explorer_expanded,
                             explorer_changed,
                         );
-                    });
+                    },
+                );
 
                 if !selected_bricks.is_empty() || !selected_scripts.is_empty() {
                     let sep_height = 20.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), sep_height),
-                        egui::Sense::click_and_drag()
+                        egui::Sense::click_and_drag(),
                     );
 
                     if response.hovered() || response.dragged() {
@@ -549,14 +755,23 @@ pub fn studio_ui(
                     let line_y = rect.center().y;
                     let line_rect = egui::Rect::from_x_y_ranges(
                         rect.left()..=rect.right(),
-                        (line_y - 0.5)..=(line_y + 0.5)
+                        (line_y - 0.5)..=(line_y + 0.5),
                     );
-                    ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+                    ui.painter().rect_filled(
+                        line_rect,
+                        0.0,
+                        egui::Color32::from_rgb(180, 180, 180),
+                    );
 
                     egui::ScrollArea::vertical()
                         .id_source("properties_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
+                            let current_uid = ui_state
+                                .auth_store
+                                .credentials
+                                .clone()
+                                .map(|creds| creds.uid);
                             panels::draw_properties(
                                 ui,
                                 &ui_state.selection.entities,
@@ -568,16 +783,19 @@ pub fn studio_ui(
                                 &mut ui_res.material_cache,
                                 &ui_res.studs_assets,
                                 &queries.explorer_query,
+                                &queries.texture_asset_query,
                                 &mut ui_state.active_editor,
                                 &queries.studs_query,
                                 &ui_res.workspace_studs,
+                                &ui_res.asset_status,
+                                current_uid,
                             );
                         });
                 } else if ui_state.selection.workspace_selected {
                     let sep_height = 20.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), sep_height),
-                        egui::Sense::click_and_drag()
+                        egui::Sense::click_and_drag(),
                     );
 
                     if response.hovered() || response.dragged() {
@@ -595,9 +813,13 @@ pub fn studio_ui(
                     let line_y = rect.center().y;
                     let line_rect = egui::Rect::from_x_y_ranges(
                         rect.left()..=rect.right(),
-                        (line_y - 0.5)..=(line_y + 0.5)
+                        (line_y - 0.5)..=(line_y + 0.5),
                     );
-                    ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+                    ui.painter().rect_filled(
+                        line_rect,
+                        0.0,
+                        egui::Color32::from_rgb(180, 180, 180),
+                    );
 
                     egui::ScrollArea::vertical()
                         .id_source("properties_scroll")
@@ -613,7 +835,7 @@ pub fn studio_ui(
                     let sep_height = 20.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), sep_height),
-                        egui::Sense::click_and_drag()
+                        egui::Sense::click_and_drag(),
                     );
 
                     if response.hovered() || response.dragged() {
@@ -631,24 +853,25 @@ pub fn studio_ui(
                     let line_y = rect.center().y;
                     let line_rect = egui::Rect::from_x_y_ranges(
                         rect.left()..=rect.right(),
-                        (line_y - 0.5)..=(line_y + 0.5)
+                        (line_y - 0.5)..=(line_y + 0.5),
                     );
-                    ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+                    ui.painter().rect_filled(
+                        line_rect,
+                        0.0,
+                        egui::Color32::from_rgb(180, 180, 180),
+                    );
 
                     egui::ScrollArea::vertical()
                         .id_source("properties_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            panels::draw_players_properties(
-                                ui,
-                                &mut ui_res.players_service,
-                            );
+                            panels::draw_players_properties(ui, &mut ui_res.players_service);
                         });
                 } else if ui_state.selection.lighting_selected {
                     let sep_height = 20.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), sep_height),
-                        egui::Sense::click_and_drag()
+                        egui::Sense::click_and_drag(),
                     );
 
                     if response.hovered() || response.dragged() {
@@ -666,18 +889,19 @@ pub fn studio_ui(
                     let line_y = rect.center().y;
                     let line_rect = egui::Rect::from_x_y_ranges(
                         rect.left()..=rect.right(),
-                        (line_y - 0.5)..=(line_y + 0.5)
+                        (line_y - 0.5)..=(line_y + 0.5),
                     );
-                    ui.painter().rect_filled(line_rect, 0.0, egui::Color32::from_rgb(180, 180, 180));
+                    ui.painter().rect_filled(
+                        line_rect,
+                        0.0,
+                        egui::Color32::from_rgb(180, 180, 180),
+                    );
 
                     egui::ScrollArea::vertical()
                         .id_source("properties_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            panels::draw_lighting_properties(
-                                ui,
-                                &mut ui_res.lighting_config,
-                            );
+                            panels::draw_lighting_properties(ui, &mut ui_res.lighting_config);
                         });
                 }
             });
@@ -686,15 +910,16 @@ pub fn studio_ui(
     let output_panel_res = if !onboarding_active {
         Some(
             egui::Panel::bottom("output_panel")
-                .frame(egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(250, 250, 250))
-                    .inner_margin(egui::Margin::symmetric(12, 8))
+                .frame(
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgb(250, 250, 250))
+                        .inner_margin(egui::Margin::symmetric(12, 8)),
                 )
                 .resizable(true)
                 .default_height(220.0)
                 .min_height(100.0)
                 .show(ctx, |ui| {
-                    panels::draw_output(ui, &mut ui_state.output_panel, &queries.explorer_query);
+                    panels::draw_output(ui, &mut ui_state.output_panel);
                 }),
         )
     } else {
@@ -708,6 +933,8 @@ pub fn studio_ui(
             &mut ui_state.graphics_settings,
             &mut ui_state.vrtx_save_settings,
             &mut ui_state.studio_settings,
+            &mut *ui_state.auth_flow,
+            &mut *ui_state.auth_store,
         );
     }
 
@@ -715,14 +942,28 @@ pub fn studio_ui(
     if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
         pointer_over_ui = top_bar_res.response.rect.contains(pos)
             || panel_res.response.rect.contains(pos)
-            || output_panel_res.as_ref().is_some_and(|res| res.response.rect.contains(pos))
+            || output_panel_res
+                .as_ref()
+                .is_some_and(|res| res.response.rect.contains(pos))
             || ctx.is_pointer_over_area();
     }
 
-    indicator::draw_indicator(ctx, &mut ui_state.cameraindicator, &mut queries.cameraquery, pointer_over_ui);
-    indicator::draw_fov_indicator(ctx, &mut ui_state.fovindicator, &mut queries.camera_projection_query, pointer_over_ui);
+    indicator::draw_indicator(
+        ctx,
+        &mut ui_state.cameraindicator,
+        &mut queries.cameraquery,
+        pointer_over_ui,
+    );
+    indicator::draw_fov_indicator(
+        ctx,
+        &mut ui_state.fovindicator,
+        &mut queries.camera_projection_query,
+        pointer_over_ui,
+    );
 
-    if let (Some(entity), Some(pos)) = (ui_state.context_menu.entity, ui_state.context_menu.position) {
+    if let (Some(entity), Some(pos)) =
+        (ui_state.context_menu.entity, ui_state.context_menu.position)
+    {
         let mut open_status = true;
 
         let inner_res = egui::Area::new(egui::Id::new("hahasosigma"))
@@ -741,6 +982,8 @@ pub fn studio_ui(
                         &mut ui_res.history,
                         &queries.studs_query,
                         &ui_res.brick_colors,
+                        &queries.mesh_asset_query,
+                        &queries.texture_asset_query,
                     )
                 })
             });
@@ -776,7 +1019,9 @@ pub fn studio_ui(
             let mut script_found = false;
             let mut current_source = String::new();
 
-            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
+            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+                queries.explorer_query.get(active_entity)
+            {
                 if let Some(ref script) = server_opt {
                     current_source = script.code.clone();
                     script_found = true;
@@ -803,8 +1048,16 @@ pub fn studio_ui(
                 let current_time = ctx.input(|i| i.time);
 
                 let mut state = ctx.data_mut(|d| {
-                    d.get_temp::<(f64, String, Option<String>, bool, Option<(usize, String)>)>(last_change_id)
-                        .unwrap_or((-1.0, current_source.clone(), None, true, None))
+                    d.get_temp::<(f64, String, Option<String>, bool, Option<(usize, String)>)>(
+                        last_change_id,
+                    )
+                    .unwrap_or((
+                        -1.0,
+                        current_source.clone(),
+                        None,
+                        true,
+                        None,
+                    ))
                 });
 
                 if current_source != state.1 {
@@ -871,13 +1124,13 @@ pub fn studio_ui(
                                                         let open_script_name = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, name, _, _, _, _, _, _, _)| name.as_str().to_string())
+                                                            .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                                                             .unwrap_or_else(|_| "Script".to_string());
 
                                                         let (is_local_tab, is_module_tab) = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, _, _, _, _, _, local_opt, module_opt, _)| {
+                                                            .map(|(_, _, _, _, _, _, local_opt, module_opt, _, _, _)| {
                                                                 (local_opt.is_some(), module_opt.is_some())
                                                             })
                                                             .unwrap_or((false, false));
@@ -1089,25 +1342,39 @@ pub fn studio_ui(
                 script_editor_rect = Some(panel_res.response.rect);
 
                 if let Some(entity_to_close) = should_close_tab {
-                    ui_state.active_editor.open_entities.retain(|&e| e != entity_to_close);
+                    ui_state
+                        .active_editor
+                        .open_entities
+                        .retain(|&e| e != entity_to_close);
                     if ui_state.active_editor.entity == Some(entity_to_close) {
-                        ui_state.active_editor.entity = ui_state.active_editor.open_entities.last().copied();
+                        ui_state.active_editor.entity =
+                            ui_state.active_editor.open_entities.last().copied();
                     }
                 }
 
                 let mut source_changed = false;
-                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
+                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+                    queries.explorer_query.get(active_entity)
+                {
                     if let Some(ref script) = server_opt {
-                        if script.code != current_source { source_changed = true; }
+                        if script.code != current_source {
+                            source_changed = true;
+                        }
                     } else if let Some(ref script) = local_opt {
-                        if script.code != current_source { source_changed = true; }
+                        if script.code != current_source {
+                            source_changed = true;
+                        }
                     } else if let Some(ref script) = module_opt {
-                        if script.code != current_source { source_changed = true; }
+                        if script.code != current_source {
+                            source_changed = true;
+                        }
                     }
                 }
 
                 if source_changed {
-                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _)) = queries.explorer_query.get(active_entity) {
+                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+                        queries.explorer_query.get(active_entity)
+                    {
                         if let Ok(mut e_cmd) = ui_res.commands.get_entity(active_entity) {
                             if let Some(server_script) = server_opt {
                                 e_cmd.insert(crate::scripting::ecs::ServerScript {
@@ -1132,8 +1399,12 @@ pub fn studio_ui(
                     }
                 }
             } else {
-                ui_state.active_editor.open_entities.retain(|&e| e != active_entity);
-                ui_state.active_editor.entity = ui_state.active_editor.open_entities.first().copied();
+                ui_state
+                    .active_editor
+                    .open_entities
+                    .retain(|&e| e != active_entity);
+                ui_state.active_editor.entity =
+                    ui_state.active_editor.open_entities.first().copied();
             }
         }
     }
@@ -1177,6 +1448,8 @@ pub fn studio_ui(
             thumb_empty_tex,
             thumb_baseplate_tex,
             &ui_state.file_dialog_state,
+            &mut *ui_state.auth_flow,
+            &mut *ui_state.auth_store,
         );
 
         ui_state.hover_state.is_hovering_ui = true;
@@ -1187,7 +1460,10 @@ pub fn studio_ui(
             .interactable(false)
             .fixed_pos(egui::pos2(0.0, 0.0))
             .show(ctx, |ui| {
-                if let (Some(start), Some(end)) = (ui_state.marquee_state.start_pos, ui_state.marquee_state.current_pos) {
+                if let (Some(start), Some(end)) = (
+                    ui_state.marquee_state.start_pos,
+                    ui_state.marquee_state.current_pos,
+                ) {
                     let rect = egui::Rect::from_two_pos(
                         egui::pos2(start.x, start.y),
                         egui::pos2(end.x, end.y),
@@ -1210,9 +1486,25 @@ pub fn studio_ui(
     if let Some(dragged) = ui_state.dragged_entity.entity {
         if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
             let (drag_name, drag_icon) = match queries.explorer_query.get(dragged) {
-                Ok((_, name, _, _, _brick_opt, s_opt, l_opt, m_opt, image_opt)) => {
+                Ok((
+                    _,
+                    name,
+                    _,
+                    _,
+                    _brick_opt,
+                    s_opt,
+                    l_opt,
+                    m_opt,
+                    image_opt,
+                    texture_opt,
+                    mesh_opt,
+                )) => {
                     let icon = if image_opt.is_some() {
                         image_tex
+                    } else if texture_opt.is_some() {
+                        texture_tex
+                    } else if mesh_opt.is_some() {
+                        mesh_tex
                     } else if s_opt.is_some() {
                         script_tex
                     } else if l_opt.is_some() {
@@ -1233,14 +1525,21 @@ pub fn studio_ui(
                 .show(ctx, |ui| {
                     egui::Frame::none()
                         .fill(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 235))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(153, 209, 255)))
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgb(153, 209, 255),
+                        ))
                         .corner_radius(4.0)
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
                                 ui.add(egui::Image::new((drag_icon, egui::vec2(16.0, 16.0))));
-                                ui.label(egui::RichText::new(&drag_name).size(13.0).color(egui::Color32::from_rgb(40, 40, 40)));
+                                ui.label(
+                                    egui::RichText::new(&drag_name)
+                                        .size(13.0)
+                                        .color(egui::Color32::from_rgb(40, 40, 40)),
+                                );
                             });
                         });
                 });
@@ -1259,7 +1558,10 @@ mod tests {
         let second_ptr = line_numbers(&mut cache, 12).as_ptr();
 
         assert_eq!(first_ptr, second_ptr);
-        assert_eq!(cache.as_ref().unwrap().1, " 1\n 2\n 3\n 4\n 5\n 6\n 7\n 8\n 9\n10\n11\n12\n");
+        assert_eq!(
+            cache.as_ref().unwrap().1,
+            " 1\n 2\n 3\n 4\n 5\n 6\n 7\n 8\n 9\n10\n11\n12\n"
+        );
     }
 
     #[test]

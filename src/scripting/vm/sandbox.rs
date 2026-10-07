@@ -1,6 +1,6 @@
-use std::cell::{Cell, RefCell};
-use mlua::prelude::*;
 use mlua::VmState;
+use mlua::prelude::*;
+use std::cell::{Cell, RefCell};
 
 pub const VM_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
 pub const SCRIPT_INSTRUCTION_BUDGET: u64 = 1_000_000;
@@ -42,7 +42,11 @@ pub fn set_caller_frame(lua: &Lua, source: String, line: Option<u32>) {
 
 pub fn current_caller_frame(lua: &Lua) -> (String, Option<u32>) {
     match lua.app_data_ref::<CallerFrame>() {
-        Some(frame) => frame.0.borrow().clone().unwrap_or_else(|| ("Script".to_string(), None)),
+        Some(frame) => frame
+            .0
+            .borrow()
+            .clone()
+            .unwrap_or_else(|| ("Script".to_string(), None)),
         None => ("Script".to_string(), None),
     }
 }

@@ -1,8 +1,8 @@
 use bevy::prelude::*;
-use lightyear::prelude::*;
 use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use serde::Deserialize;
-use std::net::{IpAddr, SocketAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[derive(Resource)]
 pub struct ClientConnectSettings {
@@ -43,7 +43,10 @@ pub fn poll_launch_details(
         return;
     }
 
-    if let Ok(file_content) = std::fs::read_to_string("launch_info.json") {
+    let launch_path = crate::common::assets_path::resolve_launch_info_path();
+    if let Ok(file_content) = std::fs::read_to_string(&launch_path)
+        .or_else(|_| std::fs::read_to_string("launch_info.json"))
+    {
         if let Ok(info) = serde_json::from_str::<LaunchInfo>(&file_content) {
             if let Ok(parsed_ip) = info.ip.parse::<IpAddr>() {
                 let netcode_key = info
@@ -64,7 +67,10 @@ pub fn poll_launch_details(
                         protocol_id: info.protocol_id,
                     });
                 }
-                info!("CLIENT_CONNECT: Successfully loaded connection details from launch_info.json");
+                info!(
+                    "CLIENT_CONNECT: Successfully loaded connection details from launch_info.json"
+                );
+                let _ = std::fs::remove_file(&launch_path);
                 let _ = std::fs::remove_file("launch_info.json");
             }
         }
@@ -95,7 +101,11 @@ pub fn initialize_client(
     let netcode_key_env = std::env::var("NETCODE_PRIVATE_KEY").ok();
     let private_key = settings
         .netcode_key
-        .or_else(|| netcode_key_env.as_deref().and_then(crate::common::net::netcode::parse_hex_key))
+        .or_else(|| {
+            netcode_key_env
+                .as_deref()
+                .and_then(crate::common::net::netcode::parse_hex_key)
+        })
         .unwrap_or_else(|| crate::common::net::netcode::netcode_private_key(None));
     let protocol_id = settings
         .protocol_id
@@ -117,17 +127,16 @@ pub fn initialize_client(
         Client::default(),
         UdpIo::default(),
         NetcodeClient::new(auth, netcode_config).unwrap(),
-        LocalAddr(SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            0,
-        )),
+        LocalAddr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0)),
         PeerAddr(server_addr),
-        Transport::new(PriorityConfig::default())
-            .with_compression(CompressionConfig::LZ4),
+        Transport::new(PriorityConfig::default()).with_compression(CompressionConfig::LZ4),
     ));
 
     spawned.0 = true;
-    info!("CLIENT_CONNECT: Spawned Client entity with server_addr: {}, client_id: {}", server_addr, client_id);
+    info!(
+        "CLIENT_CONNECT: Spawned Client entity with server_addr: {}, client_id: {}",
+        server_addr, client_id
+    );
 }
 
 pub fn trigger_delayed_connect(
@@ -152,7 +161,10 @@ pub fn trigger_delayed_connect(
     if *frame_count >= 30 {
         for entity in &client_query {
             commands.trigger(Connect { entity });
-            info!("CLIENT_CONNECT: Handshake connection triggered after rendering warmup with ukey: {}", ukey.0);
+            info!(
+                "CLIENT_CONNECT: Handshake connection triggered after rendering warmup with ukey: {}",
+                ukey.0
+            );
         }
         *connected = true;
     }

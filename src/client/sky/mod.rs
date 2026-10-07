@@ -65,10 +65,10 @@ impl Default for LightingConfig {
             moon_illuminance: MOON_ILLUMINANCE,
             ambient_brightness: 1.0,
             fog_density: 1.0,
-            volumetric_clouds: true,
+            volumetric_clouds: !crate::client::sky::clouds::config::clouds_disabled_by_env(),
             cloud_render_scale: 1.0,
-            cloud_raymarch_steps: 12,
-            cloud_shadow_steps: 6,
+            cloud_raymarch_steps: 16,
+            cloud_shadow_steps: 8,
             planet_radius: 6_371_000.0,
             cloud_bottom_height: 1250.0,
             cloud_top_height: 2400.0,
@@ -187,11 +187,14 @@ impl Plugin for SkyPlugin {
             .init_resource::<LightingConfig>()
             .register_type::<LightingConfig>()
             .add_systems(Startup, setup_sky_environment)
-            .add_systems(Update, (
-                configure_sky_cameras,
-                sync_lighting_system,
-                apply_cloud_quality_settings.before(sync_lighting_system),
-            ));
+            .add_systems(
+                Update,
+                (
+                    configure_sky_cameras,
+                    sync_lighting_system,
+                    apply_cloud_quality_settings.before(sync_lighting_system),
+                ),
+            );
     }
 }
 
@@ -235,7 +238,14 @@ fn setup_sky_environment(mut commands: Commands) {
 
 fn configure_sky_cameras(
     mut commands: Commands,
-    cameras: Query<(Entity, &Camera), (With<Camera3d>, Without<SkyCameraConfigured>, Without<RenderLayers>)>,
+    cameras: Query<
+        (Entity, &Camera),
+        (
+            With<Camera3d>,
+            Without<SkyCameraConfigured>,
+            Without<RenderLayers>,
+        ),
+    >,
     mut projections: Query<&mut Projection>,
 ) {
     for (entity, camera) in &cameras {
@@ -251,14 +261,14 @@ fn configure_sky_cameras(
         }
         commands.entity(entity).insert((
             SkyCameraConfigured,
-            Tonemapping::AgX,
+            Tonemapping::TonyMcMapface,
             DistanceFog {
                 color: Color::srgb(0.55, 0.72, 0.90),
                 directional_light_color: Color::srgb(1.0, 0.96, 0.88),
                 directional_light_exponent: 15.0,
                 falloff: FogFalloff::Atmospheric {
                     extinction: Vec3::splat(FOG_EXTINCTION),
-                    inscattering: Vec3::new(0.55, 0.72, 0.90) * FOG_EXTINCTION,
+                    inscattering: srgb_to_linear_vec(0.55, 0.72, 0.90) * FOG_EXTINCTION,
                 },
             },
         ));
@@ -292,10 +302,16 @@ pub(crate) fn sync_lighting_system(
     mut ambient_light: ResMut<GlobalAmbientLight>,
     clouds_config: Option<ResMut<CloudsConfig>>,
     mut fog_query: Query<&mut DistanceFog>,
+    graphics_settings: Option<Res<crate::common::core::performance::GraphicsSettings>>,
 ) {
     if !config.is_changed() {
         return;
     }
+    let global_shadows_enabled = graphics_settings
+        .map(|settings| {
+            settings.shadow_quality != crate::common::core::performance::ShadowQuality::Off
+        })
+        .unwrap_or(true);
 
     let sun_direction = solar_direction(&config);
     let moon_direction = -sun_direction;
@@ -314,7 +330,9 @@ pub(crate) fn sync_lighting_system(
         }
         sun_light.illuminance = (day_weight + sunset_weight * 0.35) * config.sun_illuminance;
         sun_light.color = sun_light_color(solar_elevation);
-        let sun_shadows_enabled = day_weight + sunset_weight > 0.02 && sun_has_dominance;
+        let sun_shadows_enabled = global_shadows_enabled
+            && (day_weight + sunset_weight > 0.02)
+            && sun_has_dominance;
         if sun_light.shadow_maps_enabled != sun_shadows_enabled {
             sun_light.shadow_maps_enabled = sun_shadows_enabled;
         }
@@ -328,16 +346,23 @@ pub(crate) fn sync_lighting_system(
         }
         moon_light.illuminance = night_weight * config.moon_illuminance;
         moon_light.color = Color::srgb(0.55, 0.72, 1.0);
-        let moon_shadows_enabled = night_weight > 0.02 && !sun_has_dominance;
+        let moon_shadows_enabled =
+            global_shadows_enabled && (night_weight > 0.02) && !sun_has_dominance;
         if moon_light.shadow_maps_enabled != moon_shadows_enabled {
             moon_light.shadow_maps_enabled = moon_shadows_enabled;
         }
     }
 
-    let day_ambient_vec = Vec3::new(0.55, 0.72, 0.92);
-    let sunset_ambient_vec = Vec3::new(0.82, 0.48, 0.38);
-    let night_ambient_vec = config.night_ambient.to_linear().to_vec3().max(Vec3::new(0.12, 0.22, 0.48));
-    let current_ambient = day_weight * day_ambient_vec + sunset_weight * sunset_ambient_vec + night_weight * night_ambient_vec;
+    let day_ambient_vec = srgb_to_linear_vec(0.55, 0.72, 0.92);
+    let sunset_ambient_vec = srgb_to_linear_vec(0.82, 0.48, 0.38);
+    let night_ambient_vec = config
+        .night_ambient
+        .to_linear()
+        .to_vec3()
+        .max(srgb_to_linear_vec(0.12, 0.22, 0.48));
+    let current_ambient = day_weight * day_ambient_vec
+        + sunset_weight * sunset_ambient_vec
+        + night_weight * night_ambient_vec;
 
     ambient_light.color = Color::from(LinearRgba::new(
         current_ambient.x,
@@ -345,13 +370,20 @@ pub(crate) fn sync_lighting_system(
         current_ambient.z,
         1.0,
     ));
-    ambient_light.brightness = (day_weight * 900.0 + sunset_weight * 600.0 + night_weight * 200.0) * config.ambient_brightness;
+    ambient_light.brightness = (day_weight * 900.0 + sunset_weight * 600.0 + night_weight * 200.0)
+        * config.ambient_brightness;
 
-    let day_fog_vec = Vec3::new(0.55, 0.72, 0.90);
-    let sunset_fog_vec = Vec3::new(0.82, 0.50, 0.40);
-    let night_fog_vec = Vec3::new(0.03, 0.06, 0.15);
-    let fog_color_vec = day_weight * day_fog_vec + sunset_weight * sunset_fog_vec + night_weight * night_fog_vec;
-    let fog_color = Color::from(LinearRgba::new(fog_color_vec.x, fog_color_vec.y, fog_color_vec.z, 1.0));
+    let day_fog_vec = srgb_to_linear_vec(0.55, 0.72, 0.90);
+    let sunset_fog_vec = srgb_to_linear_vec(0.82, 0.50, 0.40);
+    let night_fog_vec = srgb_to_linear_vec(0.03, 0.06, 0.15);
+    let fog_color_vec =
+        day_weight * day_fog_vec + sunset_weight * sunset_fog_vec + night_weight * night_fog_vec;
+    let fog_color = Color::from(LinearRgba::new(
+        fog_color_vec.x,
+        fog_color_vec.y,
+        fog_color_vec.z,
+        1.0,
+    ));
     let sun_inscatter_color = sun_light_color(solar_elevation);
 
     for mut fog in &mut fog_query {
@@ -369,17 +401,23 @@ pub(crate) fn sync_lighting_system(
         let day_sun_col = Vec4::new(1.0, 0.96, 0.88, 1.0) * 0.85;
         let sunset_sun_col = Vec4::new(1.0, 0.52, 0.18, 1.0) * 0.90;
         let night_sun_col = Vec4::new(0.35, 0.52, 0.85, 1.0) * 0.25;
-        clouds_config.sun_color = day_weight * day_sun_col + sunset_weight * sunset_sun_col + night_weight * night_sun_col;
+        clouds_config.sun_color = day_weight * day_sun_col
+            + sunset_weight * sunset_sun_col
+            + night_weight * night_sun_col;
 
         let day_ambient_top = Vec4::new(149.0, 167.0, 200.0, 0.0) * (1.5 / 225.0);
         let sunset_ambient_top = Vec4::new(160.0, 110.0, 140.0, 0.0) * (1.2 / 225.0);
         let night_ambient_top = Vec4::new(15.0, 28.0, 60.0, 0.0) * (0.8 / 225.0);
-        clouds_config.clouds_ambient_color_top = day_weight * day_ambient_top + sunset_weight * sunset_ambient_top + night_weight * night_ambient_top;
+        clouds_config.clouds_ambient_color_top = day_weight * day_ambient_top
+            + sunset_weight * sunset_ambient_top
+            + night_weight * night_ambient_top;
 
         let day_ambient_bottom = Vec4::new(39.0, 67.0, 87.0, 0.0) * (1.5 / 225.0);
         let sunset_ambient_bottom = Vec4::new(60.0, 35.0, 45.0, 0.0) * (1.2 / 225.0);
         let night_ambient_bottom = Vec4::new(5.0, 10.0, 22.0, 0.0) * (0.8 / 225.0);
-        clouds_config.clouds_ambient_color_bottom = day_weight * day_ambient_bottom + sunset_weight * sunset_ambient_bottom + night_weight * night_ambient_bottom;
+        clouds_config.clouds_ambient_color_bottom = day_weight * day_ambient_bottom
+            + sunset_weight * sunset_ambient_bottom
+            + night_weight * night_ambient_bottom;
 
         clouds_config.enabled = config.volumetric_clouds;
         clouds_config.render_scale = config.cloud_render_scale;
@@ -443,7 +481,11 @@ fn solar_direction(config: &LightingConfig) -> Vec3 {
 
 fn sun_light_color(altitude: f32) -> Color {
     let day_factor = smoothstep(0.02, 0.35, altitude);
-    mix_color(Color::srgb(1.0, 0.48, 0.12), Color::srgb(1.0, 0.96, 0.88), day_factor)
+    mix_color(
+        Color::srgb(1.0, 0.48, 0.12),
+        Color::srgb(1.0, 0.96, 0.88),
+        day_factor,
+    )
 }
 
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -451,8 +493,8 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-fn mix_val(a: f32, b: f32, t: f32) -> f32 {
-    a * (1.0 - t) + b * t
+fn srgb_to_linear_vec(r: f32, g: f32, b: f32) -> Vec3 {
+    Color::srgb(r, g, b).to_linear().to_vec3()
 }
 
 fn mix_color(a: Color, b: Color, t: f32) -> Color {
@@ -515,5 +557,67 @@ mod tests {
         assert_eq!(smoothstep(0.0, 1.0, -1.0), 0.0);
         assert_eq!(smoothstep(0.0, 1.0, 2.0), 1.0);
         assert_eq!(smoothstep(0.0, 1.0, 0.5), 0.5);
+    }
+
+    #[test]
+    fn srgb_to_linear_vec_matches_color_conversion() {
+        let converted = srgb_to_linear_vec(0.55, 0.72, 0.92);
+        let expected = Color::srgb(0.55, 0.72, 0.92).to_linear().to_vec3();
+        assert!((converted - expected).length() < 1.0e-6);
+        let raw = Vec3::new(0.55, 0.72, 0.92);
+        assert!((converted - raw).length() > 0.1);
+    }
+
+    #[test]
+    fn sky_cameras_use_saturation_preserving_tonemapping() {
+        let mut app = App::new();
+        app.add_systems(Update, configure_sky_cameras);
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                Camera::default(),
+                Projection::Perspective(PerspectiveProjection::default()),
+            ))
+            .id();
+        app.update();
+        let tonemapping = app.world().get::<Tonemapping>(camera);
+        assert_eq!(tonemapping, Some(&Tonemapping::TonyMcMapface));
+    }
+
+    #[test]
+    fn midday_ambient_and_fog_use_linear_day_colors() {
+        let mut app = App::new();
+        app.insert_resource(LightingConfig::default());
+        app.insert_resource(GlobalAmbientLight::NONE);
+        app.world_mut().spawn((
+            DirectionalLight::default(),
+            Transform::IDENTITY,
+            SunLightEntity,
+        ));
+        app.world_mut().spawn((
+            DirectionalLight::default(),
+            Transform::IDENTITY,
+            MoonLightEntity,
+        ));
+        let fogged = app.world_mut().spawn(DistanceFog::default()).id();
+        app.add_systems(Update, sync_lighting_system);
+        app.update();
+        let ambient = app.world().resource::<GlobalAmbientLight>();
+        let expected_ambient = srgb_to_linear_vec(0.55, 0.72, 0.92);
+        assert!((ambient.color.to_linear().to_vec3() - expected_ambient).length() < 1.0e-4);
+        let fog = app.world().get::<DistanceFog>(fogged).unwrap();
+        let expected_fog = srgb_to_linear_vec(0.55, 0.72, 0.90);
+        assert!((fog.color.to_linear().to_vec3() - expected_fog).length() < 1.0e-4);
+        match fog.falloff {
+            FogFalloff::Atmospheric {
+                extinction,
+                inscattering,
+            } => {
+                assert!((extinction - Vec3::splat(FOG_EXTINCTION)).length() < 1.0e-9);
+                assert!((inscattering - expected_fog * FOG_EXTINCTION).length() < 1.0e-9);
+            }
+            _ => panic!("expected atmospheric fog falloff"),
+        }
     }
 }

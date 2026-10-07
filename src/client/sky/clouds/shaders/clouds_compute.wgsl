@@ -4,6 +4,7 @@ const MAX_DISTANCE = 1.0e9;
 const WORLEY_RESOLUTION = 32;
 const WORLEY_RESOLUTION_F32 = 32.0;
 const IMAGE_SIZE_F32 = 1440.0;
+const IMAGE_SIZE_U = 1440u;
 const ATLAS_REFERENCE_RESOLUTION = 810.0;
 
 struct Config {
@@ -39,6 +40,8 @@ struct Config {
     inverse_camera_projection: mat4x4f,
     wind_displacement: vec3f,
     atlas_seed: f32,
+    init_base_y: u32,
+    init_rows: u32,
 };
 
 @group(0) @binding(0) var<uniform> config: Config;
@@ -60,28 +63,57 @@ struct RaymarchResult {
     color: vec4f,
 }
 
+fn sample_atlas_bilinear(uv_pixels: vec2f) -> vec3f {
+    let base = floor(uv_pixels);
+    let f = fract(uv_pixels);
+    let x0 = u32(base.x) % IMAGE_SIZE_U;
+    let y0 = u32(base.y) % IMAGE_SIZE_U;
+    let x1 = (x0 + 1u) % IMAGE_SIZE_U;
+    let y1 = (y0 + 1u) % IMAGE_SIZE_U;
+    let s00 = textureLoad(clouds_atlas_texture, vec2u(x0, y0)).rgb;
+    let s10 = textureLoad(clouds_atlas_texture, vec2u(x1, y0)).rgb;
+    let s01 = textureLoad(clouds_atlas_texture, vec2u(x0, y1)).rgb;
+    let s11 = textureLoad(clouds_atlas_texture, vec2u(x1, y1)).rgb;
+    return mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+}
+
+fn sample_worley_trilinear(p_in: vec3f) -> f32 {
+    let q = p_in - WORLEY_RESOLUTION_F32 * floor(p_in / WORLEY_RESOLUTION_F32);
+    let base = floor(q);
+    let f = fract(q);
+    let x0 = u32(base.x) % u32(WORLEY_RESOLUTION);
+    let y0 = u32(base.y) % u32(WORLEY_RESOLUTION);
+    let z0 = u32(base.z) % u32(WORLEY_RESOLUTION);
+    let x1 = (x0 + 1u) % u32(WORLEY_RESOLUTION);
+    let y1 = (y0 + 1u) % u32(WORLEY_RESOLUTION);
+    let z1 = (z0 + 1u) % u32(WORLEY_RESOLUTION);
+    let c000 = textureLoad(clouds_worley_texture, vec3u(x0, y0, z0)).r;
+    let c100 = textureLoad(clouds_worley_texture, vec3u(x1, y0, z0)).r;
+    let c010 = textureLoad(clouds_worley_texture, vec3u(x0, y1, z0)).r;
+    let c110 = textureLoad(clouds_worley_texture, vec3u(x1, y1, z0)).r;
+    let c001 = textureLoad(clouds_worley_texture, vec3u(x0, y0, z1)).r;
+    let c101 = textureLoad(clouds_worley_texture, vec3u(x1, y0, z1)).r;
+    let c011 = textureLoad(clouds_worley_texture, vec3u(x0, y1, z1)).r;
+    let c111 = textureLoad(clouds_worley_texture, vec3u(x1, y1, z1)).r;
+    return mix(
+        mix(mix(c000, c100, f.x), mix(c010, c110, f.x), f.y),
+        mix(mix(c001, c101, f.x), mix(c011, c111, f.x), f.y),
+        f.z
+    );
+}
+
 fn cloud_map_base(p: vec3f, normalized_height: f32) -> f32 {
     let uv = p * (0.00005 * config.clouds_base_scale) * ATLAS_REFERENCE_RESOLUTION;
     let sample = common::mod_tile(vec3f(uv.x, uv.z, 0.0), IMAGE_SIZE_F32).xy;
-    let cloud = textureLoad(
-        clouds_atlas_texture,
-        vec2u(u32(sample.x), u32(sample.y))
-    ).rgb;
+    let cloud = sample_atlas_bilinear(sample);
 
-    var n = normalized_height * normalized_height * cloud.b + pow(1.0 - normalized_height, 16.0);
+    var n = normalized_height * normalized_height * cloud.b + pow(max(1.0 - normalized_height, 0.0), 16.0);
     return clamp(common::remap(cloud.r - n, 0.15, 0.75), 0.0, 1.0);
 }
 
 fn cloud_map_detail(position: vec3f) -> f32 {
-    let p = abs(position) * (0.0016 * config.clouds_base_scale * config.clouds_detail_scale);
-
-    var p1 = p % 32.0;
-    let a = textureLoad(clouds_worley_texture, vec3u(u32(p1.x), u32(p1.y), u32(p1.z))).r;
-
-    let p2 = (p + 1.0) % 32.0;
-    let b = textureLoad(clouds_worley_texture, vec3u(u32(p2.x), u32(p2.y), u32(p2.z))).r;
-
-    return mix(a, b, fract(p.y));
+    let p = position * (0.0016 * config.clouds_base_scale * config.clouds_detail_scale);
+    return sample_worley_trilinear(p);
 }
 
 fn cloud_gradient(normalized_height: f32) -> f32 {
@@ -150,7 +182,8 @@ fn intersect_planet_sphere(ray_dir: vec3f, sample_radius: f32) -> f32 {
 
 fn henyey_greenstein(ray_dot_sun: f32, g: f32) -> f32 {
     let g_squared = g * g;
-    return (1.0 - g_squared) / pow(1.0 + g_squared - 2.0 * g * ray_dot_sun, 1.5);
+    let denom_base = max(1.0 + g_squared - 2.0 * g * ray_dot_sun, 0.0001);
+    return (1.0 - g_squared) / pow(denom_base, 1.5);
 }
 
 fn get_ray(ray_origin: vec3f, ray_dir: vec3f, max_dist: f32) -> Ray {
@@ -171,7 +204,7 @@ fn get_ray(ray_origin: vec3f, ray_dir: vec3f, max_dist: f32) -> Ray {
     let step_distance = (end - start) / f32(config.clouds_raymarch_steps_count);
     let horizon_jitter_fade = smoothstep(0.0, 0.12, ray_dir.y);
     let hashed_offset = common::hash13(ray_dir * 128.0);
-    var dir_length = start - step_distance * hashed_offset * horizon_jitter_fade;
+    var dir_length = start - step_distance * (0.25 + hashed_offset * 0.5) * horizon_jitter_fade;
 
     return Ray(step_distance, dir_length, start);
 }
@@ -240,7 +273,8 @@ fn procedural_stars(dir: vec3f) -> f32 {
     n = n ^ (n >> 16u);
     let h = f32(n) * (1.0 / 4294967295.0);
     if (h > 0.996) {
-        return pow((h - 0.996) / 0.004, 3.0);
+        let t = (h - 0.996) / 0.004;
+        return t * t * t;
     }
     return 0.0;
 }
@@ -278,18 +312,20 @@ fn get_sky_color(ray_dir: vec3f) -> vec3f {
 
     let mu_sun = clamp(dot(ray_dir, config.sun_dir.xyz), 0.0, 1.0);
     let sun_glow_factor = smoothstep(-0.10, 0.05, sun_elevation);
+    let mu_sun_safe = max(mu_sun, 0.0);
     let sun_glow = config.sun_color.rgb * (
-        0.35 * pow(mu_sun, 8.0) +
-        0.65 * pow(mu_sun, 64.0) +
-        1.50 * pow(mu_sun, 512.0)
+        0.35 * pow(mu_sun_safe, 8.0) +
+        0.65 * pow(mu_sun_safe, 64.0) +
+        1.50 * pow(mu_sun_safe, 512.0)
     );
     sky_col += sun_glow * sun_glow_factor;
 
     let moon_dir = -config.sun_dir.xyz;
     let mu_moon = clamp(dot(ray_dir, moon_dir), 0.0, 1.0);
+    let mu_moon_safe = max(mu_moon, 0.0);
     let moon_glow = vec3f(0.40, 0.60, 0.90) * (
-        0.20 * pow(mu_moon, 12.0) +
-        0.80 * pow(mu_moon, 256.0)
+        0.20 * pow(mu_moon_safe, 12.0) +
+        0.80 * pow(mu_moon_safe, 256.0)
     );
     sky_col += moon_glow * w_night;
 
@@ -404,7 +440,11 @@ fn get_ray_direction(frag_coord: vec2f) -> vec3f {
 
 @compute @workgroup_size(8, 8, 1)
 fn init(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
-    let index = vec2f(f32(invocation_id.x), f32(invocation_id.y)) + vec2f(0.5);
+    if (invocation_id.y >= config.init_rows) {
+        return;
+    }
+    let base_y = config.init_base_y + invocation_id.y;
+    let index = vec2f(f32(invocation_id.x), f32(base_y)) + vec2f(0.5);
     let inverted_y_coord = IMAGE_SIZE_F32 - index.y;
 
     let worley_coord = vec2f(index.x, inverted_y_coord);
@@ -418,12 +458,12 @@ fn init(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
 
     storageBarrier();
 
-    textureStore(clouds_atlas_texture, invocation_id.xy, atlas_col);
+    textureStore(clouds_atlas_texture, vec2u(invocation_id.x, base_y), atlas_col);
     textureStore(clouds_worley_texture, vec3u(u32(xyz.x), u32(xyz.y), u32(xyz.z)), worley_col);
 }
 
 @compute @workgroup_size(8, 8, 1)
-fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>, @builtin(num_workgroups) num_workgroups: vec3<u32>) {
+fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     if (f32(invocation_id.x) >= config.render_resolution.x || f32(invocation_id.y) >= config.render_resolution.y) {
         return;
     }

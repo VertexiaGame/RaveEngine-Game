@@ -1,14 +1,13 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{EguiContexts, egui};
 
-pub fn configure_client_visuals(
-    mut contexts: EguiContexts,
-    mut initialized: Local<bool>,
-) {
+pub fn configure_client_visuals(mut contexts: EguiContexts, mut initialized: Local<bool>) {
     if *initialized {
         return;
     }
-    let Ok(ctx) = contexts.ctx_mut() else { return; };
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
 
     let mut visuals = egui::Visuals::dark();
     visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgba_unmultiplied(61, 61, 61, 102);
@@ -18,20 +17,32 @@ pub fn configure_client_visuals(
     visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
     ctx.set_visuals(visuals);
 
-    let bold_font_bytes = std::fs::read("assets/content/game/fonts/Ubuntu-Bold.ttf")
-        .or_else(|_| std::fs::read("content/game/fonts/Ubuntu-bold.ttf"))
-        .or_else(|_| std::fs::read("assets/content/game/fonts/Ubuntu-Bold.ttf"))
-        .or_else(|_| std::fs::read("assets/content/game/fonts/Ubuntu-bold.ttf"))
+    let bold_font_bytes =
+        std::fs::read(crate::common::assets_path::resolve_asset_path(
+            "content/game/fonts/Ubuntu-Bold.ttf",
+        ))
+        .or_else(|_| {
+            std::fs::read(crate::common::assets_path::resolve_asset_path(
+                "content/game/fonts/Ubuntu-bold.ttf",
+            ))
+        })
         .unwrap_or_default();
 
-    let medium_font_bytes = std::fs::read("assets/content/game/fonts/Ubuntu-Medium.ttf")
-        .or_else(|_| std::fs::read("content/game/fonts/Ubuntu-medium.ttf"))
-        .or_else(|_| std::fs::read("assets/content/game/fonts/Ubuntu-Medium.ttf"))
-        .or_else(|_| std::fs::read("assets/content/game/fonts/Ubuntu-medium.ttf"))
+    let medium_font_bytes =
+        std::fs::read(crate::common::assets_path::resolve_asset_path(
+            "content/game/fonts/Ubuntu-Medium.ttf",
+        ))
+        .or_else(|_| {
+            std::fs::read(crate::common::assets_path::resolve_asset_path(
+                "content/game/fonts/Ubuntu-medium.ttf",
+            ))
+        })
         .unwrap_or_default();
 
-    let regular_font_bytes = std::fs::read("assets/content/game/fonts/Ubuntu.ttf")
-        .or_else(|_| std::fs::read("content/game/fonts/Ubuntu.ttf"))
+    let regular_font_bytes =
+        std::fs::read(crate::common::assets_path::resolve_asset_path(
+            "content/game/fonts/Ubuntu.ttf",
+        ))
         .unwrap_or_default();
 
     let mut fonts = egui::FontDefinitions::default();
@@ -55,9 +66,10 @@ pub fn configure_client_visuals(
             "Ubuntu-Medium".to_owned(),
             std::sync::Arc::new(egui::FontData::from_owned(medium_font_bytes)),
         );
-        fonts
-            .families
-            .insert(egui::FontFamily::Name("Medium".into()), vec!["Ubuntu-Medium".to_owned()]);
+        fonts.families.insert(
+            egui::FontFamily::Name("Medium".into()),
+            vec!["Ubuntu-Medium".to_owned()],
+        );
     }
 
     if !bold_font_bytes.is_empty() {
@@ -65,9 +77,10 @@ pub fn configure_client_visuals(
             "Ubuntu-Bold".to_owned(),
             std::sync::Arc::new(egui::FontData::from_owned(bold_font_bytes)),
         );
-        fonts
-            .families
-            .insert(egui::FontFamily::Name("Bold".into()), vec!["Ubuntu-Bold".to_owned()]);
+        fonts.families.insert(
+            egui::FontFamily::Name("Bold".into()),
+            vec!["Ubuntu-Bold".to_owned()],
+        );
         if !has_font {
             fonts
                 .families

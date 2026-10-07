@@ -1,7 +1,7 @@
+use super::scheduler::{LuaScheduler, ScriptRegistry};
 use bevy::prelude::*;
 use mlua::prelude::*;
 use std::sync::{Arc, Mutex};
-use super::scheduler::{LuaScheduler, ScriptRegistry};
 
 #[derive(Resource)]
 pub struct ClientScriptVM {

@@ -12,7 +12,9 @@ pub struct ServerAppConfig {
 impl ServerAppConfig {
     pub fn from_env_and_args() -> Self {
         let mut port = 5000; //default
-        let mut map_path = "assets/maps/default.vrtx".to_string(); //Defalt
+        let mut map_path = crate::common::assets_path::resolve_vrtx_path("assets/maps/default.vrtx")
+            .to_string_lossy()
+            .into_owned();
         let mut bind_addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let mut netcode_key_cli: Option<String> = None;
         let mut protocol_id_cli: Option<u64> = None;
@@ -50,7 +52,9 @@ impl ServerAppConfig {
             port,
             map_path,
             bind_addr,
-            netcode_key: crate::common::net::netcode::netcode_private_key(netcode_key_cli.as_deref()),
+            netcode_key: crate::common::net::netcode::netcode_private_key(
+                netcode_key_cli.as_deref(),
+            ),
             protocol_id: crate::common::net::netcode::netcode_protocol_id(protocol_id_cli),
             allow_unauthenticated,
         }

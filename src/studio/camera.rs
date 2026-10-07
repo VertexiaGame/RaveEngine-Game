@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::camera_controller::free_camera::FreeCamera;
+use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::pbr::{ScreenSpaceAmbientOcclusion, ContactShadows};
+use bevy::pbr::{ContactShadows, ScreenSpaceAmbientOcclusion};
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct GizmoCamera;
@@ -14,6 +14,8 @@ pub fn setup_studio(
 ) {
     egui_global_settings.auto_create_primary_context = false;
 
+    let editor_msaa = graphics_settings.msaa.to_msaa();
+
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera::default(),
@@ -22,7 +24,7 @@ pub fn setup_studio(
             fov: 80.0f32.to_radians(),
             ..default()
         }),
-        Msaa::Sample4,
+        editor_msaa,
         Transform::from_xyz(-10.0, 10.0, -10.0).looking_at(Vec3::ZERO, Vec3::Y),
         MeshPickingCamera,
         FreeCamera::default(),
@@ -46,15 +48,13 @@ pub fn setup_studio(
             ..default()
         },
         Tonemapping::None,
-        Msaa::Sample4,
+        editor_msaa,
         bevy::camera::visibility::RenderLayers::layer(1),
         bevy_egui::PrimaryEguiContext,
         GizmoCamera,
     ));
 
-    commands.spawn((
-        Name::new("Workspace"),
-    ));
+    commands.spawn((Name::new("Workspace"),));
 
     commands.spawn((
         Name::new("Players"),
@@ -96,20 +96,34 @@ pub fn disable_camera_on_ui_interaction(
     keys: Res<ButtonInput<KeyCode>>,
     mut last_cursor_position: Local<Option<Vec2>>,
 ) {
-    let onboarding_active = *onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
+    let onboarding_active =
+        *onboarding_state.get() != crate::studio::tools::OnboardingState::Inactive;
     let playtesting_active = playtest.map_or(false, |p| p.active);
 
     let right_mouse_held = mouse_buttons.pressed(MouseButton::Right);
     let movement_keys_held = keys.any_pressed([
-        KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD,
-        KeyCode::KeyQ, KeyCode::KeyE, KeyCode::ArrowUp, KeyCode::ArrowDown,
-        KeyCode::ArrowLeft, KeyCode::ArrowRight
+        KeyCode::KeyW,
+        KeyCode::KeyA,
+        KeyCode::KeyS,
+        KeyCode::KeyD,
+        KeyCode::KeyQ,
+        KeyCode::KeyE,
+        KeyCode::ArrowUp,
+        KeyCode::ArrowDown,
+        KeyCode::ArrowLeft,
+        KeyCode::ArrowRight,
     ]);
     let camera_moving = right_mouse_held || movement_keys_held;
 
     let ctrl_held = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let shortcut_keys_held = keys.any_pressed([
-        KeyCode::KeyW, KeyCode::KeyE, KeyCode::KeyR, KeyCode::KeyQ, KeyCode::KeyF,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Numpad1,
+        KeyCode::Numpad2,
+        KeyCode::Numpad3,
+        KeyCode::KeyF,
     ]);
     let shortcuts_active = ctrl_held || shortcut_keys_held;
 
@@ -136,11 +150,16 @@ pub fn disable_camera_on_ui_interaction(
     ]);
 
     if let Ok(ctx) = contexts.ctx_mut() {
-        let wants_input = ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input() || hover_state.is_hovering_ui || onboarding_active || playtesting_active;
+        let wants_input = ctx.egui_wants_pointer_input()
+            || ctx.egui_wants_keyboard_input()
+            || hover_state.is_hovering_ui
+            || onboarding_active
+            || playtesting_active;
         for mut state in &mut camera_query {
             state.enabled = !wants_input && (right_mouse_held || !shortcuts_active);
         }
-        picking_settings.is_enabled = !wants_input && !camera_moving && (cursor_moved || mouse_pressed);
+        picking_settings.is_enabled =
+            !wants_input && !camera_moving && (cursor_moved || mouse_pressed);
     }
 }
 
@@ -170,7 +189,13 @@ pub fn sync_gizmo_camera(
 
 pub fn toggle_editor_camera_active(
     playtest: Option<Res<crate::client::PlaytestState>>,
-    mut camera_query: Query<&mut Camera, (With<bevy::camera_controller::free_camera::FreeCamera>, Without<crate::client::player::PlayerCamera>)>,
+    mut camera_query: Query<
+        &mut Camera,
+        (
+            With<bevy::camera_controller::free_camera::FreeCamera>,
+            Without<crate::client::player::PlayerCamera>,
+        ),
+    >,
 ) {
     let playtesting_active = playtest.map_or(false, |p| p.active);
     for mut camera in &mut camera_query {
@@ -187,7 +212,7 @@ pub fn disable_cameras_on_minimization(
         return;
     };
     let is_minimized = window.width() <= 0.0 || window.height() <= 0.0;
-    
+
     if is_minimized {
         for (entity, mut camera) in &mut camera_query {
             if camera.is_active {

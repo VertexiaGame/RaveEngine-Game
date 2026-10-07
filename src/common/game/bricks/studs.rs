@@ -1,12 +1,12 @@
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParamItem;
 use bevy::pbr::MaterialExtension;
-use bevy::shader::ShaderRef;
+use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, AsBindGroupError, BindGroupLayout, BindGroupLayoutEntry, BindingResources,
     UnpreparedBindGroup,
 };
 use bevy::render::renderer::RenderDevice;
+use bevy::shader::ShaderRef;
 
 #[derive(Resource)]
 pub struct StudsAssets {
@@ -36,8 +36,7 @@ pub struct StudsExtension {
     pub inlet_height_texture: Handle<Image>,
 }
 
-impl MapSamplers for StudsExtension {
-}
+impl MapSamplers for StudsExtension {}
 
 impl MaterialExtension for StudsExtension {
     fn fragment_shader() -> ShaderRef {
@@ -88,16 +87,19 @@ impl MaterialExtension for ShadowOpacityExtension {
     }
 }
 
-pub fn setup_studs(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn setup_studs(mut commands: Commands, asset_server: Res<AssetServer>) {
     let stud = asset_server.load("content/game/studs/stud_normal.png");
     let stud_ambient = asset_server.load("content/game/studs/stud_ambient.png");
     let stud_height = asset_server.load("content/game/studs/stud_heightmap.png");
     let inlet_ambient = asset_server.load("content/game/studs/inlet_ambient2.png");
     let inlet_height = asset_server.load("content/game/studs/inlet_height.png");
-    commands.insert_resource(StudsAssets { stud, stud_ambient, stud_height, inlet_ambient, inlet_height });
+    commands.insert_resource(StudsAssets {
+        stud,
+        stud_ambient,
+        stud_height,
+        inlet_ambient,
+        inlet_height,
+    });
 }
 
 pub fn configure_studs_samplers(
@@ -124,6 +126,7 @@ fn configure_studs_image(handle: &Handle<Image>, images: &mut Assets<Image>) -> 
     let Some(mut image) = images.get_mut(handle) else {
         return false;
     };
+    image.texture_descriptor.format = image.texture_descriptor.format.remove_srgb_suffix();
     image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
         address_mode_u: bevy::image::ImageAddressMode::Repeat,
         address_mode_v: bevy::image::ImageAddressMode::Repeat,
@@ -155,7 +158,8 @@ fn generate_mipmaps(image: &mut Image) {
     while width > 1 || height > 1 {
         let next_width = (width / 2).max(1);
         let next_height = (height / 2).max(1);
-        let mut next_data = vec![0u8; (next_width * next_height) as usize * bytes_per_pixel as usize];
+        let mut next_data =
+            vec![0u8; (next_width * next_height) as usize * bytes_per_pixel as usize];
         for y in 0..next_height {
             for x in 0..next_width {
                 for byte in 0..bytes_per_pixel as usize {
@@ -165,11 +169,14 @@ fn generate_mipmaps(image: &mut Image) {
                         for dx in 0..2u32 {
                             let sample_x = (x * 2 + dx).min(width - 1);
                             let sample_y = (y * 2 + dy).min(height - 1);
-                            sum += data[((sample_y * width + sample_x) as usize) * bytes_per_pixel as usize + byte] as u32;
+                            sum += data[((sample_y * width + sample_x) as usize)
+                                * bytes_per_pixel as usize
+                                + byte] as u32;
                             count += 1;
                         }
                     }
-                    next_data[((y * next_width + x) as usize) * bytes_per_pixel as usize + byte] = (sum / count) as u8;
+                    next_data[((y * next_width + x) as usize) * bytes_per_pixel as usize + byte] =
+                        (sum / count) as u8;
                 }
             }
         }

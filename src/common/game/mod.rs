@@ -1,7 +1,8 @@
+pub mod assets;
 pub mod bricks;
 pub mod movement;
 pub mod physics;
-pub mod assets;
+pub mod sounds;
 
 use bevy::prelude::*;
 
@@ -10,7 +11,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bricks::BricksPlugin)
-           .add_plugins(physics::PhysicsSimulationPlugin)
-           .add_plugins(assets::AssetsPlugin);
+            .add_plugins(physics::PhysicsSimulationPlugin)
+            .add_plugins(assets::AssetsPlugin);
     }
 }
