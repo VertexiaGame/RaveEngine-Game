@@ -2,6 +2,7 @@ pub mod auth;
 pub mod camera;
 pub mod gizmos;
 pub mod picking;
+pub mod sound_icons;
 pub mod tools;
 pub mod ui;
 
@@ -50,6 +51,8 @@ impl Plugin for StudioPlugin {
             .init_resource::<tools::SnapConfig>()
             .init_resource::<tools::UndoRedoHistory>()
             .init_resource::<tools::PlayersService>()
+            .init_resource::<sound_icons::SpatialSoundIconCache>()
+            .init_resource::<sound_icons::StudioShowAudio>()
             .init_resource::<ui::panels::onboarding::OnboardingData>()
             .add_message::<tools::UndoRedoAction>()
             .insert_resource(bevy::picking::mesh_picking::MeshPickingSettings {
@@ -87,6 +90,10 @@ impl Plugin for StudioPlugin {
                     tools::handle_delete_keys,
                     tools::handle_undo_redo_action,
                     tools::handle_marquee_selection,
+                    sound_icons::ensure_spatial_sound_icons,
+                    sound_icons::update_spatial_sound_billboards,
+                    sound_icons::update_spatial_sound_visibility,
+                    sound_icons::draw_spatial_sound_ranges,
                 )
                     .run_if(in_state(tools::OnboardingState::Inactive)),
             )

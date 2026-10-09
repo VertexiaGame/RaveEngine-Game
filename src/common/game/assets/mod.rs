@@ -90,6 +90,7 @@ impl Plugin for AssetsPlugin {
             .init_resource::<fetch::AssetFetchPool>()
             .init_resource::<status::AssetStatusCache>()
             .init_resource::<status::PendingStatusFetches>()
+            .init_resource::<status::StatusRequestDebounce>()
             .init_resource::<status::AssetStatusPool>();
 
         if !app.is_plugin_added::<bevy::render::RenderPlugin>() {

@@ -95,6 +95,7 @@ fn asset_status_notice(
     asset_id: u32,
     asset_status: &crate::common::game::assets::status::AssetStatusCache,
     current_uid: Option<i32>,
+    kind: &str,
 ) -> Option<(String, egui::Color32, f32)> {
     if asset_id == 0 {
         return None;
@@ -126,7 +127,7 @@ fn asset_status_notice(
             12.0,
         )),
         Some(crate::common::game::assets::status::AssetStatus::NotFound) => Some((
-            "The asset was not found.".to_string(),
+            format!("{kind} not found."),
             egui::Color32::from_rgb(180, 60, 60),
             12.0,
         )),
@@ -139,8 +140,10 @@ fn draw_asset_status_row(
     asset_id: u32,
     asset_status: &crate::common::game::assets::status::AssetStatusCache,
     current_uid: Option<i32>,
+    kind: &str,
 ) {
-    if let Some((text, color, size)) = asset_status_notice(asset_id, asset_status, current_uid) {
+    if let Some((text, color, size)) = asset_status_notice(asset_id, asset_status, current_uid, kind)
+    {
         ui.label("");
         ui.label(egui::RichText::new(text).color(color).size(size));
         ui.end_row();
@@ -515,6 +518,8 @@ pub fn draw_properties(
                             }
                             ui.end_row();
 
+                            draw_asset_status_row(ui, current_id, asset_status, current_uid, "Image");
+
                             ui.label(egui::RichText::new("Face").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             if is_parented {
                                 let face_res = ui.add_enabled_ui(is_logged_in, |ui| {
@@ -760,7 +765,14 @@ pub fn draw_properties(
                         ui.end_row();
 
                         if let Ok(texture) = texture_assets.get(entity) {
-                            draw_asset_status_row(ui, texture.asset_id, asset_status, current_uid);
+                            let kind = if texture.is_decal { "Image" } else { "Mesh" };
+                            draw_asset_status_row(
+                                ui,
+                                texture.asset_id,
+                                asset_status,
+                                current_uid,
+                                kind,
+                            );
                         }
 
                         ui.label(
@@ -864,8 +876,6 @@ pub fn draw_properties(
                                         if let Some(mesh) = mesh_opt {
                                             let old_id = mesh.asset_id;
                                             if parsed != old_id {
-                                                // Untouched default textures follow
-                                                // the mesh's new id.
                                                 if let Some(children) = children_opt {
                                                     for child in children.iter() {
                                                         if let Ok(texture) = texture_assets.get(child) {
@@ -912,7 +922,7 @@ pub fn draw_properties(
                             }
                             ui.end_row();
 
-                            draw_asset_status_row(ui, current_id, asset_status, current_uid);
+                            draw_asset_status_row(ui, current_id, asset_status, current_uid, "Mesh");
 
                             ui.label(egui::RichText::new("Normalize").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             let normalize_response = ui.checkbox(&mut current_normalize, "").on_hover_text(
@@ -920,9 +930,6 @@ pub fn draw_properties(
                             );
                             if normalize_response.changed() {
                                 if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
-                                    // Reset to the default scale so the mesh's
-                                    // natural transform is applied again with
-                                    // the new normalize mode.
                                     transform.scale = Vec3::ONE;
                                 }
                                 if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt, _)) = explorer_query.get(entity) {
@@ -1202,7 +1209,7 @@ pub fn draw_properties(
                             }
                             ui.end_row();
 
-                            draw_asset_status_row(ui, current_id, asset_status, current_uid);
+                            draw_asset_status_row(ui, current_id, asset_status, current_uid, "Audio");
 
                             ui.label(egui::RichText::new("Volume").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             let mut volume_edit = current_volume;

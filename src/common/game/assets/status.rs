@@ -6,6 +6,8 @@ use bevy::prelude::*;
 const STATUS_WORKERS: usize = 2;
 const STATUS_QUEUE_CAP: usize = 128;
 
+pub const STATUS_DEBOUNCE_SECS: f32 = 0.8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetStatus {
     Approved,
@@ -146,12 +148,32 @@ fn current_user_ukey(
         .filter(|ukey| !ukey.is_empty())
 }
 
+#[derive(Resource, Default)]
+pub struct StatusRequestDebounce {
+    pub first_seen: HashMap<u32, std::time::Instant>,
+}
+
+fn due_status_ids(
+    first_seen: &HashMap<u32, std::time::Instant>,
+    now: std::time::Instant,
+) -> Vec<u32> {
+    first_seen
+        .iter()
+        .filter(|(_, seen)| {
+            now.duration_since(**seen).as_secs_f32() >= STATUS_DEBOUNCE_SECS
+        })
+        .map(|(id, _)| *id)
+        .collect()
+}
+
 pub fn request_missing_statuses(
     meshes: Query<&crate::common::game::assets::components::Mesh>,
     textures: Query<&crate::common::game::assets::components::Texture>,
     sounds: Query<&crate::common::game::assets::components::Sound>,
+    images: Query<&crate::common::game::assets::components::Image>,
     cache: Res<AssetStatusCache>,
     mut pending: ResMut<PendingStatusFetches>,
+    mut debounce: ResMut<StatusRequestDebounce>,
     mut pool: ResMut<AssetStatusPool>,
     auth_store: Option<Res<crate::studio::auth::StudioAuthStore>>,
     client_ukey: Option<Res<crate::client::ClientUkey>>,
@@ -182,13 +204,33 @@ pub fn request_missing_statuses(
             missing.insert(sound.asset_id);
         }
     }
+    for image in &images {
+        if image.asset_id != 0
+            && !cache.statuses.contains_key(&image.asset_id)
+            && !pending.0.contains(&image.asset_id)
+        {
+            missing.insert(image.asset_id);
+        }
+    }
+    debounce
+        .first_seen
+        .retain(|id, _| missing.contains(id));
+    let now = std::time::Instant::now();
+    for id in &missing {
+        debounce.first_seen.entry(*id).or_insert(now);
+    }
     if missing.is_empty() {
         return;
     }
+    let due = due_status_ids(&debounce.first_seen, now);
+    if due.is_empty() {
+        return;
+    }
     pool.ensure_started();
-    for asset_id in missing {
+    for asset_id in due {
         if pool.submit(asset_id, user_ukey.clone()) {
             pending.0.insert(asset_id);
+            debounce.first_seen.remove(&asset_id);
         }
     }
 }
@@ -229,6 +271,20 @@ mod tests {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         assert_eq!(state, "pending");
+    }
+
+    #[test]
+    fn debounce_holds_fresh_ids_and_releases_stale_ids() {
+        let now = std::time::Instant::now();
+        let mut seen = HashMap::new();
+        seen.insert(1u32, now);
+        seen.insert(
+            2u32,
+            now - std::time::Duration::from_secs_f32(STATUS_DEBOUNCE_SECS + 0.2),
+        );
+        let mut due = due_status_ids(&seen, now);
+        due.sort();
+        assert_eq!(due, vec![2u32]);
     }
 
     #[test]

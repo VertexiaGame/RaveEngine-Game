@@ -18,3 +18,9 @@ Clone our repo, run `cargo build` (`cargo build` builds as debug, which is faste
 
 You can now launch the executable!
 
+## AI assistance disclosure
+
+If I were to rate this on a scale of 1-5 where "1" is the least vibecoded and "5" is the most vibecoded, I'd say 2/2.5. I mostly used it for tests and debugging, as well as some visual things I couldn't figure. This sped up development considerably, and helped me find numerous amount of bottlenecks and bugs in my code. 
+
+Though, our stance on AI is clear: all forms of AI are not allowed in our platform: one thing is using it as a tool to help and speed up development, the other is to steal a writer's job, or an artist, or a photographer.
+

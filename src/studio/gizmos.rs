@@ -85,6 +85,7 @@ pub(crate) fn update_gizmos(
     gizmos: Query<Entity, With<ToolGizmo>>,
     image_children: Query<Option<&ChildOf>, With<crate::common::game::assets::components::Image>>,
     bricks: Query<(), With<Brick>>,
+    sounds: Query<&crate::common::game::assets::components::Sound>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut gizmo_assets: Local<Option<GizmoAssets>>,
@@ -127,6 +128,15 @@ pub(crate) fn update_gizmos(
 
     if let Ok(Some(child_of)) = image_children.get(selected_entity) {
         if bricks.get(child_of.parent()).is_ok() {
+            return;
+        }
+    }
+
+    if let Ok(sound) = sounds.get(selected_entity) {
+        if !sound.spatial {
+            return;
+        }
+        if tool == ToolState::Rotate {
             return;
         }
     }
@@ -226,6 +236,15 @@ pub fn sync_gizmos(
             Without<crate::common::game::assets::components::Image>,
         ),
     >,
+    sounds: Query<
+        (&GlobalTransform, &crate::common::game::assets::components::Sound),
+        (
+            With<crate::common::game::assets::components::Sound>,
+            Without<Brick>,
+            Without<crate::common::game::assets::components::Image>,
+            Without<crate::common::game::assets::components::Mesh>,
+        ),
+    >,
     camera_query: Query<&GlobalTransform, (With<Camera3d>, Without<ToolGizmo>, Without<Brick>)>,
     selection: Res<Selection>,
     hover_state: Res<HoverState>,
@@ -280,6 +299,38 @@ pub fn sync_gizmos(
                 mesh_global.translation(),
                 image_world_half_extents(mesh_global),
                 mesh_global.rotation(),
+                camera_pos,
+                entity,
+                &hover_state,
+                &drag_state,
+            );
+            continue;
+        }
+        if let Ok((sound_global, sound)) = sounds.get(gizmo.target) {
+            if !sound.spatial {
+                continue;
+            }
+            let icon_half = image_world_half_extents(sound_global)
+                * crate::studio::sound_icons::SOUND_ICON_SCALE;
+            let half = if gizmo.tool == ToolState::Size {
+                let radius = crate::studio::sound_icons::spatial_range_radius(
+                    sound,
+                    sound_global.scale(),
+                );
+                if radius > 0.5 {
+                    Vec3::splat(radius)
+                } else {
+                    icon_half
+                }
+            } else {
+                icon_half
+            };
+            place_gizmo(
+                &mut transform,
+                gizmo,
+                sound_global.translation(),
+                half,
+                sound_global.rotation(),
                 camera_pos,
                 entity,
                 &hover_state,
@@ -468,6 +519,13 @@ pub fn draw_selection_outline(
         ),
         With<Brick>,
     >,
+    sounds: Query<
+        (&GlobalTransform, &crate::common::game::assets::components::Sound),
+        (
+            With<crate::common::game::assets::components::Sound>,
+            Without<Brick>,
+        ),
+    >,
     bounds_query: Query<
         (
             &GlobalTransform,
@@ -475,6 +533,7 @@ pub fn draw_selection_outline(
         ),
         With<Brick>,
     >,
+    show_audio: Res<crate::studio::sound_icons::StudioShowAudio>,
     mut gizmos: Gizmos,
 ) {
     if *physics_state == crate::common::game::physics::PhysicsSimulationState::Running {
@@ -486,6 +545,28 @@ pub fn draw_selection_outline(
     }
     for &selected_entity in &selection.entities {
         draw_outline_recursive(selected_entity, &bricks, &mut gizmos);
+        if let Ok((sound_global, sound)) = sounds.get(selected_entity) {
+            if !sound.spatial {
+                continue;
+            }
+            if !show_audio.enabled {
+                continue;
+            }
+            let (_, rotation, translation) = sound_global.to_scale_rotation_translation();
+            let scale = sound_global.scale()
+                * Vec3::new(
+                    crate::studio::sound_icons::SOUND_ICON_SCALE,
+                    crate::studio::sound_icons::SOUND_ICON_SCALE,
+                    0.1,
+                )
+                .max(Vec3::splat(0.1));
+            let outline_transform = Transform {
+                translation,
+                rotation,
+                scale,
+            };
+            gizmos.cube(outline_transform, Color::srgb(1.0, 1.0, 1.0));
+        }
     }
     if selection.entities.len() > 1 {
         if let Some((min, max)) = selection_bounds(&selection.entities, &bounds_query) {

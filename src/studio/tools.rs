@@ -43,6 +43,7 @@ pub struct DragStartData {
     pub world_half_extents: Vec3,
     pub base_extents: Vec3,
     pub parent_global: Option<Transform>,
+    pub sound_volume: Option<f32>,
 }
 
 #[derive(Resource, Default)]
@@ -278,8 +279,7 @@ pub fn handle_keyboard_shortcuts(
         ),
         Without<Camera3d>,
     >,
-    // Bundled as one composite system param to stay within Bevy's
-    // 16-parameter function-system limit.
+
     data_queries: (
         Query<&crate::common::game::bricks::components::BrickStuds>,
         Query<&mut crate::common::game::bricks::components::BrickColor>,
@@ -748,11 +748,13 @@ fn capture_drag_starts(
             Option<&crate::common::game::bricks::components::BrickShapeComponent>,
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Or<(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     parent_global_query: &Query<&GlobalTransform>,
@@ -763,7 +765,7 @@ fn capture_drag_starts(
     }
     let mut starts = Vec::new();
     for entity in entities {
-        let Ok((local_transform, global_transform, child_of_opt, shape_opt, image_opt, mesh_opt)) =
+        let Ok((local_transform, global_transform, child_of_opt, shape_opt, image_opt, mesh_opt, sound_opt)) =
             bricks.get(entity)
         else {
             continue;
@@ -775,7 +777,9 @@ fn capture_drag_starts(
                 rotation: p.rotation(),
                 scale: p.scale(),
             });
-        let base_extents = if image_opt.is_some() || mesh_opt.is_some() {
+        let base_extents = if sound_opt.is_some() {
+            Vec3::splat(0.5 * crate::studio::sound_icons::SOUND_ICON_SCALE)
+        } else if image_opt.is_some() || mesh_opt.is_some() {
             Vec3::splat(0.5)
         } else {
             match shape_opt
@@ -811,6 +815,10 @@ fn capture_drag_starts(
             world_half_extents,
             base_extents,
             parent_global,
+            sound_volume: match sound_opt {
+                Some(s) if s.spatial => Some(s.volume),
+                _ => None,
+            },
         });
     }
     starts
@@ -941,6 +949,39 @@ fn compute_resize(
     (local_translation, local_scale)
 }
 
+fn compute_sound_range_resize(
+    snapped_displacement: f32,
+    start_scale: Vec3,
+    start_translation: Vec3,
+    start_rotation: Quat,
+    start_volume: f32,
+    parent_transform: Option<&Transform>,
+) -> (Vec3, Vec3) {
+    let base = crate::common::game::assets::components::Sound::clamp_volume(start_volume) * 0.28;
+    if !(base > 1e-4) {
+        let uniform = (start_scale.max_element() + snapped_displacement * 0.5).max(0.1);
+        let new_global_scale = Vec3::splat(uniform);
+        let (local_translation, _, local_scale) = world_to_local(
+            start_translation,
+            start_rotation,
+            new_global_scale,
+            parent_transform,
+        );
+        return (local_translation, local_scale);
+    }
+    let current_radius = base * start_scale.max_element().max(0.01);
+    let new_radius = (current_radius + snapped_displacement).max(0.5);
+    let new_uniform = (new_radius / base).max(0.1);
+    let new_global_scale = Vec3::splat(new_uniform);
+    let (local_translation, _, local_scale) = world_to_local(
+        start_translation,
+        start_rotation,
+        new_global_scale,
+        parent_transform,
+    );
+    (local_translation, local_scale)
+}
+
 pub fn select_brick(
     mut clicks: MessageReader<Pointer<Click>>,
     bricks: Query<
@@ -949,8 +990,11 @@ pub fn select_brick(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
+    sounds: Query<&crate::common::game::assets::components::Sound>,
+    billboards: Query<&ChildOf, With<crate::studio::sound_icons::SpatialSoundBillboard>>,
     gizmos: Query<Entity, With<ToolGizmo>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<Selection>,
@@ -969,8 +1013,23 @@ pub fn select_brick(
     }
 
     for click in clicks.read() {
-        let target = click.event_target();
+        let clicked = click.event_target();
+        let target = billboards
+            .get(clicked)
+            .map(|co| co.parent())
+            .unwrap_or(clicked);
         if click.button == PointerButton::Primary {
+            if let Ok(sound) = sounds.get(target) {
+                if !sound.spatial {
+                    selection.entity = None;
+                    selection.entities.clear();
+                    selection.workspace_selected = false;
+                    selection.players_selected = false;
+                    context_menu.entity = None;
+                    context_menu.position = None;
+                    continue;
+                }
+            }
             if bricks.get(target).is_ok() {
                 let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
                 if shift {
@@ -1018,11 +1077,13 @@ pub fn handle_drag_start(
             Option<&crate::common::game::bricks::components::BrickShapeComponent>,
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Or<(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     parent_global_query: Query<&GlobalTransform>,
@@ -1060,11 +1121,13 @@ pub fn handle_drag(
             Option<&crate::common::game::bricks::components::BrickShapeComponent>,
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Or<(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     mut drag_state: ResMut<DragState>,
@@ -1099,7 +1162,7 @@ pub fn handle_drag(
         drag_state.applied_rotation = 0.0;
         return;
     };
-    let Ok((_brick_transform, brick_global, _, _, _, _)) = bricks.get(gizmo.target) else {
+    let Ok((_brick_transform, brick_global, _, _, _, _, _)) = bricks.get(gizmo.target) else {
         drag_state.active = false;
         drag_state.gizmo_entity = None;
         drag_state.start_translation = None;
@@ -1158,7 +1221,7 @@ pub fn handle_drag(
                     accumulate_snapped_rotation(&mut drag_state, raw_delta, &snap_config);
                 let rot = Quat::from_axis_angle(gizmo.axis, applied_delta);
                 for start in &drag_state.start_entities {
-                    if let Ok((mut brick_transform, _, _, _, _, _)) = bricks.get_mut(start.entity) {
+                    if let Ok((mut brick_transform, _, _, _, _, _, _)) = bricks.get_mut(start.entity) {
                         brick_transform.rotate_local(rot);
                     }
                 }
@@ -1188,7 +1251,7 @@ pub fn handle_drag(
                     accumulate_snapped_rotation(&mut drag_state, raw_delta, &snap_config);
                 let rot = Quat::from_axis_angle(gizmo.axis, applied_delta);
                 for start in &drag_state.start_entities {
-                    if let Ok((mut brick_transform, _, _, _, _, _)) = bricks.get_mut(start.entity) {
+                    if let Ok((mut brick_transform, _, _, _, _, _, _)) = bricks.get_mut(start.entity) {
                         brick_transform.rotate_local(rot);
                     }
                 }
@@ -1247,7 +1310,7 @@ pub fn handle_drag(
                     start.world_scale,
                     start.parent_global.as_ref(),
                 );
-                if let Ok((mut brick_transform, _, _, _, _, _)) = bricks.get_mut(start.entity) {
+                if let Ok((mut brick_transform, _, _, _, _, _, _)) = bricks.get_mut(start.entity) {
                     brick_transform.translation = local_translation;
                 }
             }
@@ -1255,6 +1318,23 @@ pub fn handle_drag(
         ToolState::Size => {
             let mirror = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
             for start in &drag_state.start_entities {
+                if let Some(volume) = start.sound_volume {
+                    let (local_translation, local_scale) = compute_sound_range_resize(
+                        snapped_displacement,
+                        start.world_scale,
+                        start.world_translation,
+                        start.world_rotation,
+                        volume,
+                        start.parent_global.as_ref(),
+                    );
+                    if let Ok((mut brick_transform, _, _, _, _, _, _)) =
+                        bricks.get_mut(start.entity)
+                    {
+                        brick_transform.scale = local_scale;
+                        brick_transform.translation = local_translation;
+                    }
+                    continue;
+                }
                 let (local_translation, local_scale) = compute_resize(
                     gizmo.axis,
                     snapped_displacement,
@@ -1265,7 +1345,7 @@ pub fn handle_drag(
                     mirror,
                     start.base_extents,
                 );
-                if let Ok((mut brick_transform, _, _, _, _, _)) = bricks.get_mut(start.entity) {
+                if let Ok((mut brick_transform, _, _, _, _, _, _)) = bricks.get_mut(start.entity) {
                     brick_transform.scale = local_scale;
                     brick_transform.translation = local_translation;
                 }
@@ -1286,6 +1366,7 @@ pub fn handle_drag_end(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     mut drag_state: ResMut<DragState>,
@@ -1341,15 +1422,18 @@ pub fn handle_part_drag_start(
             Option<&crate::common::game::bricks::components::BrickShapeComponent>,
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Or<(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     parent_global_query: Query<&GlobalTransform>,
     brick_parents: Query<(), With<Brick>>,
+    billboards: Query<&ChildOf, With<crate::studio::sound_icons::SpatialSoundBillboard>>,
     gizmos: Query<&ToolGizmo>,
     mut selection: ResMut<Selection>,
     mut part_drag_state: ResMut<PartDragState>,
@@ -1358,13 +1442,20 @@ pub fn handle_part_drag_start(
         if drag.button != PointerButton::Primary {
             continue;
         }
-        let target = drag.event_target();
-        if gizmos.get(target).is_ok() {
+        let clicked = drag.event_target();
+        let target = billboards
+            .get(clicked)
+            .map(|co| co.parent())
+            .unwrap_or(clicked);
+        if gizmos.get(clicked).is_ok() {
             continue;
         }
-        let Ok((_, _, child_of_opt, _, image_opt, _)) = bricks.get(target) else {
+        let Ok((_, _, child_of_opt, _, image_opt, _, sound_opt)) = bricks.get(target) else {
             continue;
         };
+        if sound_opt.is_some_and(|s| !s.spatial) {
+            continue;
+        }
         if image_opt.is_some() && child_of_opt.is_some_and(|co| brick_parents.contains(co.parent()))
         {
             continue;
@@ -1406,11 +1497,13 @@ pub fn handle_part_drag(
             Option<&crate::common::game::bricks::components::BrickShapeComponent>,
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Or<(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     parent_query: Query<&ChildOf>,
@@ -1455,8 +1548,8 @@ pub fn handle_part_drag(
 
     for _ in drags.read() {}
 
-    let (brick_rotation, brick_scale, image_opt, mesh_opt) = {
-        let Ok((_, brick_global, _, _, image_opt, mesh_opt)) = bricks.get(dragged_entity) else {
+    let (brick_rotation, brick_scale, image_opt, mesh_opt, sound_opt) = {
+        let Ok((_, brick_global, _, _, image_opt, mesh_opt, sound_opt)) = bricks.get(dragged_entity) else {
             part_drag_state.active = false;
             part_drag_state.dragged_entity = None;
             part_drag_state.press_cursor = None;
@@ -1468,10 +1561,13 @@ pub fn handle_part_drag(
             brick_global.scale(),
             image_opt,
             mesh_opt,
+            sound_opt,
         )
     };
 
-    let base_extents = if image_opt.is_some() || mesh_opt.is_some() {
+    let base_extents = if sound_opt.is_some() {
+        Vec3::splat(0.5 * crate::studio::sound_icons::SOUND_ICON_SCALE)
+    } else if image_opt.is_some() || mesh_opt.is_some() {
         Vec3::splat(0.5)
     } else {
         Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28)
@@ -1581,7 +1677,7 @@ pub fn handle_part_drag(
             start.world_scale,
             start.parent_global.as_ref(),
         );
-        if let Ok((mut brick_transform, _, _, _, _, _)) = bricks.get_mut(start.entity) {
+        if let Ok((mut brick_transform, _, _, _, _, _, _)) = bricks.get_mut(start.entity) {
             brick_transform.translation = local_translation;
         }
     }
@@ -1597,6 +1693,7 @@ pub fn handle_part_drag_end(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
         )>,
     >,
     mut part_drag_state: ResMut<PartDragState>,
@@ -1703,9 +1800,18 @@ pub fn correct_child_transforms(
     >,
     child_query: Query<
         (&Transform, Option<&Children>),
-        Without<crate::common::game::assets::components::Image>,
+        (
+            Without<crate::common::game::assets::components::Image>,
+            Without<crate::studio::sound_icons::SpatialSoundBillboard>,
+        ),
     >,
-    mut global_transform_query: Query<&mut GlobalTransform, With<ChildOf>>,
+    mut global_transform_query: Query<
+        &mut GlobalTransform,
+        (
+            With<ChildOf>,
+            Without<crate::studio::sound_icons::SpatialSoundBillboard>,
+        ),
+    >,
 ) {
     for (root_entity, root_global) in &root_query {
         let root_unscaled = Transform {
@@ -1727,9 +1833,18 @@ fn propagate_unscaled(
     parent_unscaled: Transform,
     child_query: &Query<
         (&Transform, Option<&Children>),
-        Without<crate::common::game::assets::components::Image>,
+        (
+            Without<crate::common::game::assets::components::Image>,
+            Without<crate::studio::sound_icons::SpatialSoundBillboard>,
+        ),
     >,
-    global_transform_query: &mut Query<&mut GlobalTransform, With<ChildOf>>,
+    global_transform_query: &mut Query<
+        &mut GlobalTransform,
+        (
+            With<ChildOf>,
+            Without<crate::studio::sound_icons::SpatialSoundBillboard>,
+        ),
+    >,
 ) {
     if let Ok((_, Some(children))) = child_query.get(parent_entity) {
         for child in children.iter() {
@@ -1774,6 +1889,7 @@ pub fn handle_marquee_selection(
     mut selection: ResMut<Selection>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     bricks_query: Query<(Entity, &GlobalTransform), With<Brick>>,
+    sounds_query: Query<(Entity, &GlobalTransform, &crate::common::game::assets::components::Sound), (With<crate::common::game::assets::components::Sound>, Without<Brick>)>,
     gizmos_query: Query<Entity, With<ToolGizmo>>,
     pickable_parts: Query<
         Entity,
@@ -1781,6 +1897,8 @@ pub fn handle_marquee_selection(
             With<Brick>,
             With<crate::common::game::assets::components::Image>,
             With<crate::common::game::assets::components::Mesh>,
+            With<crate::common::game::assets::components::Sound>,
+            With<crate::studio::sound_icons::SpatialSoundBillboard>,
         )>,
     >,
     mut contexts: bevy_egui::EguiContexts,
@@ -1859,6 +1977,21 @@ pub fn handle_marquee_selection(
 
                 let mut selected_entities = Vec::new();
                 for (entity, global_transform) in &bricks_query {
+                    let world_pos = global_transform.translation();
+                    if let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) {
+                        if screen_pos.x >= min_x
+                            && screen_pos.x <= max_x
+                            && screen_pos.y >= min_y
+                            && screen_pos.y <= max_y
+                        {
+                            selected_entities.push(entity);
+                        }
+                    }
+                }
+                for (entity, global_transform, sound) in &sounds_query {
+                    if !sound.spatial {
+                        continue;
+                    }
                     let world_pos = global_transform.translation();
                     if let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) {
                         if screen_pos.x >= min_x

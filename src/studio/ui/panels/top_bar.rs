@@ -123,6 +123,7 @@ pub fn draw_top_bar(
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
     workspace_studs: &mut ResMut<crate::common::game::bricks::WorkspaceShowStuds>,
+    show_audio: &mut ResMut<crate::studio::sound_icons::StudioShowAudio>,
     images_query: &Query<
         (
             Entity,
@@ -885,6 +886,10 @@ pub fn draw_top_bar(
                         let mut show_studs = workspace_studs.enabled;
                         if ui.checkbox(&mut show_studs, "Show Studs").changed() {
                             workspace_studs.enabled = show_studs;
+                        }
+                        let mut show_audio_enabled = show_audio.enabled;
+                        if ui.checkbox(&mut show_audio_enabled, "Show Audio").changed() {
+                            show_audio.enabled = show_audio_enabled;
                         }
                         ui.separator();
                         if ui.button("Focus on Selection  (F)").clicked() {
