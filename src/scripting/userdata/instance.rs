@@ -63,6 +63,12 @@ pub fn class_name_of(world: &World, entity: Entity) -> &'static str {
         return "Mesh";
     }
     if world
+        .get::<crate::common::game::assets::components::Sound>(entity)
+        .is_some()
+    {
+        return "Sound";
+    }
+    if world
         .get::<crate::common::net::components::Player>(entity)
         .is_some()
     {
@@ -102,6 +108,9 @@ fn is_managed(world: &World, entity: Entity) -> bool {
             .is_some()
         || world
             .get::<crate::common::game::assets::components::Mesh>(entity)
+            .is_some()
+        || world
+            .get::<crate::common::game::assets::components::Sound>(entity)
             .is_some()
 }
 
@@ -288,11 +297,56 @@ impl LuaUserData for Instance {
                     Ok(LuaValue::Number(jp as f64))
                 }
                 "Speed" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Number(sound.speed as f64));
+                    }
                     let s = world
                         .get::<crate::common::net::components::Player>(this.entity)
                         .map(|p| to_studs(p.speed))
                         .unwrap_or(16.0);
                     Ok(LuaValue::Number(s as f64))
+                }
+                "Volume" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Number(sound.volume as f64));
+                    }
+                    Ok(LuaValue::Nil)
+                }
+                "Looped" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Boolean(sound.looped));
+                    }
+                    Ok(LuaValue::Nil)
+                }
+                "ReplicateTimeToClients" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Boolean(sound.replicate_time));
+                    }
+                    Ok(LuaValue::Nil)
+                }
+                "Playing" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Boolean(sound.playing));
+                    }
+                    Ok(LuaValue::Nil)
+                }
+                "Spatial" => {
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::Boolean(sound.spatial));
+                    }
+                    Ok(LuaValue::Nil)
                 }
                 "Gravity" => {
                     if let Some(g) = world
@@ -380,6 +434,13 @@ impl LuaUserData for Instance {
                     {
                         return Ok(LuaValue::String(
                             lua.create_string(format!("mesh/{}", mesh.asset_id))?,
+                        ));
+                    }
+                    if let Some(sound) =
+                        world.get::<crate::common::game::assets::components::Sound>(this.entity)
+                    {
+                        return Ok(LuaValue::String(
+                            lua.create_string(sound.as_content_id())?,
                         ));
                     }
                     let asset_id = world
@@ -568,6 +629,7 @@ impl LuaUserData for Instance {
                                 module_code,
                                 image,
                                 mesh,
+                                sound,
                             ) = {
                                 let transform =
                                     world.get::<Transform>(entity).cloned().unwrap_or_default();
@@ -596,6 +658,9 @@ impl LuaUserData for Instance {
                                 let mesh = world
                                     .get::<crate::common::game::assets::components::Mesh>(entity)
                                     .cloned();
+                                let sound = world
+                                    .get::<crate::common::game::assets::components::Sound>(entity)
+                                    .cloned();
                                 (
                                     transform,
                                     name,
@@ -610,6 +675,7 @@ impl LuaUserData for Instance {
                                     module_code,
                                     image,
                                     mesh,
+                                    sound,
                                 )
                             };
                             let mut new_entity = world.spawn((transform, name));
@@ -644,6 +710,9 @@ impl LuaUserData for Instance {
                             if let Some(m) = mesh {
                                 new_entity.insert(m);
                             }
+                            if let Some(s) = sound {
+                                new_entity.insert(s);
+                            }
                             new_entity.insert(lightyear::prelude::Replicate::default());
                             let new_id = new_entity.id();
                             drop(new_entity);
@@ -670,6 +739,40 @@ impl LuaUserData for Instance {
                             let world = unsafe { &mut *world_ref.0 };
                             if world.get_entity(entity).is_ok() {
                                 world.entity_mut(entity).despawn();
+                            }
+                            Ok(())
+                        },
+                    )?))
+                }
+                "Play" => {
+                    let entity = this.entity;
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &mut *world_ref.0 };
+                            if let Some(mut sound) = world
+                                .get_mut::<crate::common::game::assets::components::Sound>(entity)
+                            {
+                                sound.playing = true;
+                            }
+                            Ok(())
+                        },
+                    )?))
+                }
+                "Stop" => {
+                    let entity = this.entity;
+                    Ok(LuaValue::Function(lua.create_function(
+                        move |lua, _: LuaMultiValue| {
+                            let world_ref = lua
+                                .app_data_ref::<crate::scripting::vm::server_vm::WorldRef>()
+                                .unwrap();
+                            let world = unsafe { &mut *world_ref.0 };
+                            if let Some(mut sound) = world
+                                .get_mut::<crate::common::game::assets::components::Sound>(entity)
+                            {
+                                sound.playing = false;
                             }
                             Ok(())
                         },
@@ -840,7 +943,9 @@ impl LuaUserData for Instance {
                         _ => None,
                     };
                     if let Some(val) = opt_val {
-                        if let Some(mut player) = world.get_mut::<crate::common::net::components::Player>(this.entity) {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.speed = crate::common::game::assets::components::Sound::clamp_speed(val as f32);
+                        } else if let Some(mut player) = world.get_mut::<crate::common::net::components::Player>(this.entity) {
                             player.speed = val as f32 * 0.28;
                         }
                     }
@@ -859,6 +964,26 @@ impl LuaUserData for Instance {
                     }
                 }
                 "ID" => {
+                    if world.get::<crate::common::game::assets::components::Sound>(this.entity).is_some() {
+                        let parsed: Option<u32> = match &value {
+                            LuaValue::Number(n) => u32::try_from(*n as u64).ok(),
+                            LuaValue::Integer(i) => u32::try_from(*i).ok(),
+                            LuaValue::String(s) => {
+                                crate::common::game::assets::components::Sound::parse_content_id(&s.to_string_lossy())
+                            }
+                            _ => None,
+                        };
+                        let Some(asset_id) = parsed else {
+                            return Err(mlua::Error::RuntimeError(
+                                "Sound.ID must be a number or a content id like \"sound/123\"".to_string(),
+                            ));
+                        };
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.asset_id = asset_id;
+                            sound.position = 0.0;
+                        }
+                        return Ok(());
+                    }
                     if world.get::<crate::common::game::assets::components::Texture>(this.entity).is_some() {
                         let parsed = match &value {
                             LuaValue::Number(n) => u32::try_from(*n as u64).ok().map(|v| (v, true)),
@@ -959,6 +1084,46 @@ impl LuaUserData for Instance {
                             asset_id: 0,
                             face,
                         });
+                    }
+                }
+                "Volume" => {
+                    let opt_val = match value {
+                        LuaValue::Number(n) => Some(n),
+                        LuaValue::Integer(i) => Some(i as f64),
+                        _ => None,
+                    };
+                    if let Some(val) = opt_val {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.volume = crate::common::game::assets::components::Sound::clamp_volume(val as f32);
+                        }
+                    }
+                }
+                "Looped" => {
+                    if let LuaValue::Boolean(b) = value {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.looped = b;
+                        }
+                    }
+                }
+                "ReplicateTimeToClients" => {
+                    if let LuaValue::Boolean(b) = value {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.replicate_time = b;
+                        }
+                    }
+                }
+                "Playing" => {
+                    if let LuaValue::Boolean(b) = value {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.playing = b;
+                        }
+                    }
+                }
+                "Spatial" => {
+                    if let LuaValue::Boolean(b) = value {
+                        if let Some(mut sound) = world.get_mut::<crate::common::game::assets::components::Sound>(this.entity) {
+                            sound.spatial = b;
+                        }
                     }
                 }
                 "Gravity" => {
@@ -1283,6 +1448,82 @@ mod tests {
         assert_eq!(world.get::<RigidBody>(part).unwrap(), &RigidBody::Static);
         let anchored: bool = eval(&vm, "return _G.part.Anchored");
         assert!(anchored);
+    }
+
+    #[test]
+    fn sound_properties_round_trip_through_lua() {
+        let mut world = test_world();
+        let vm = test_vm(&mut world);
+        run_script(
+            &vm,
+            r#"
+            local s = Instance.new("Sound")
+            s.ID = "sound/77"
+            s.Volume = 80
+            s.Speed = 1.5
+            s.Looped = true
+            s.ReplicateTimeToClients = true
+            s.Spatial = true
+            s:Play()
+            _G.sound = s
+        "#,
+        );
+        let sound_entity = entity_of(&vm, "sound");
+        let sound = world
+            .get::<crate::common::game::assets::components::Sound>(sound_entity)
+            .expect("sound instance should carry a Sound component");
+        assert_eq!(sound.asset_id, 77);
+        assert!((sound.volume - 80.0).abs() < 1e-4);
+        assert!((sound.speed - 1.5).abs() < 1e-4);
+        assert!(sound.looped);
+        assert!(sound.replicate_time);
+        assert!(sound.playing, "Play() must set Playing");
+        assert!(sound.spatial);
+
+        let (id, class, volume, speed, looped, replicate, playing, spatial): (
+            String,
+            String,
+            f64,
+            f64,
+            bool,
+            bool,
+            bool,
+            bool,
+        ) = eval(
+            &vm,
+            "return _G.sound.ID, _G.sound.ClassName, _G.sound.Volume, _G.sound.Speed, _G.sound.Looped, _G.sound.ReplicateTimeToClients, _G.sound.Playing, _G.sound.Spatial",
+        );
+        assert_eq!(id, "sound/77");
+        assert_eq!(class, "Sound");
+        assert!((volume - 80.0).abs() < 1e-4);
+        assert!((speed - 1.5).abs() < 1e-4);
+        assert!(looped && replicate && playing && spatial);
+
+        run_script(&vm, "_G.sound:Stop()");
+        let playing_after: bool = eval(&vm, "return _G.sound.Playing");
+        assert!(!playing_after);
+
+        run_script(
+            &vm,
+            r#"
+            _G.sound.Volume = 500
+            _G.sound.Speed = -3
+            _G.sound.ID = 78
+        "#,
+        );
+        let sound = world
+            .get::<crate::common::game::assets::components::Sound>(sound_entity)
+            .unwrap();
+        assert!((sound.volume - 100.0).abs() < 1e-4);
+        assert!(
+            (sound.speed
+                - crate::common::game::assets::components::Sound::MIN_SPEED)
+                .abs()
+                < 1e-4
+        );
+        assert_eq!(sound.asset_id, 78);
+
+        assert!(!sound.playing);
     }
 
     #[test]
@@ -1872,7 +2113,6 @@ mod tests {
         assert_eq!(texture.asset_id, 100);
         assert!(!texture.is_decal);
 
-        // Visible through the Lua API.
         let (class, id, name): (String, String, String) = eval(
             &vm,
             r#"
@@ -1884,7 +2124,6 @@ mod tests {
         assert_eq!(id, "mesh/100");
         assert_eq!(name, "Texture");
 
-        // Setting the ID again must not create a second texture.
         run_script(&vm, r#"_G.mesh.ID = "mesh/200""#);
         let children: Vec<Entity> = world
             .get::<Children>(mesh_entity)

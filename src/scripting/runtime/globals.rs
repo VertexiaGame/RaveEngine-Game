@@ -360,9 +360,19 @@ pub fn setup_globals(lua: &Lua) -> Result<(), mlua::Error> {
                     ))
                     .id()
             }
+            "Sound" => {
+                world
+                    .spawn((
+                        Name::new(class_name),
+                        Transform::default(),
+                        crate::common::game::assets::components::Sound::default(),
+                        lightyear::prelude::Replicate::default(),
+                    ))
+                    .id()
+            }
             _ => {
                 return Err(mlua::Error::RuntimeError(format!(
-                    "Instance.new: unsupported class '{}' (supported: Part, Folder, Image, Mesh, Texture)",
+                    "Instance.new: unsupported class '{}' (supported: Part, Folder, Image, Mesh, Texture, Sound)",
                     class_name
                 )))
             }

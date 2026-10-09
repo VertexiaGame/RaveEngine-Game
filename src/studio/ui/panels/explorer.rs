@@ -17,6 +17,7 @@ enum RowIcon {
     Image,
     Texture,
     Mesh,
+    Sound,
     Script,
     LocalScript,
     ModuleScript,
@@ -66,11 +67,12 @@ fn is_managed_entity(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
 ) -> bool {
-    if let Ok((_, name, _, _, brick_opt, s_opt, l_opt, m_opt, image_opt, texture_opt, mesh_opt)) =
+    if let Ok((_, name, _, _, brick_opt, s_opt, l_opt, m_opt, image_opt, texture_opt, mesh_opt, sound_opt)) =
         query.get(entity)
     {
         name.as_str() == "Baseplate"
@@ -81,6 +83,7 @@ fn is_managed_entity(
             || image_opt.is_some()
             || texture_opt.is_some()
             || mesh_opt.is_some()
+            || sound_opt.is_some()
     } else {
         false
     }
@@ -102,13 +105,14 @@ fn is_descendant(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
 ) -> bool {
     let mut current = child;
     let mut depth = 0;
-    while let Ok((_, _, parent_opt, _, _, _, _, _, _, _, _)) = query.get(current) {
+    while let Ok((_, _, parent_opt, _, _, _, _, _, _, _, _, _)) = query.get(current) {
         if let Some(parent_comp) = parent_opt {
             let parent_entity = parent_comp.parent();
             if parent_entity == parent {
@@ -142,6 +146,7 @@ fn build_explorer_rows(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -161,6 +166,7 @@ fn build_explorer_rows(
         image_opt,
         texture_opt,
         mesh_opt,
+        sound_opt,
     ) in explorer_query
     {
         let is_managed = name.as_str() == "Baseplate"
@@ -170,7 +176,8 @@ fn build_explorer_rows(
             || m_opt.is_some()
             || image_opt.is_some()
             || texture_opt.is_some()
-            || mesh_opt.is_some();
+            || mesh_opt.is_some()
+            || sound_opt.is_some();
         if is_managed {
             let is_root = if let Some(parent_comp) = parent_opt {
                 let parent = parent_comp.parent();
@@ -186,6 +193,7 @@ fn build_explorer_rows(
                     p_image_opt,
                     p_texture_opt,
                     p_mesh_opt,
+                    p_sound_opt,
                 )) = explorer_query.get(parent)
                 {
                     !(p_name.as_str() == "Baseplate"
@@ -195,7 +203,8 @@ fn build_explorer_rows(
                         || pm_opt.is_some()
                         || p_image_opt.is_some()
                         || p_texture_opt.is_some()
-                        || p_mesh_opt.is_some())
+                        || p_mesh_opt.is_some()
+                        || p_sound_opt.is_some())
                 } else {
                     true
                 }
@@ -240,6 +249,7 @@ fn push_node_recursive(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -247,7 +257,7 @@ fn push_node_recursive(
     expanded: &HashSet<Entity>,
     ctx: &egui::Context,
 ) {
-    let Ok((_, _, _, children_opt, _, s_opt, l_opt, m_opt, image_opt, texture_opt, mesh_opt)) =
+    let Ok((_, _, _, children_opt, _, s_opt, l_opt, m_opt, image_opt, texture_opt, mesh_opt, sound_opt)) =
         explorer_query.get(entity)
     else {
         return;
@@ -263,11 +273,11 @@ fn push_node_recursive(
     children.sort_by(|&a, &b| {
         let name_a = explorer_query
             .get(a)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
             .unwrap_or("");
         let name_b = explorer_query
             .get(b)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
             .unwrap_or("");
         name_a.cmp(name_b)
     });
@@ -278,6 +288,8 @@ fn push_node_recursive(
         RowIcon::Texture
     } else if mesh_opt.is_some() {
         RowIcon::Mesh
+    } else if sound_opt.is_some() {
+        RowIcon::Sound
     } else if s_opt.is_some() {
         RowIcon::Script
     } else if l_opt.is_some() {
@@ -317,17 +329,12 @@ fn push_node_recursive(
         } else {
             parent_alpha
         };
-        // During expand, expand_t starts at 0, but we still want children to appear immediately
-        // with fading. For the first frame after expand, expand_t may be 0, so child alpha would be 0.
-        // To avoid invisibility at t=0, clamp minimal visible alpha for expanded case.
         let effective_alpha = if is_expanded && child_parent_alpha < 0.01 {
             0.01
         } else {
             child_parent_alpha
         };
         for child in children {
-            // If we are animating collapse, we need to propagate fading alpha
-            // Use effective_alpha for children
             push_node_recursive(
                 child,
                 depth + 1,
@@ -355,6 +362,7 @@ fn get_flat_ordered_entities(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -373,6 +381,7 @@ fn get_flat_ordered_entities(
         image_opt,
         texture_opt,
         mesh_opt,
+        sound_opt,
     ) in explorer_query
     {
         let is_managed = name.as_str() == "Baseplate"
@@ -382,7 +391,8 @@ fn get_flat_ordered_entities(
             || m_opt.is_some()
             || image_opt.is_some()
             || texture_opt.is_some()
-            || mesh_opt.is_some();
+            || mesh_opt.is_some()
+            || sound_opt.is_some();
         if is_managed {
             let is_root = if let Some(parent_comp) = parent_opt {
                 let parent = parent_comp.parent();
@@ -398,6 +408,7 @@ fn get_flat_ordered_entities(
                     p_image_opt,
                     p_texture_opt,
                     p_mesh_opt,
+                    p_sound_opt,
                 )) = explorer_query.get(parent)
                 {
                     !(p_name.as_str() == "Baseplate"
@@ -407,7 +418,8 @@ fn get_flat_ordered_entities(
                         || pm_opt.is_some()
                         || p_image_opt.is_some()
                         || p_texture_opt.is_some()
-                        || p_mesh_opt.is_some())
+                        || p_mesh_opt.is_some()
+                        || p_sound_opt.is_some())
                 } else {
                     true
                 }
@@ -451,13 +463,14 @@ fn traverse_node_recursive(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
     flat: &mut Vec<Entity>,
 ) {
     flat.push(entity);
-    if let Ok((_, _, _, Some(children_comp), _, _, _, _, _, _, _)) = explorer_query.get(entity) {
+    if let Ok((_, _, _, Some(children_comp), _, _, _, _, _, _, _, _)) = explorer_query.get(entity) {
         let mut sorted_children: Vec<Entity> = children_comp
             .iter()
             .filter(|&child| is_managed_entity(child, explorer_query))
@@ -465,11 +478,11 @@ fn traverse_node_recursive(
         sorted_children.sort_by(|&a, &b| {
             let name_a = explorer_query
                 .get(a)
-                .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+                .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
                 .unwrap_or("");
             let name_b = explorer_query
                 .get(b)
-                .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+                .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
                 .unwrap_or("");
             name_a.cmp(name_b)
         });
@@ -529,6 +542,7 @@ fn render_flat_row(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -571,6 +585,7 @@ fn render_flat_row(
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
     texture_assets: &Query<&crate::common::game::assets::components::Texture>,
+    sound_assets: &Query<&crate::common::game::assets::components::Sound>,
     brick_tex: egui::TextureId,
     script_tex: egui::TextureId,
     localscript_tex: egui::TextureId,
@@ -578,8 +593,9 @@ fn render_flat_row(
     image_tex: egui::TextureId,
     mesh_tex: egui::TextureId,
     texture_tex: egui::TextureId,
+    sound_tex: egui::TextureId,
 ) -> bool {
-    let Ok((_, name, _, _, _, s_opt, l_opt, _m_opt, _, _, _)) = explorer_query.get(row.entity)
+    let Ok((_, name, _, _, _, s_opt, l_opt, _m_opt, _, _, _, _)) = explorer_query.get(row.entity)
     else {
         return false;
     };
@@ -595,6 +611,7 @@ fn render_flat_row(
         RowIcon::Image => image_tex,
         RowIcon::Texture => texture_tex,
         RowIcon::Mesh => mesh_tex,
+        RowIcon::Sound => sound_tex,
     };
 
     let is_script_disabled = if let Some(ref s) = s_opt {
@@ -787,7 +804,7 @@ fn render_flat_row(
 
     if response.double_clicked() {
         let mut is_script = false;
-        if let Ok((_, _, _, _, _, s, l, m, _, _, _)) = explorer_query.get(row.entity) {
+        if let Ok((_, _, _, _, _, s, l, m, _, _, _, _)) = explorer_query.get(row.entity) {
             if s.is_some() || l.is_some() || m.is_some() {
                 is_script = true;
             }
@@ -820,6 +837,7 @@ fn render_flat_row(
             brick_colors,
             mesh_assets,
             texture_assets,
+            sound_assets,
         );
     });
 
@@ -834,7 +852,7 @@ fn render_flat_row(
             }
             if ui.input(|i| i.pointer.any_released()) && response.hovered() {
                 let old_parent = explorer_query.get(dragged).ok().and_then(
-                    |(_, _, child_of_opt, _, _, _, _, _, _, _, _)| {
+                    |(_, _, child_of_opt, _, _, _, _, _, _, _, _, _)| {
                         child_of_opt.map(|co| co.parent())
                     },
                 );
@@ -911,12 +929,13 @@ fn draw_player_node(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
     players_tex: egui::TextureId,
 ) {
-    let Ok((_, name, _, _, _, _, _, _, _, _, _)) = explorer_query.get(entity) else {
+    let Ok((_, name, _, _, _, _, _, _, _, _, _, _)) = explorer_query.get(entity) else {
         return;
     };
     let name_str = name.as_str().to_string();
@@ -951,7 +970,7 @@ fn draw_player_node(
             }
         } else if shift_held {
             let mut sorted_players = Vec::new();
-            for (player_entity, name, _, _, _, _, _, _, _, _, _) in explorer_query {
+            for (player_entity, name, _, _, _, _, _, _, _, _, _, _) in explorer_query {
                 let name_str = name.as_str();
                 if name_str == "Player" || name_str.starts_with("Player_") {
                     sorted_players.push(player_entity);
@@ -960,11 +979,11 @@ fn draw_player_node(
             sorted_players.sort_by(|&a, &b| {
                 let name_a = explorer_query
                     .get(a)
-                    .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+                    .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
                     .unwrap_or("");
                 let name_b = explorer_query
                     .get(b)
-                    .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+                    .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
                     .unwrap_or("");
                 name_a.cmp(name_b)
             });
@@ -996,6 +1015,7 @@ pub fn draw_explorer(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -1044,10 +1064,12 @@ pub fn draw_explorer(
     image_tex: egui::TextureId,
     mesh_tex: egui::TextureId,
     texture_tex: egui::TextureId,
+    sound_tex: egui::TextureId,
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
     texture_assets: &Query<&crate::common::game::assets::components::Texture>,
+    sound_assets: &Query<&crate::common::game::assets::components::Sound>,
     explorer_cache: &mut ExplorerRowCache,
     expanded: &mut HashSet<Entity>,
     explorer_changed: bool,
@@ -1120,7 +1142,7 @@ pub fn draw_explorer(
     }
 
     let mut sorted_players = Vec::new();
-    for (entity, name, _, _, _, _, _, _, _, _, _) in explorer_query {
+    for (entity, name, _, _, _, _, _, _, _, _, _, _) in explorer_query {
         let name_str = name.as_str();
         if name_str == "Player" || name_str.starts_with("Player_") {
             sorted_players.push(entity);
@@ -1129,11 +1151,11 @@ pub fn draw_explorer(
     sorted_players.sort_by(|&a, &b| {
         let name_a = explorer_query
             .get(a)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
             .unwrap_or("");
         let name_b = explorer_query
             .get(b)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str())
             .unwrap_or("");
         name_a.cmp(name_b)
     });
@@ -1167,7 +1189,7 @@ pub fn draw_explorer(
         let mut expanded_any = false;
         for _ in 0..1000 {
             let parent_entity = explorer_query.get(current).ok().and_then(
-                |(_, _, parent_opt, _, _, _, _, _, _, _, _)| parent_opt.map(|co| co.parent()),
+                |(_, _, parent_opt, _, _, _, _, _, _, _, _, _)| parent_opt.map(|co| co.parent()),
             );
             let Some(parent) = parent_entity else {
                 break;
@@ -1278,6 +1300,7 @@ pub fn draw_explorer(
                                     brick_colors,
                                     mesh_assets,
                                     texture_assets,
+                                    sound_assets,
                                     brick_tex,
                                     script_tex,
                                     localscript_tex,
@@ -1285,6 +1308,7 @@ pub fn draw_explorer(
                                     image_tex,
                                     mesh_tex,
                                     texture_tex,
+                                    sound_tex,
                                 );
                             }
                         },
@@ -1309,6 +1333,7 @@ pub fn draw_explorer(
                         brick_colors,
                         mesh_assets,
                         texture_assets,
+                        sound_assets,
                         brick_tex,
                         script_tex,
                         localscript_tex,
@@ -1316,6 +1341,7 @@ pub fn draw_explorer(
                         image_tex,
                         mesh_tex,
                         texture_tex,
+                        sound_tex,
                     );
                 }
             }
@@ -1383,7 +1409,7 @@ pub fn draw_explorer(
                 .is_some_and(|p| ui.max_rect().contains(p));
             if released_in_panel && !row_hovered {
                 let old_parent = explorer_query.get(dragged).ok().and_then(
-                    |(_, _, child_of_opt, _, _, _, _, _, _, _, _)| {
+                    |(_, _, child_of_opt, _, _, _, _, _, _, _, _, _)| {
                         child_of_opt.map(|co| co.parent())
                     },
                 );

@@ -23,6 +23,7 @@ pub struct StudioUiAssets {
     pub image_icon: Handle<Image>,
     pub mesh_icon: Handle<Image>,
     pub texture_icon: Handle<Image>,
+    pub sound_icon: Handle<Image>,
 }
 
 #[derive(Resource, Default)]
@@ -46,6 +47,7 @@ pub struct StudioUiTextureIds {
     pub image_tex: Option<bevy_egui::egui::TextureId>,
     pub mesh_tex: Option<bevy_egui::egui::TextureId>,
     pub texture_tex: Option<bevy_egui::egui::TextureId>,
+    pub sound_tex: Option<bevy_egui::egui::TextureId>,
 }
 
 fn load_icon_image(path: &str, images: &mut Assets<Image>) -> Handle<Image> {
@@ -135,6 +137,11 @@ pub fn setup_ui_assets(mut commands: Commands, mut images: ResMut<Assets<Image>>
     if texture_icon == Handle::default() {
         texture_icon = image_icon.clone();
     }
+    // sound.png is optional (falls back to the image icon when missing).
+    let mut sound_icon = load_icon_image("content/studio/icons/Items/sound.png", &mut images);
+    if sound_icon == Handle::default() {
+        sound_icon = image_icon.clone();
+    }
 
     commands.insert_resource(StudioUiAssets {
         move_icon,
@@ -156,5 +163,6 @@ pub fn setup_ui_assets(mut commands: Commands, mut images: ResMut<Assets<Image>>
         image_icon,
         mesh_icon,
         texture_icon,
+        sound_icon,
     });
 }

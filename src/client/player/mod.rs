@@ -22,6 +22,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(sounds::PlayerSoundsPlugin);
+        app.add_plugins(crate::common::game::assets::sounds::SoundInstancesPlugin);
         app.add_systems(
             Update,
             (

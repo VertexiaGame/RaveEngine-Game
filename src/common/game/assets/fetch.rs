@@ -9,8 +9,8 @@ const ASSET_QUEUE_CAP: usize = 64;
 pub enum AssetKind {
     Image,
     Mesh,
-    /// Uploaded texture sidecar of a mesh asset.
     MeshTexture,
+    Sound,
 }
 
 struct AssetWorkers {
@@ -79,9 +79,6 @@ fn fetch_asset_bytes(asset_id: u32, user_ukey: Option<&str>) -> Result<Vec<u8>, 
     Ok(bytes.to_vec())
 }
 
-/// Fetches the uploaded texture sidecar of a mesh asset. A 404 means the mesh
-/// has no uploaded texture, which is reported as an empty result rather than
-/// an error so callers can fall back to the model's embedded texture.
 fn fetch_texture_bytes(asset_id: u32, user_ukey: Option<&str>) -> Result<Vec<u8>, String> {
     let base = crate::common::net::api::api_base();
     let url = format!("{base}/api/v1/assets/{asset_id}/texture");

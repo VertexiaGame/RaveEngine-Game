@@ -66,21 +66,24 @@ fn instance_new_supports_all_classes() {
         _G.image = Instance.new("Image")
         _G.mesh = Instance.new("Mesh")
         _G.texture = Instance.new("Texture")
+        _G.sound = Instance.new("Sound")
         "#,
     );
-    let (p, f, i, m, t): (String, String, String, String, String) = eval(
+    let (p, f, i, m, t, s): (String, String, String, String, String, String) = eval(
         &vm,
-        r#"return _G.part.ClassName, _G.folder.ClassName, _G.image.ClassName, _G.mesh.ClassName, _G.texture.ClassName"#,
+        r#"return _G.part.ClassName, _G.folder.ClassName, _G.image.ClassName, _G.mesh.ClassName, _G.texture.ClassName, _G.sound.ClassName"#,
     );
     assert_eq!(p, "Part");
     assert_eq!(f, "Folder");
     assert_eq!(i, "Image");
     assert_eq!(m, "Mesh");
     assert_eq!(t, "Texture");
+    assert_eq!(s, "Sound");
     assert!(world.get::<crate::common::game::bricks::components::Brick>(entity_of(&vm, "part")).is_some());
     assert!(world.get::<crate::common::game::assets::components::Image>(entity_of(&vm, "image")).is_some());
     assert!(world.get::<crate::common::game::assets::components::Mesh>(entity_of(&vm, "mesh")).is_some());
     assert!(world.get::<crate::common::game::assets::components::Texture>(entity_of(&vm, "texture")).is_some());
+    assert!(world.get::<crate::common::game::assets::components::Sound>(entity_of(&vm, "sound")).is_some());
 }
 
 #[test]
@@ -483,6 +486,23 @@ fn assetservice_getmesh_creates_mesh() {
             .asset_id,
         99
     );
+}
+
+#[test]
+fn assetservice_getsound_creates_sound() {
+    let mut world = full_world();
+    let vm = test_vm(&mut world);
+    run_script(&vm, "_G.sound = game:GetService('AssetService'):GetSound(55)");
+    let class: String = eval(&vm, "return _G.sound.ClassName");
+    assert_eq!(class, "Sound");
+    let id: String = eval(&vm, "return _G.sound.ID");
+    assert_eq!(id, "sound/55");
+    let entity = entity_of(&vm, "sound");
+    let sound = world
+        .get::<crate::common::game::assets::components::Sound>(entity)
+        .unwrap();
+    assert_eq!(sound.asset_id, 55);
+    assert!(!sound.playing, "GetSound must not auto-play");
 }
 
 #[test]

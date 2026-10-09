@@ -169,6 +169,7 @@ pub struct UiQueries<'w, 's> {
             Option<&'static crate::common::game::assets::components::Image>,
             Option<&'static crate::common::game::assets::components::Texture>,
             Option<&'static crate::common::game::assets::components::Mesh>,
+            Option<&'static crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -196,6 +197,8 @@ pub struct UiQueries<'w, 's> {
     pub mesh_asset_query: Query<'w, 's, &'static crate::common::game::assets::components::Mesh>,
     pub texture_asset_query:
         Query<'w, 's, &'static crate::common::game::assets::components::Texture>,
+    pub sound_asset_query:
+        Query<'w, 's, &'static crate::common::game::assets::components::Sound>,
     pub explorer_changes: Query<
         'w,
         's,
@@ -214,6 +217,7 @@ pub struct UiQueries<'w, 's> {
             Added<crate::common::game::assets::components::Image>,
             Added<crate::common::game::assets::components::Texture>,
             Added<crate::common::game::assets::components::Mesh>,
+            Added<crate::common::game::assets::components::Sound>,
         )>,
     >,
     pub removed_children: RemovedComponents<'w, 's, Children>,
@@ -223,6 +227,7 @@ pub struct UiQueries<'w, 's> {
     pub removed_textures:
         RemovedComponents<'w, 's, crate::common::game::assets::components::Texture>,
     pub removed_meshes: RemovedComponents<'w, 's, crate::common::game::assets::components::Mesh>,
+    pub removed_sounds: RemovedComponents<'w, 's, crate::common::game::assets::components::Sound>,
     pub playtest_client_query:
         Query<'w, 's, Entity, With<crate::studio::ui::resources::InEditorPlaytestClient>>,
     pub playtest_players: Query<'w, 's, Entity, With<crate::common::net::components::Player>>,
@@ -304,6 +309,9 @@ pub fn studio_ui(
     let texture_tex = *ui_state.texture_ids.texture_tex.get_or_insert_with(|| {
         contexts.add_image(EguiTextureHandle::Strong(assets.texture_icon.clone()))
     });
+    let sound_tex = *ui_state.texture_ids.sound_tex.get_or_insert_with(|| {
+        contexts.add_image(EguiTextureHandle::Strong(assets.sound_icon.clone()))
+    });
 
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -370,7 +378,7 @@ pub fn studio_ui(
                                     }
                                 }
 
-                                for (entity, _, _, _, _, s_opt, l_opt, m_opt, _, _, _) in queries.explorer_query.iter() {
+                                for (entity, _, _, _, _, s_opt, l_opt, m_opt, _, _, _, _) in queries.explorer_query.iter() {
                                     if s_opt.is_some() || l_opt.is_some() || m_opt.is_some() {
                                         ui_res.commands.entity(entity).try_despawn();
                                     }
@@ -380,12 +388,8 @@ pub fn studio_ui(
                                     ui_res.commands.entity(entity).try_despawn();
                                 }
 
-                                // Replicated mesh entities are not covered by
-                                // the brick/player cleanup above; remove any
-                                // that are still around so they don't leak or
-                                // duplicate the restored ones below.
-                                for (entity, _, _, _, _, _, _, _, _, _, mesh_opt) in queries.explorer_query.iter() {
-                                    if mesh_opt.is_some() {
+                                for (entity, _, _, _, _, _, _, _, _, _, mesh_opt, sound_opt) in queries.explorer_query.iter() {
+                                    if mesh_opt.is_some() || sound_opt.is_some() {
                                         ui_res.commands.entity(entity).try_despawn();
                                     }
                                 }
@@ -456,9 +460,6 @@ pub fn studio_ui(
                                     }
                                 }
 
-                                // Restore meshes that were backed up when the
-                                // playtest started. Without this every mesh
-                                // would vanish after ending a playtest.
                                 let mut restored_meshes: Vec<(Entity, u32)> = Vec::new();
                                 for mesh_data in ui_state.playtest_backup.meshes.drain(..) {
                                     let cmd = ui_res.commands.spawn((
@@ -490,8 +491,6 @@ pub fn studio_ui(
                                     }
                                 }
 
-                                // Restore texture children of meshes, then give
-                                // any mesh without one a fresh default texture.
                                 let mut textured_meshes = std::collections::HashSet::new();
                                 for texture_data in ui_state.playtest_backup.textures.drain(..) {
                                     let parsed = crate::common::game::assets::components::Texture::parse_content_id(&texture_data.id_string);
@@ -525,9 +524,36 @@ pub fn studio_ui(
                                     }
                                 }
 
-                                // Make sure the restored edit-mode world carries
-                                // no transient simulation state (the studio
-                                // physics state is only restored next frame).
+                                for sound_data in ui_state.playtest_backup.sounds.drain(..) {
+                                    let cmd = ui_res.commands.spawn((
+                                        sound_data.transform,
+                                        Name::new(sound_data.name.clone()),
+                                        crate::common::game::assets::components::Sound {
+                                            asset_id: sound_data.asset_id,
+                                            volume: crate::common::game::assets::components::Sound::clamp_volume(
+                                                sound_data.volume,
+                                            ),
+                                            speed: crate::common::game::assets::components::Sound::clamp_speed(
+                                                sound_data.speed,
+                                            ),
+                                            looped: sound_data.looped,
+                                            replicate_time: sound_data.replicate_time,
+                                            playing: sound_data.playing,
+                                            spatial: sound_data.spatial,
+                                            position: 0.0,
+                                        },
+                                        Pickable::default(),
+                                        Visibility::Visible,
+                                    ));
+                                    let new_sound_entity = cmd.id();
+                                    named_entities.insert(sound_data.name, new_sound_entity);
+                                    if let Some(ref p_name) = sound_data.parent_name {
+                                        if let Some(&parent_entity) = named_entities.get(p_name) {
+                                            ui_res.commands.entity(parent_entity).add_child(new_sound_entity);
+                                        }
+                                    }
+                                }
+
                                 for (entity, _, _, _, _, _, _, _, _, _, _, _) in queries.entities_query.iter() {
                                     ui_res.commands.entity(entity).remove::<(
                                         avian3d::prelude::RigidBody,
@@ -591,6 +617,7 @@ pub fn studio_ui(
             stopp_tex,
             image_tex,
             mesh_tex,
+            sound_tex,
             brick_tex,
             script_tex,
             localscript_tex,
@@ -625,6 +652,8 @@ pub fn studio_ui(
             &queries.replicated_images_query,
             &mut ui_state.copiedbuffer,
             &queries.texture_asset_query,
+            &queries.sound_asset_query,
+            ui_state.auth_store.is_logged_in(),
         );
     });
 
@@ -662,6 +691,7 @@ pub fn studio_ui(
                         image_opt,
                         texture_opt,
                         mesh_opt,
+                        sound_opt,
                     )) = queries.explorer_query.get(entity)
                     {
                         if server_opt.is_some() || local_opt.is_some() || module_opt.is_some() {
@@ -674,6 +704,9 @@ pub fn studio_ui(
                             selected_scripts.push(entity);
                         }
                         if mesh_opt.is_some() {
+                            selected_scripts.push(entity);
+                        }
+                        if sound_opt.is_some() {
                             selected_scripts.push(entity);
                         }
                     }
@@ -701,7 +734,8 @@ pub fn studio_ui(
                             || !queries.removed_brick.is_empty()
                             || !queries.removed_images.is_empty()
                             || !queries.removed_textures.is_empty()
-                            || !queries.removed_meshes.is_empty();
+                            || !queries.removed_meshes.is_empty()
+                            || !queries.removed_sounds.is_empty();
                         panels::draw_explorer(
                             ui,
                             &mut ui_res.commands,
@@ -722,10 +756,12 @@ pub fn studio_ui(
                             image_tex,
                             mesh_tex,
                             texture_tex,
+                            sound_tex,
                             &queries.studs_query,
                             &ui_res.brick_colors,
                             &queries.mesh_asset_query,
                             &queries.texture_asset_query,
+                            &queries.sound_asset_query,
                             &mut ui_res.explorer_cache,
                             &mut ui_res.explorer_expanded,
                             explorer_changed,
@@ -984,6 +1020,7 @@ pub fn studio_ui(
                         &ui_res.brick_colors,
                         &queries.mesh_asset_query,
                         &queries.texture_asset_query,
+                        &queries.sound_asset_query,
                     )
                 })
             });
@@ -1019,7 +1056,7 @@ pub fn studio_ui(
             let mut script_found = false;
             let mut current_source = String::new();
 
-            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+            if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _, _)) =
                 queries.explorer_query.get(active_entity)
             {
                 if let Some(ref script) = server_opt {
@@ -1124,13 +1161,13 @@ pub fn studio_ui(
                                                         let open_script_name = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                                                            .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                                                             .unwrap_or_else(|_| "Script".to_string());
 
                                                         let (is_local_tab, is_module_tab) = queries
                                                             .explorer_query
                                                             .get(open_entity)
-                                                            .map(|(_, _, _, _, _, _, local_opt, module_opt, _, _, _)| {
+                                                            .map(|(_, _, _, _, _, _, local_opt, module_opt, _, _, _, _)| {
                                                                 (local_opt.is_some(), module_opt.is_some())
                                                             })
                                                             .unwrap_or((false, false));
@@ -1353,7 +1390,7 @@ pub fn studio_ui(
                 }
 
                 let mut source_changed = false;
-                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+                if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _, _)) =
                     queries.explorer_query.get(active_entity)
                 {
                     if let Some(ref script) = server_opt {
@@ -1372,7 +1409,7 @@ pub fn studio_ui(
                 }
 
                 if source_changed {
-                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _)) =
+                    if let Ok((_, _, _, _, _, server_opt, local_opt, module_opt, _, _, _, _)) =
                         queries.explorer_query.get(active_entity)
                     {
                         if let Ok(mut e_cmd) = ui_res.commands.get_entity(active_entity) {
@@ -1498,6 +1535,7 @@ pub fn studio_ui(
                     image_opt,
                     texture_opt,
                     mesh_opt,
+                    sound_opt,
                 )) => {
                     let icon = if image_opt.is_some() {
                         image_tex
@@ -1505,6 +1543,8 @@ pub fn studio_ui(
                         texture_tex
                     } else if mesh_opt.is_some() {
                         mesh_tex
+                    } else if sound_opt.is_some() {
+                        sound_tex
                     } else if s_opt.is_some() {
                         script_tex
                     } else if l_opt.is_some() {

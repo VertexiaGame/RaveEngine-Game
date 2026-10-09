@@ -231,6 +231,16 @@ pub struct StudioAuthStore {
     pub credentials: Option<StoredCredentials>,
 }
 
+impl StudioAuthStore {
+    pub fn is_logged_in(&self) -> bool {
+        self.credentials.as_ref().is_some_and(|c| !c.ukey.is_empty())
+    }
+}
+
+
+pub const LOGIN_REQUIRED_TOOLTIP: &str =
+    "This element cannot be inserted or updated because you are not logged in into VERTEXIA."; //String!
+
 pub fn init_studio_auth(mut store: ResMut<StudioAuthStore>, mut flow: ResMut<StudioAuthFlow>) {
     let creds = load_studio_credentials();
     store.credentials = creds.clone();
@@ -600,7 +610,7 @@ pub fn poll_studio_auth_flow(
             }
         }
         if store.credentials.is_some() && *onboarding.get() == crate::studio::tools::OnboardingState::Login && flow.error.is_none() {
-            // auto-skip login if already authenticated and not in error state
+            //auto-skip login if already authenticated and not in error state
         }
     }
 }

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-pub const FORMAT_VERSION: u32 = 13;
+pub const FORMAT_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VrtxBrick {
@@ -55,6 +55,20 @@ pub struct VrtxTexture {
     pub name: String,
     pub id_string: String,
     pub parent_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VrtxSound {
+    pub name: String,
+    pub asset_id: u32,
+    pub volume: f32,
+    pub speed: f32,
+    pub looped: bool,
+    pub replicate_time: bool,
+    pub playing: bool,
+    pub spatial: bool,
+    pub parent_name: Option<String>,
+    pub transform: Transform,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,4 +189,5 @@ pub struct VrtxFileState {
     pub images: Vec<VrtxImage>,
     pub meshes: Vec<VrtxMesh>,
     pub textures: Vec<VrtxTexture>,
+    pub sounds: Vec<VrtxSound>,
 }

@@ -47,6 +47,7 @@ pub struct BrickData {
     pub shape: BrickShape,
     pub mesh: Option<Mesh3d>,
     pub mesh_asset: Option<crate::common::game::assets::components::Mesh>,
+    pub sound_asset: Option<crate::common::game::assets::components::Sound>,
     pub standard_material:
         Option<MeshMaterial3d<ExtendedMaterial<StandardMaterial, ShadowOpacityExtension>>>,
     pub studs_material: Option<MeshMaterial3d<ExtendedMaterial<StandardMaterial, StudsExtension>>>,
@@ -89,6 +90,9 @@ pub fn spawn_from_data(commands: &mut Commands, data: &BrickData) -> Entity {
     }
     if let Some(ref mesh_asset) = data.mesh_asset {
         spawned.insert(*mesh_asset);
+    }
+    if let Some(ref sound_asset) = data.sound_asset {
+        spawned.insert(*sound_asset);
     }
     if let Some(ref mat) = data.standard_material {
         spawned.insert(mat.clone());
@@ -139,6 +143,7 @@ pub fn capture_brick_data(
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
+    sound_assets: &Query<&crate::common::game::assets::components::Sound>,
 ) -> Option<BrickData> {
     if let Ok((
         _,
@@ -167,6 +172,7 @@ pub fn capture_brick_data(
             shape,
             mesh: mesh_opt.cloned(),
             mesh_asset: mesh_assets.get(entity).ok().copied(),
+            sound_asset: sound_assets.get(entity).ok().copied(),
             standard_material: mat_opt.cloned(),
             studs_material: studs_mat_opt.cloned(),
             parent: child_of_opt.map(|co| co.parent()),
@@ -232,8 +238,9 @@ mod tests {
             >,
                   studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
                   brick_colors: Query<&mut crate::common::game::bricks::components::BrickColor>,
-                  mesh_assets: Query<&crate::common::game::assets::components::Mesh>| {
-                *sink.lock().unwrap() = capture_brick_data(entity, &query, &studs_query, &brick_colors, &mesh_assets);
+                  mesh_assets: Query<&crate::common::game::assets::components::Mesh>,
+                  sound_assets: Query<&crate::common::game::assets::components::Sound>| {
+                *sink.lock().unwrap() = capture_brick_data(entity, &query, &studs_query, &brick_colors, &mesh_assets, &sound_assets);
             },
         ).unwrap();
 

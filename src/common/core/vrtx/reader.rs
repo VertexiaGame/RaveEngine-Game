@@ -344,6 +344,41 @@ fn read_texture(r: &mut impl Read) -> std::io::Result<VrtxTexture> {
     })
 }
 
+fn read_sound(r: &mut impl Read) -> std::io::Result<VrtxSound> {
+    let name = read_string_u16(r)?;
+    let asset_id = read_u32(r)?;
+    let volume = read_f32(r)?;
+    let speed = read_f32(r)?;
+    let looped = read_u8(r)? != 0;
+    let replicate_time = read_u8(r)? != 0;
+    let playing = read_u8(r)? != 0;
+    let spatial = read_u8(r)? != 0;
+
+    let p_len = read_u16(r)? as usize;
+    let parent_name = if p_len > 0 {
+        let mut p_bytes = vec![0u8; p_len];
+        r.read_exact(&mut p_bytes)?;
+        Some(String::from_utf8(p_bytes).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let transform = read_transform(r)?;
+
+    Ok(VrtxSound {
+        name,
+        asset_id,
+        volume,
+        speed,
+        looped,
+        replicate_time,
+        playing,
+        spatial,
+        parent_name,
+        transform,
+    })
+}
+
 fn read_v1_header(r: &mut impl Read) -> std::io::Result<(Vec3, VrtxSettings, Transform, u32)> {
     let gravity = read_vec3(r)?;
     let mut settings_bytes = [0u8; 3];
@@ -452,6 +487,15 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
             }
         }
 
+        let mut sounds = Vec::new();
+        if version >= 14 {
+            let sound_count = read_u32(&mut reader)?;
+            sounds.reserve(sound_count as usize);
+            for _ in 0..sound_count {
+                sounds.push(read_sound(&mut reader)?);
+            }
+        }
+
         let players = if version >= 12 {
             read_players_v12(&mut reader)?
         } else if version == 11 {
@@ -461,12 +505,13 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
         };
 
         debug!(
-            "load_from_file: Successfully parsed {} bricks, {} scripts, {} images, {} meshes and {} textures from standard VRTX file",
+            "load_from_file: Successfully parsed {} bricks, {} scripts, {} images, {} meshes, {} textures and {} sounds from standard VRTX file",
             bricks.len(),
             scripts.len(),
             images.len(),
             meshes.len(),
-            textures.len()
+            textures.len(),
+            sounds.len()
         );
         Ok(VrtxFileState {
             version,
@@ -480,6 +525,7 @@ pub fn load_from_file(path: &str) -> std::io::Result<VrtxFileState> {
             images,
             meshes,
             textures,
+            sounds,
         })
     } else if data.len() >= 4 && &data[0..4] == b"GCPF" {
         debug!("load_from_file: Detected legacy GCPF (Godot) file format");

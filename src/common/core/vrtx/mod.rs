@@ -7,7 +7,7 @@ pub mod writer;
 
 pub use types::{
     FORMAT_VERSION, VrtxBrick, VrtxFileState, VrtxImage, VrtxLighting, VrtxMesh, VrtxPlayers,
-    VrtxScript, VrtxSettings, VrtxTexture,
+    VrtxScript, VrtxSettings, VrtxSound, VrtxTexture,
 };
 
 impl VrtxFileState {

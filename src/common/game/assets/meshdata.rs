@@ -30,9 +30,7 @@ pub struct LoadedMeshAsset {
     pub texture_bytes: Option<Vec<u8>>,
     pub double_sided: bool,
     pub alpha_mode: u8,
-    /// Axis-aligned bounds size of the model in meters (node transforms baked in).
     pub size: Vec3,
-    /// Rotation the model carries from the source file (glb node transform).
     pub rotation: Quat,
 }
 
@@ -570,9 +568,6 @@ pub fn load_obj(bytes: &[u8]) -> Result<LoadedMeshData, String> {
     Ok(out)
 }
 
-/// Translates the vertex data so the bounding box is centered on the local
-/// origin, which keeps the mesh visual aligned with its pivot (and the gizmos
-/// that are placed at the pivot).
 pub fn center_mesh_data(data: &mut LoadedMeshData) {
     if data.positions.is_empty() {
         return;
@@ -651,10 +646,6 @@ fn glb_model_transform(doc: &GltfJson) -> (Quat, Vec3) {
     (rotation, scale)
 }
 
-/// Bakes the glb node scale into the vertex data so the geometry (visuals,
-/// colliders, bounds) is in true model units. Without this, models exported
-/// with a scaling node (e.g. Blender exports) render and collide at the wrong
-/// size. Normals are adjusted with the inverse scale and renormalized.
 fn bake_node_scale(data: &mut LoadedMeshData, node_scale: Vec3) {
     if node_scale == Vec3::ONE {
         return;
@@ -773,8 +764,6 @@ mod tests {
         assert!((loaded.rotation.w - 0.70710677).abs() < 1e-4);
         assert!((loaded.rotation.y - 0.70710677).abs() < 1e-4);
         assert_eq!(loaded.mesh.indices.len(), 3);
-        // Node scale must be baked into the vertex data so the model renders
-        // and collides at its true size (unscaled triangle would be 1x1).
         assert_vec3_eq(mesh_bounds(&loaded.mesh), Vec3::new(2.0, 2.0, 0.0));
     }
 

@@ -154,6 +154,8 @@ impl Plugin for ServerPlugin {
                 player::sync_players_service_properties,
                 player::handle_chat_messages,
                 player::handle_sound_requests,
+                crate::common::game::assets::sounds::advance_sound_positions,
+                crate::common::game::assets::sounds::reset_sound_positions_on_change,
             ),
         )
         .add_systems(

@@ -207,6 +207,7 @@ pub fn draw_properties(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
@@ -221,9 +222,11 @@ pub fn draw_properties(
         return;
     }
 
+    let is_logged_in = current_uid.is_some();
+
     let mut script_entity = None;
     let ent = selected_entities[0];
-    if let Ok((_, _, _, _, _, s, l, m, _, _, _)) = explorer_query.get(ent) {
+    if let Ok((_, _, _, _, _, s, l, m, _, _, _, _)) = explorer_query.get(ent) {
         if s.is_some() || l.is_some() || m.is_some() {
             script_entity = Some(ent);
         }
@@ -232,10 +235,10 @@ pub fn draw_properties(
     if let Some(entity) = script_entity {
         let name_str = explorer_query
             .get(entity)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
             .unwrap_or_else(|_| "Script".to_string());
         let (code, script_type, mut enabled) =
-            if let Ok((_, _, _, _, _, s, l, m, _, _, _)) = explorer_query.get(entity) {
+            if let Ok((_, _, _, _, _, s, l, m, _, _, _, _)) = explorer_query.get(entity) {
                 if let Some(ref script) = s {
                     (script.code.clone(), "Script", script.enabled)
                 } else if let Some(ref script) = l {
@@ -249,12 +252,12 @@ pub fn draw_properties(
                 ("".to_string(), "Script", true)
             };
 
-        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _)) =
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _, _)) =
             explorer_query.get(entity)
         {
             explorer_query
                 .get(child_of.parent())
-                .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                 .unwrap_or_else(|_| "None".to_string())
         } else {
             "Workspace".to_string()
@@ -330,7 +333,7 @@ pub fn draw_properties(
                                     .size(13.0),
                             );
                             if ui.checkbox(&mut enabled, "").changed() {
-                                if let Ok((_, _, _, _, _, s, l, _, _, _, _)) =
+                                if let Ok((_, _, _, _, _, s, l, _, _, _, _, _)) =
                                     explorer_query.get(entity)
                                 {
                                     if s.is_some() {
@@ -414,7 +417,7 @@ pub fn draw_properties(
 
     let mut image_entity = None;
     let ent = selected_entities[0];
-    if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _)) = explorer_query.get(ent) {
+    if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _, _)) = explorer_query.get(ent) {
         if image_opt.is_some() {
             image_entity = Some(ent);
         }
@@ -423,14 +426,14 @@ pub fn draw_properties(
     if let Some(entity) = image_entity {
         let name_str = explorer_query
             .get(entity)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
             .unwrap_or_else(|_| "Image".to_string());
-        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _)) =
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _, _)) =
             explorer_query.get(entity)
         {
             explorer_query
                 .get(child_of.parent())
-                .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                 .unwrap_or_else(|_| "None".to_string())
         } else {
             "Workspace".to_string()
@@ -438,7 +441,7 @@ pub fn draw_properties(
         let mut current_id = 0u32;
         let mut current_face = "front".to_string();
         let mut is_parented = false;
-        if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _)) = explorer_query.get(entity) {
+        if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _, _)) = explorer_query.get(entity) {
             if let Some(image) = image_opt {
                 current_id = image.asset_id;
                 current_face = image
@@ -447,7 +450,7 @@ pub fn draw_properties(
                     .unwrap_or_else(|| "front".to_string());
             }
         }
-        if let Ok((_, _, child_of_opt, _, _, _, _, _, _, _, _)) = explorer_query.get(entity) {
+        if let Ok((_, _, child_of_opt, _, _, _, _, _, _, _, _, _)) = explorer_query.get(entity) {
             is_parented = child_of_opt.is_some();
         }
 
@@ -490,11 +493,11 @@ pub fn draw_properties(
                             ui.label(egui::RichText::new("ID").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             let id_id = ui.make_persistent_id("properties_image_id_input");
                             let mut id_text = ui.data_mut(|d| d.get_temp::<String>(id_id).unwrap_or_else(|| current_id.to_string()));
-                            let id_res = ui.add(egui::TextEdit::singleline(&mut id_text).desired_width(60.0));
+                            let id_res = ui.add_enabled(is_logged_in, egui::TextEdit::singleline(&mut id_text).desired_width(60.0)).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
                             if id_res.changed() {
                                 ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
                                 if let Ok(parsed) = id_text.parse::<u32>() {
-                                    if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _)) = explorer_query.get(entity) {
+                                    if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _, _)) = explorer_query.get(entity) {
                                         if let Some(image) = image_opt {
                                             commands.entity(entity).insert(crate::common::game::assets::components::Image {
                                                 asset_id: parsed,
@@ -514,23 +517,28 @@ pub fn draw_properties(
 
                             ui.label(egui::RichText::new("Face").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             if is_parented {
-                                egui::ComboBox::from_id_salt("properties_image_face_combo")
-                                    .selected_text(&current_face)
-                                    .show_ui(ui, |ui| {
-                                        for face in ["top", "bottom", "left", "right", "front", "back"] {
-                                            if ui.selectable_label(current_face == face, face).clicked() {
-                                                current_face = face.to_string();
-                                                if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _)) = explorer_query.get(entity) {
-                                                    if let Some(image) = image_opt {
-                                                        commands.entity(entity).insert(crate::common::game::assets::components::Image {
-                                                            asset_id: image.asset_id,
-                                                            face: Some(crate::common::game::assets::components::ImageFace::from_str(face).unwrap_or(crate::common::game::assets::components::ImageFace::Front)),
-                                                        });
+                                let face_res = ui.add_enabled_ui(is_logged_in, |ui| {
+                                    egui::ComboBox::from_id_salt("properties_image_face_combo")
+                                        .selected_text(&current_face)
+                                        .show_ui(ui, |ui| {
+                                            for face in ["top", "bottom", "left", "right", "front", "back"] {
+                                                if ui.selectable_label(current_face == face, face).clicked() {
+                                                    current_face = face.to_string();
+                                                    if let Ok((_, _, _, _, _, _, _, _, image_opt, _, _, _)) = explorer_query.get(entity) {
+                                                        if let Some(image) = image_opt {
+                                                            commands.entity(entity).insert(crate::common::game::assets::components::Image {
+                                                                asset_id: image.asset_id,
+                                                                face: Some(crate::common::game::assets::components::ImageFace::from_str(face).unwrap_or(crate::common::game::assets::components::ImageFace::Front)),
+                                                            });
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                    });
+                                        });
+                                });
+                                if !is_logged_in {
+                                    let _ = face_res.response.on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                                }
                             } else {
                                 ui.label(egui::RichText::new("None").color(egui::Color32::BLACK).size(13.0));
                             }
@@ -628,7 +636,7 @@ pub fn draw_properties(
 
     let mut texture_entity = None;
     let ent = selected_entities[0];
-    if let Ok((_, _, _, _, _, _, _, _, _, texture_opt, _)) = explorer_query.get(ent) {
+    if let Ok((_, _, _, _, _, _, _, _, _, texture_opt, _, _)) = explorer_query.get(ent) {
         if texture_opt.is_some() {
             texture_entity = Some(ent);
         }
@@ -637,14 +645,14 @@ pub fn draw_properties(
     if let Some(entity) = texture_entity {
         let name_str = explorer_query
             .get(entity)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
             .unwrap_or_else(|_| "Texture".to_string());
-        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _)) =
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _, _)) =
             explorer_query.get(entity)
         {
             explorer_query
                 .get(child_of.parent())
-                .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                 .unwrap_or_else(|_| "None".to_string())
         } else {
             "Workspace".to_string()
@@ -774,7 +782,7 @@ pub fn draw_properties(
 
     let mut mesh_entity = None;
     let ent = selected_entities[0];
-    if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt)) = explorer_query.get(ent) {
+    if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt, _)) = explorer_query.get(ent) {
         if mesh_opt.is_some() {
             mesh_entity = Some(ent);
         }
@@ -783,21 +791,21 @@ pub fn draw_properties(
     if let Some(entity) = mesh_entity {
         let name_str = explorer_query
             .get(entity)
-            .map(|(_, n, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
             .unwrap_or_else(|_| "Mesh".to_string());
-        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _)) =
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _, _)) =
             explorer_query.get(entity)
         {
             explorer_query
                 .get(child_of.parent())
-                .map(|(_, name, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
                 .unwrap_or_else(|_| "None".to_string())
         } else {
             "Workspace".to_string()
         };
         let mut current_id = 0u32;
         let mut current_normalize = false;
-        if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt)) = explorer_query.get(entity) {
+        if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt, _)) = explorer_query.get(entity) {
             if let Some(mesh) = mesh_opt {
                 current_id = mesh.asset_id;
                 current_normalize = mesh.normalize;
@@ -848,11 +856,11 @@ pub fn draw_properties(
                             ui.label(egui::RichText::new("ID").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
                             let id_id = ui.make_persistent_id("properties_mesh_id_input");
                             let mut id_text = ui.data_mut(|d| d.get_temp::<String>(id_id).unwrap_or_else(|| current_id.to_string()));
-                            let id_res = ui.add(egui::TextEdit::singleline(&mut id_text).desired_width(60.0));
+                            let id_res = ui.add_enabled(is_logged_in, egui::TextEdit::singleline(&mut id_text).desired_width(60.0)).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
                             if id_res.changed() {
                                 ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
                                 if let Ok(parsed) = id_text.parse::<u32>() {
-                                    if let Ok((_, _, _, children_opt, _, _, _, _, _, _, mesh_opt)) = explorer_query.get(entity) {
+                                    if let Ok((_, _, _, children_opt, _, _, _, _, _, _, mesh_opt, _)) = explorer_query.get(entity) {
                                         if let Some(mesh) = mesh_opt {
                                             let old_id = mesh.asset_id;
                                             if parsed != old_id {
@@ -917,7 +925,7 @@ pub fn draw_properties(
                                     // the new normalize mode.
                                     transform.scale = Vec3::ONE;
                                 }
-                                if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt)) = explorer_query.get(entity) {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, mesh_opt, _)) = explorer_query.get(entity) {
                                     if let Some(mesh) = mesh_opt {
                                         commands.entity(entity).insert(crate::common::game::assets::components::Mesh {
                                             asset_id: mesh.asset_id,
@@ -1086,6 +1094,294 @@ pub fn draw_properties(
                                     layers,
                                 ));
                             }
+                        });
+                });
+        });
+        return;
+    }
+
+    let mut sound_entity = None;
+    let ent = selected_entities[0];
+    if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(ent) {
+        if sound_opt.is_some() {
+            sound_entity = Some(ent);
+        }
+    }
+
+    if let Some(entity) = sound_entity {
+        let name_str = explorer_query
+            .get(entity)
+            .map(|(_, n, _, _, _, _, _, _, _, _, _, _)| n.as_str().to_string())
+            .unwrap_or_else(|_| "Sound".to_string());
+        let parent_name_str = if let Ok((_, _, Some(child_of), _, _, _, _, _, _, _, _, _)) =
+            explorer_query.get(entity)
+        {
+            explorer_query
+                .get(child_of.parent())
+                .map(|(_, name, _, _, _, _, _, _, _, _, _, _)| name.as_str().to_string())
+                .unwrap_or_else(|_| "None".to_string())
+        } else {
+            "Workspace".to_string()
+        };
+        let mut current_id = 0u32;
+        let mut current_volume = crate::common::game::assets::components::Sound::default().volume;
+        let mut current_speed = 1.0f32;
+        let mut current_looped = false;
+        let mut current_replicate_time = false;
+        let mut current_playing = false;
+        let mut current_spatial = false;
+        if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+            if let Some(sound) = sound_opt {
+                current_id = sound.asset_id;
+                current_volume = sound.volume;
+                current_speed = sound.speed;
+                current_looped = sound.looped;
+                current_replicate_time = sound.replicate_time;
+                current_playing = sound.playing;
+                current_spatial = sound.spatial;
+            }
+        }
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Properties").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(16.0));
+            });
+
+            ui.add_space(8.0);
+            let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+            ui.painter().rect_filled(sep_rect, 0.0, egui::Color32::from_rgb(212, 212, 212));
+            ui.add_space(8.0);
+
+            egui::CollapsingHeader::new(egui::RichText::new("Information").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_sound_info_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let name_id = ui.make_persistent_id("properties_sound_name_input");
+                            let mut name_edit = ui.data_mut(|d| d.get_temp::<String>(name_id).unwrap_or_else(|| name_str.clone()));
+                            let res = ui.add(egui::TextEdit::singleline(&mut name_edit));
+                            if res.changed() {
+                                ui.data_mut(|d| d.insert_temp(name_id, name_edit.clone()));
+                                commands.entity(entity).insert(Name::new(name_edit.clone()));
+                            } else if !res.has_focus() {
+                                if name_edit != name_str {
+                                    name_edit = name_str.clone();
+                                    ui.data_mut(|d| d.insert_temp(name_id, name_edit.clone()));
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Class Name").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.label(egui::RichText::new("Sound").color(egui::Color32::BLACK).size(13.0));
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("ID").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let id_id = ui.make_persistent_id("properties_sound_id_input");
+                            let mut id_text = ui.data_mut(|d| d.get_temp::<String>(id_id).unwrap_or_else(|| current_id.to_string()));
+                            let id_res = ui.add_enabled(is_logged_in, egui::TextEdit::singleline(&mut id_text).desired_width(60.0)).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if id_res.changed() {
+                                ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
+                                if let Ok(parsed) = id_text.parse::<u32>() {
+                                    if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                        if let Some(sound) = sound_opt {
+                                            let mut updated = *sound;
+                                            updated.asset_id = parsed;
+                                            commands.entity(entity).insert(updated);
+                                        }
+                                    }
+                                }
+                            } else if !id_res.has_focus() {
+                                let expected = current_id.to_string();
+                                if id_text != expected {
+                                    id_text = expected;
+                                    ui.data_mut(|d| d.insert_temp(id_id, id_text.clone()));
+                                }
+                            }
+                            ui.end_row();
+
+                            draw_asset_status_row(ui, current_id, asset_status, current_uid);
+
+                            ui.label(egui::RichText::new("Volume").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut volume_edit = current_volume;
+                            let volume_res = ui.add_enabled(is_logged_in, egui::Slider::new(&mut volume_edit, 0.0..=crate::common::game::assets::components::Sound::MAX_VOLUME).show_value(true)).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if volume_res.changed() {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                    if let Some(sound) = sound_opt {
+                                        let mut updated = *sound;
+                                        updated.volume = crate::common::game::assets::components::Sound::clamp_volume(volume_edit);
+                                        commands.entity(entity).insert(updated);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Speed").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let speed_id = ui.make_persistent_id("properties_sound_speed_input");
+                            let mut speed_text = ui.data_mut(|d| d.get_temp::<String>(speed_id).unwrap_or_else(|| format!("{:.2}", current_speed)));
+                            let speed_res = ui.add_enabled(is_logged_in, egui::TextEdit::singleline(&mut speed_text).desired_width(60.0)).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if speed_res.changed() {
+                                ui.data_mut(|d| d.insert_temp(speed_id, speed_text.clone()));
+                                if let Ok(parsed) = speed_text.parse::<f32>() {
+                                    if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                        if let Some(sound) = sound_opt {
+                                            let mut updated = *sound;
+                                            updated.speed = crate::common::game::assets::components::Sound::clamp_speed(parsed);
+                                            commands.entity(entity).insert(updated);
+                                        }
+                                    }
+                                }
+                            } else if !speed_res.has_focus() {
+                                let expected = format!("{:.2}", current_speed);
+                                if speed_text != expected {
+                                    speed_text = expected;
+                                    ui.data_mut(|d| d.insert_temp(speed_id, speed_text.clone()));
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Looped").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut looped_edit = current_looped;
+                            let looped_res = ui.add_enabled(is_logged_in, egui::Checkbox::new(&mut looped_edit, "")).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if looped_res.changed() {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                    if let Some(sound) = sound_opt {
+                                        let mut updated = *sound;
+                                        updated.looped = looped_edit;
+                                        commands.entity(entity).insert(updated);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Replicate Time To Clients").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut replicate_edit = current_replicate_time;
+                            let replicate_res = ui.add_enabled(is_logged_in, egui::Checkbox::new(&mut replicate_edit, "")).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if replicate_res.changed() {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                    if let Some(sound) = sound_opt {
+                                        let mut updated = *sound;
+                                        updated.replicate_time = replicate_edit;
+                                        commands.entity(entity).insert(updated);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Playing").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut playing_edit = current_playing;
+                            let playing_res = ui.add_enabled(is_logged_in, egui::Checkbox::new(&mut playing_edit, "")).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if playing_res.changed() {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                    if let Some(sound) = sound_opt {
+                                        let mut updated = *sound;
+                                        updated.playing = playing_edit;
+                                        commands.entity(entity).insert(updated);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Spatial").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut spatial_edit = current_spatial;
+                            let spatial_res = ui.add_enabled(is_logged_in, egui::Checkbox::new(&mut spatial_edit, "")).on_disabled_hover_text(crate::studio::auth::LOGIN_REQUIRED_TOOLTIP);
+                            if spatial_res.changed() {
+                                if let Ok((_, _, _, _, _, _, _, _, _, _, _, sound_opt)) = explorer_query.get(entity) {
+                                    if let Some(sound) = sound_opt {
+                                        let mut updated = *sound;
+                                        updated.spatial = spatial_edit;
+                                        commands.entity(entity).insert(updated);
+                                    }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Parent").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            ui.label(egui::RichText::new(&parent_name_str).color(egui::Color32::BLACK).size(13.0));
+                            ui.end_row();
+                        });
+                });
+
+            ui.add_space(8.0);
+
+            let (sound_pos_studs, sound_scale, sound_rot_deg) = match properties_query.get(entity) {
+                Ok((_, transform, _, _, _, _, _, _, _, _, _, _)) => {
+                    let (rx, ry, rz) = transform.rotation.to_euler(EulerRot::XYZ);
+                    (
+                        transform.translation / 0.28,
+                        transform.scale,
+                        Vec3::new(rx.to_degrees(), ry.to_degrees(), rz.to_degrees()),
+                    )
+                }
+                Err(_) => (Vec3::ZERO, Vec3::ONE, Vec3::ZERO),
+            };
+
+            egui::CollapsingHeader::new(egui::RichText::new("Transform").color(egui::Color32::from_rgb(0, 0, 0)).strong().size(14.0))
+                .default_open(true)
+                .show(ui, |ui| {
+                    egui::Grid::new("properties_sound_transform_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Position").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut pos_studs = sound_pos_studs;
+                            let mut new_px = None;
+                            let mut new_py = None;
+                            let mut new_pz = None;
+                            ui.horizontal(|ui| {
+                                new_px = draw_coord_edit(ui, "X", &mut pos_studs.x, true, "sound_pos_x");
+                                new_py = draw_coord_edit(ui, "Y", &mut pos_studs.y, true, "sound_pos_y");
+                                new_pz = draw_coord_edit(ui, "Z", &mut pos_studs.z, true, "sound_pos_z");
+                            });
+                            if new_px.is_some() || new_py.is_some() || new_pz.is_some() {
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    if let Some(x) = new_px { transform.translation.x = x * 0.28; }
+                                    if let Some(y) = new_py { transform.translation.y = y * 0.28; }
+                                    if let Some(z) = new_pz { transform.translation.z = z * 0.28; }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Size").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut scale_val = sound_scale;
+                            let mut new_sx = None;
+                            let mut new_sy = None;
+                            let mut new_sz = None;
+                            ui.horizontal(|ui| {
+                                new_sx = draw_coord_edit(ui, "X", &mut scale_val.x, true, "sound_size_x");
+                                new_sy = draw_coord_edit(ui, "Y", &mut scale_val.y, true, "sound_size_y");
+                                new_sz = draw_coord_edit(ui, "Z", &mut scale_val.z, true, "sound_size_z");
+                            });
+                            if new_sx.is_some() || new_sy.is_some() || new_sz.is_some() {
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    if let Some(x) = new_sx { transform.scale.x = x.max(0.01); }
+                                    if let Some(y) = new_sy { transform.scale.y = y.max(0.01); }
+                                    if let Some(z) = new_sz { transform.scale.z = z.max(0.01); }
+                                }
+                            }
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Rotation").color(egui::Color32::from_rgb(60, 60, 60)).size(13.0));
+                            let mut rot_deg = sound_rot_deg;
+                            let mut new_rx = None;
+                            let mut new_ry = None;
+                            let mut new_rz = None;
+                            ui.horizontal(|ui| {
+                                new_rx = draw_coord_edit(ui, "X", &mut rot_deg.x, true, "sound_rot_x");
+                                new_ry = draw_coord_edit(ui, "Y", &mut rot_deg.y, true, "sound_rot_y");
+                                new_rz = draw_coord_edit(ui, "Z", &mut rot_deg.z, true, "sound_rot_z");
+                            });
+                            if new_rx.is_some() || new_ry.is_some() || new_rz.is_some() {
+                                let rx_val = new_rx.unwrap_or(rot_deg.x).to_radians();
+                                let ry_val = new_ry.unwrap_or(rot_deg.y).to_radians();
+                                let rz_val = new_rz.unwrap_or(rot_deg.z).to_radians();
+                                if let Ok((_, mut transform, _, _, _, _, _, _, _, _, _, _)) = properties_query.get_mut(entity) {
+                                    transform.rotation = Quat::from_euler(EulerRot::XYZ, rx_val, ry_val, rz_val);
+                                }
+                            }
+                            ui.end_row();
                         });
                 });
         });

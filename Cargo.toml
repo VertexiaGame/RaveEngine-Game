@@ -24,7 +24,7 @@ name = "RaveEngineServer"
 path = "src/bin/server.rs"
 
 [dependencies]
-bevy = { version = "0.19.0", features = ["default", "free_camera", "bevy_dev_tools", "android-native-activity", "jpeg", "webp", "gif", "wav"] }
+bevy = { version = "0.19.0", features = ["default", "free_camera", "bevy_dev_tools", "android-native-activity", "jpeg", "webp", "gif", "wav", "mp3", "vorbis"] }
 bevy_egui = "0.40.1"
 egui_extras = { version = "0.34", features = ["syntect"] }
 rand = "0.10.1"

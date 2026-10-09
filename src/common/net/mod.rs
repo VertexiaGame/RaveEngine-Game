@@ -52,6 +52,8 @@ pub fn register_protocol(app: &mut App) {
         .replicate();
     app.component::<crate::common::game::assets::components::Texture>()
         .replicate();
+    app.component::<crate::common::game::assets::components::Sound>()
+        .replicate();
     app.component::<crate::common::game::bricks::components::Brick>()
         .replicate();
     app.component::<crate::common::game::bricks::components::BrickShapeComponent>()

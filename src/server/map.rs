@@ -226,6 +226,40 @@ pub fn load_map(mut commands: Commands, settings: Res<ServerSettings>) {
                 commands.entity(mesh_entity).add_child(texture_entity);
             }
         }
+        for sound in state.sounds {
+            let cmd = commands.spawn((
+                sound.transform,
+                Name::new(sound.name.clone()),
+                crate::common::game::assets::components::Sound {
+                    asset_id: sound.asset_id,
+                    volume: crate::common::game::assets::components::Sound::clamp_volume(
+                        sound.volume,
+                    ),
+                    speed: crate::common::game::assets::components::Sound::clamp_speed(
+                        sound.speed,
+                    ),
+                    looped: sound.looped,
+                    replicate_time: sound.replicate_time,
+                    playing: sound.playing,
+                    spatial: sound.spatial,
+                    position: 0.0,
+                },
+                NetworkTransform {
+                    translation: sound.transform.translation,
+                    rotation: sound.transform.rotation,
+                    scale: sound.transform.scale,
+                    velocity: Vec3::ZERO,
+                },
+                Replicate::default(),
+            ));
+            let new_sound_entity = cmd.id();
+            named_entities.insert(sound.name, new_sound_entity);
+            if let Some(ref p_name) = sound.parent_name {
+                if let Some(&parent_entity) = named_entities.get(p_name) {
+                    commands.entity(parent_entity).add_child(new_sound_entity);
+                }
+            }
+        }
         loaded = true;
         info!("Map loaded successfully");
     }

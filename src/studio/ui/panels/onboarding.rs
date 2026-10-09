@@ -304,6 +304,7 @@ pub fn draw_onboarding(
                                 images: Vec::new(),
                                 meshes: Vec::new(),
                                 textures: Vec::new(),
+                                sounds: Vec::new(),
                             };
 
                             let _ = state.save_to_file(&onboarding_data.save_path);

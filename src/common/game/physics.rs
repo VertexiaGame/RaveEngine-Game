@@ -207,9 +207,6 @@ fn attach_brick_physics(
             crate::common::game::bricks::brick_collider_for_shape(shape),
         )
     } else if let Some(mesh_comp) = mesh_comp_opt {
-        // Mesh entities collide with the actual model geometry, never a brick.
-        // The collider is cached once the model data is fetched, so this may
-        // not be ready yet; the caller retries until it is.
         let Some(cache) = collider_cache else {
             return false;
         };
@@ -415,8 +412,6 @@ fn handle_physics_simulation_actions(
                         mesh_comp_opt,
                         Some(&mesh_cache),
                     ) {
-                        // Collider data not ready yet; drop the backup so the
-                        // entity gets retried once the model finishes loading.
                         commands.entity(entity).remove::<TransformBackup>();
                     }
                 }
@@ -581,8 +576,6 @@ mod tests {
         };
         let entity = app.world_mut().spawn((transform, shape)).id();
         let mut commands = app.world_mut().commands();
-        // Bricks carry a Mesh3d for rendering; it must never become a trimesh
-        // collider, otherwise large scenes drown in trimesh-trimesh contacts.
         let attached = attach_brick_physics(
             &mut commands,
             entity,
@@ -653,9 +646,6 @@ mod tests {
             .get(app.world(), entity)
             .unwrap();
         assert_eq!(collider.scale(), Vec3::ONE);
-        // A brick fallback collider would have a box around (-1.12,-0.28,-0.56)
-        // to (1.12,0.28,0.56). The precise model trimesh instead covers exactly
-        // the model vertices (0,0,0) to (1,1,1).
         let aabb = collider.aabb(Vec3::ZERO, Quat::IDENTITY);
         assert!(aabb.min.abs_diff_eq(Vec3::ZERO, 1e-4));
         assert!(aabb.max.abs_diff_eq(Vec3::ONE, 1e-4));

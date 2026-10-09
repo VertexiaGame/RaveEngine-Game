@@ -1,6 +1,7 @@
 pub mod components;
 pub mod fetch;
 pub mod meshdata;
+pub mod sounds;
 pub mod status;
 
 use std::collections::{HashMap, HashSet};
@@ -27,6 +28,7 @@ const FACE_OFFSET: f32 = 0.001;
 const OVERLAY_THICKNESS: f32 = 0.001;
 const BLOCK_MESH_HALF_EXTENTS: Vec3 = Vec3::new(2.0 * 0.28, 0.5 * 0.28, 1.0 * 0.28);
 
+
 #[derive(Resource, Default)]
 pub struct ImageAssetCache {
     pub images: HashMap<u32, Handle<Image>>,
@@ -42,18 +44,13 @@ pub struct MeshAssetCache {
     pub meshes: HashMap<(u32, bool), Handle<Mesh>>,
     pub materials: HashMap<(u32, bool), Handle<StandardMaterial>>,
     pub meta: HashMap<u32, MeshAssetMeta>,
-    /// Precise trimesh colliders built from the raw / normalized model data,
-    /// keyed by (asset_id, normalize).
     pub colliders: HashMap<(u32, bool), Collider>,
 }
 
 #[derive(Clone, Debug)]
 pub struct MeshAssetMeta {
-    /// Natural size of the model in studs (world units / 0.28).
     pub size_studs: Vec3,
-    /// Natural size of the normalized model in studs.
     pub normalized_size_studs: Vec3,
-    /// Rotation inherited from the model itself (glb node transform).
     pub rotation: Quat,
 }
 
@@ -63,21 +60,12 @@ pub struct PendingMeshFetches(pub HashSet<u32>);
 #[derive(Resource, Default)]
 pub struct PendingMeshTextureFetches(pub HashSet<u32>);
 
-/// Cached uploaded texture sidecars of mesh assets, keyed by mesh asset id.
-/// A `None` value means the sidecar was fetched and does not exist, so the
-/// model's embedded texture should be used instead.
 #[derive(Resource, Default)]
 pub struct MeshTextureCache {
     pub sidecars: HashMap<u32, Option<Handle<Image>>>,
-    /// Override materials built from a mesh's default material with a
-    /// replaced base color texture, keyed by
-    /// (mesh asset id, normalize, texture source id).
     pub materials: HashMap<(u32, bool, u32), Handle<StandardMaterial>>,
 }
 
-/// Tracks which mesh entities currently render with a texture-override
-/// material so the default material can be restored when the override goes
-/// away.
 #[derive(Resource, Default)]
 pub struct AppliedTextureOverrides(pub HashMap<Entity, Handle<StandardMaterial>>);
 
@@ -89,6 +77,7 @@ impl Plugin for AssetsPlugin {
             .register_type::<components::ImageFace>()
             .register_type::<components::Mesh>()
             .register_type::<components::Texture>()
+            .register_type::<components::Sound>()
             .init_resource::<ImageAssetCache>()
             .init_resource::<PendingImageFetches>()
             .init_resource::<MeshAssetCache>()
@@ -96,6 +85,8 @@ impl Plugin for AssetsPlugin {
             .init_resource::<PendingMeshTextureFetches>()
             .init_resource::<MeshTextureCache>()
             .init_resource::<AppliedTextureOverrides>()
+            .init_resource::<sounds::SoundAssetCache>()
+            .init_resource::<sounds::PendingSoundFetches>()
             .init_resource::<fetch::AssetFetchPool>()
             .init_resource::<status::AssetStatusCache>()
             .init_resource::<status::PendingStatusFetches>()
@@ -114,6 +105,7 @@ impl Plugin for AssetsPlugin {
                 apply_cached_mesh_visuals,
                 fetch_missing_textures,
                 apply_texture_overrides,
+                sounds::fetch_missing_sounds,
                 status::request_missing_statuses,
                 status::poll_status_results,
             ),
@@ -187,7 +179,7 @@ fn setup_image_meshes(
     }
 }
 
-fn current_user_ukey(
+pub(crate) fn current_user_ukey(
     auth_store: Option<Res<crate::studio::auth::StudioAuthStore>>,
     client_ukey: Option<Res<crate::client::ClientUkey>>,
 ) -> Option<String> {
@@ -240,6 +232,7 @@ fn apply_fetched_assets(
     images: Query<(Entity, &components::Image)>,
     mesh_entities: Query<(Entity, &components::Mesh)>,
     mut transforms: Query<&mut Transform>,
+    mut sound_params: sounds::SoundApplyParams,
 ) {
     for (asset_id, kind, result) in pool.drain_results() {
         match kind {
@@ -397,6 +390,24 @@ fn apply_fetched_assets(
                 };
                 mesh_texture_cache.sidecars.insert(asset_id, decoded);
             }
+            fetch::AssetKind::Sound => {
+                sound_params.pending.0.remove(&asset_id);
+                match result {
+                    Ok(bytes) => {
+                        if let Some(ref mut audio) = sound_params.audio {
+                            if !sounds::cache_sound_bytes(
+                                &mut sound_params.cache,
+                                audio,
+                                asset_id,
+                                &bytes,
+                            ) {
+                                warn!("Asset {asset_id}: sound bytes rejected");
+                            }
+                        }
+                    }
+                    Err(e) => warn!("Asset {asset_id}: sound fetch failed: {e}"),
+                }
+            }
         }
     }
 }
@@ -495,8 +506,6 @@ fn apply_cached_mesh_visuals(
     }
 }
 
-/// Submits background fetches for texture assets: uploaded texture sidecars
-/// for mesh-sourced textures and regular image assets for decals.
 fn fetch_missing_textures(
     textures: Query<(Entity, &components::Texture, Option<&ChildOf>)>,
     meshes: Query<&components::Mesh>,
@@ -523,8 +532,6 @@ fn fetch_missing_textures(
                 pending_images.0.insert(asset_id);
             }
         } else {
-            // Sidecars are only relevant for textures actually attached to a
-            // mesh; the sidecar id is the parent mesh's asset id.
             let Some(child_of) = child_of else {
                 continue;
             };
@@ -546,14 +553,6 @@ fn fetch_missing_textures(
     }
 }
 
-/// Applies texture overrides to parent meshes. The first (by entity order)
-/// Texture child of a mesh decides its appearance:
-/// - decal textures ("image/N") replace the base color texture with image N;
-/// - mesh textures ("mesh/N") use the mesh's uploaded texture sidecar when it
-///   exists, falling back to the model's embedded texture.
-///
-/// When no override resolves anymore, the mesh's default material is
-/// restored.
 fn apply_texture_overrides(
     mut commands: Commands,
     textures: Query<(Entity, &components::Texture, Option<&ChildOf>)>,
@@ -579,7 +578,6 @@ fn apply_texture_overrides(
         }
     }
 
-    // Meshes that should render with an override material this frame.
     let mut overridden: HashMap<Entity, Handle<StandardMaterial>> = HashMap::new();
 
     for (parent, mut children) in children_by_parent {
@@ -599,8 +597,6 @@ fn apply_texture_overrides(
             continue;
         };
 
-        // None means "still loading" (leave the mesh untouched), Some(None)
-        // means "resolved to no custom texture".
         let effective: Option<Option<Handle<Image>>> = if texture.is_decal {
             if texture.asset_id == 0 {
                 Some(None)
@@ -660,7 +656,6 @@ fn apply_texture_overrides(
         applied.0.insert(*parent, handle.clone());
     }
 
-    // Restore meshes whose texture children went away or stopped resolving.
     let stale: Vec<Entity> = applied
         .0
         .keys()
@@ -694,9 +689,6 @@ fn apply_texture_overrides(
     }
 }
 
-/// Builds a precise trimesh collider from the loaded model data, dropping
-/// degenerate triangles and merging duplicate vertices so any valid model can
-/// be turned into collision geometry without panicking.
 fn build_mesh_collider(data: &LoadedMeshData) -> Option<Collider> {
     let vertices: Vec<Vec3> = data.positions.iter().map(|p| Vec3::from(*p)).collect();
     if vertices.is_empty() {
@@ -719,7 +711,6 @@ fn build_mesh_collider(data: &LoadedMeshData) -> Option<Collider> {
         .ok()
 }
 
-/// Returns true when the entity has at least one Texture child.
 pub fn has_texture_child(world: &World, mesh_entity: Entity) -> bool {
     world.get::<Children>(mesh_entity).is_some_and(|children| {
         children
@@ -728,9 +719,6 @@ pub fn has_texture_child(world: &World, mesh_entity: Entity) -> bool {
     })
 }
 
-/// Ensures the mesh entity has a Texture child, creating a default one named
-/// "Texture" with id "mesh/{asset_id}" when missing. Returns true when a
-/// child was created.
 pub fn ensure_texture_child(world: &World, commands: &mut Commands, mesh_entity: Entity) -> bool {
     if has_texture_child(world, mesh_entity) {
         return false;
@@ -754,7 +742,6 @@ pub fn ensure_texture_child(world: &World, commands: &mut Commands, mesh_entity:
     true
 }
 
-/// Same as [`ensure_texture_child`] but spawning directly through the world.
 pub fn ensure_texture_child_world(world: &mut World, mesh_entity: Entity) -> bool {
     if has_texture_child(world, mesh_entity) {
         return false;
@@ -778,9 +765,6 @@ pub fn ensure_texture_child_world(world: &mut World, mesh_entity: Entity) -> boo
     true
 }
 
-/// Moves texture children whose id still equals the old default
-/// ("mesh/{old_asset_id}") to the new default so untouched textures follow
-/// their parent mesh's id changes. Customized (decal) ids are left alone.
 pub fn follow_mesh_id_change(
     world: &mut World,
     mesh_entity: Entity,
@@ -805,9 +789,6 @@ pub fn follow_mesh_id_change(
     }
 }
 
-/// Gives a freshly placed mesh entity its natural model size (in studs) and the
-/// rotation the model itself carries, but only while the transform is still at
-/// its untouched defaults so user edits are never overwritten.
 fn apply_mesh_natural_transform(
     commands: &mut Commands,
     entity: Entity,
@@ -821,9 +802,6 @@ fn apply_mesh_natural_transform(
     let mut new_transform = *transform;
     let mut changed = false;
     if new_transform.scale == Vec3::ONE {
-        // Model data is authored in meters. An unmodified model renders at its
-        // true meter size; a normalized model (max extent 1 m) renders at
-        // exactly 1 stud (0.28 m).
         let scale = if normalize {
             Vec3::splat(0.28)
         } else {

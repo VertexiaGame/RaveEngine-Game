@@ -253,6 +253,18 @@ fn sample_state() -> VrtxFileState {
                 parent_name: Some("Chair".to_string()),
             },
         ],
+        sounds: vec![VrtxSound {
+            name: "Theme".to_string(),
+            asset_id: 777,
+            volume: 80.0,
+            speed: 1.25,
+            looped: true,
+            replicate_time: true,
+            playing: true,
+            spatial: false,
+            parent_name: None,
+            transform: Transform::from_xyz(1.0, 2.0, 3.0),
+        }],
     }
 }
 
@@ -429,6 +441,36 @@ fn meshes_round_trip_preserves_all_properties() {
 }
 
 #[test]
+fn sounds_round_trip_preserves_all_properties() {
+    let state = sample_state();
+    let loaded = round_trip(&state);
+
+    assert_eq!(loaded.sounds.len(), 1);
+    assert_eq!(loaded.sounds[0].name, "Theme");
+    assert_eq!(loaded.sounds[0].asset_id, 777);
+    assert_f32_eq(loaded.sounds[0].volume, 80.0);
+    assert_f32_eq(loaded.sounds[0].speed, 1.25);
+    assert!(loaded.sounds[0].looped);
+    assert!(loaded.sounds[0].replicate_time);
+    assert!(loaded.sounds[0].playing);
+    assert!(!loaded.sounds[0].spatial);
+    assert_eq!(loaded.sounds[0].parent_name, None);
+    assert_transform_eq(&loaded.sounds[0].transform, &state.sounds[0].transform);
+}
+
+#[test]
+fn pre_v14_files_load_without_sounds() {
+    let mut state = sample_state();
+    state.version = 13;
+    let loaded = round_trip(&state);
+    assert_eq!(loaded.version, 13);
+    assert!(
+        loaded.sounds.is_empty(),
+        "pre-v14 files have no sounds section"
+    );
+}
+
+#[test]
 fn textures_round_trip_preserves_all_properties() {
     let state = sample_state();
     let loaded = round_trip(&state);
@@ -462,6 +504,7 @@ fn empty_state_round_trip() {
         images: Vec::new(),
         meshes: Vec::new(),
         textures: Vec::new(),
+        sounds: Vec::new(),
     };
     let loaded = round_trip(&state);
     assert_eq!(loaded.version, FORMAT_VERSION);

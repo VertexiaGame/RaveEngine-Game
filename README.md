@@ -2,7 +2,7 @@
 
 # RaveEngine-Game
 
-Welcome to the RaveEngine project, a full rewrite of the previous client built in Godot to transition to Rust. RaveEngine is an engine built with Bevy, a graphics engine that allows us to skip the boring low-level part and get straight to what's important: the studio, the client and the server.
+Welcome to the RaveEngine project, a full rewrite of the previous client built in Godot to transition to Rust. RaveEngine is an engine built with Bevy, a code-only game engine that allows us to skip the boring low-level part and get straight to what's important: the studio, the client and the server.
 
 With Rust, we are able to build things we previously considered impossible or too hard with Godot. Many Godot features limited us for what we actually wanted with VERTEXIA. So, with the VERTIGO project (a rewrite of the website to Go), we thought, "why not rewrite the client too?". After all, it was getting hard to move around the client source code: it was as much of a mess as you think it was.
 
@@ -18,8 +18,3 @@ Clone our repo, run `cargo build` (`cargo build` builds as debug, which is faste
 
 You can now launch the executable!
 
-As of right now, the studio, client and server can be built, but client is not as mature yet. I wanna first stabilize the studio and get it to a "proper" point before finishing out the client. 
-
-## Designer Program
-
-The designer program is no longer being used, in favor of fully switching to egui.

@@ -284,6 +284,7 @@ pub fn handle_keyboard_shortcuts(
         Query<&crate::common::game::bricks::components::BrickStuds>,
         Query<&mut crate::common::game::bricks::components::BrickColor>,
         Query<&crate::common::game::assets::components::Mesh>,
+        Query<&crate::common::game::assets::components::Sound>,
     ),
     mut camera_query: Query<
         (
@@ -294,7 +295,7 @@ pub fn handle_keyboard_shortcuts(
     >,
     bricks_global: Query<&GlobalTransform, With<Brick>>,
 ) {
-    let (studs_query, brick_colors, mesh_assets) = data_queries;
+    let (studs_query, brick_colors, mesh_assets, sound_assets) = data_queries;
     let Ok(ctx) = contexts.ctx_mut() else { return };
     if ctx.egui_wants_keyboard_input() {
         return;
@@ -321,6 +322,7 @@ pub fn handle_keyboard_shortcuts(
                 &studs_query,
                 &brick_colors,
                 &mesh_assets,
+                &sound_assets,
             );
         }
         return;
@@ -397,6 +399,7 @@ fn duplicate_selection(
     studs_query: &Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
+    sound_assets: &Query<&crate::common::game::assets::components::Sound>,
 ) {
     let to_duplicate: Vec<Entity> = selection.entities.clone();
     if to_duplicate.is_empty() {
@@ -410,6 +413,7 @@ fn duplicate_selection(
             studs_query,
             brick_colors,
             mesh_assets,
+            sound_assets,
         ) {
             data.transform.translation += Vec3::new(2.0 * 0.28, 0.0, 2.0 * 0.28);
             let new_entity = crate::common::game::bricks::data::spawn_from_data(commands, &data);
@@ -508,6 +512,7 @@ pub fn handle_delete_keys(
     studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
     brick_colors: Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: Query<&crate::common::game::assets::components::Mesh>,
+    sound_assets: Query<&crate::common::game::assets::components::Sound>,
 ) {
     if !keys.just_pressed(KeyCode::Delete) && !keys.just_pressed(KeyCode::Backspace) {
         return;
@@ -534,6 +539,7 @@ pub fn handle_delete_keys(
             &studs_query,
             &brick_colors,
             &mesh_assets,
+            &sound_assets,
         ) {
             history.push_command(UndoCommand::Delete { entity, data });
         }

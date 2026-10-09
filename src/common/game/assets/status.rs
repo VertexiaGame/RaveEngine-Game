@@ -149,6 +149,7 @@ fn current_user_ukey(
 pub fn request_missing_statuses(
     meshes: Query<&crate::common::game::assets::components::Mesh>,
     textures: Query<&crate::common::game::assets::components::Texture>,
+    sounds: Query<&crate::common::game::assets::components::Sound>,
     cache: Res<AssetStatusCache>,
     mut pending: ResMut<PendingStatusFetches>,
     mut pool: ResMut<AssetStatusPool>,
@@ -171,6 +172,14 @@ pub fn request_missing_statuses(
             && !pending.0.contains(&texture.asset_id)
         {
             missing.insert(texture.asset_id);
+        }
+    }
+    for sound in &sounds {
+        if sound.asset_id != 0
+            && !cache.statuses.contains_key(&sound.asset_id)
+            && !pending.0.contains(&sound.asset_id)
+        {
+            missing.insert(sound.asset_id);
         }
     }
     if missing.is_empty() {

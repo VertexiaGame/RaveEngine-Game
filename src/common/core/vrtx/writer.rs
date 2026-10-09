@@ -211,6 +211,25 @@ fn write_texture(w: &mut impl Write, texture: &VrtxTexture) -> std::io::Result<(
     Ok(())
 }
 
+fn write_sound(w: &mut impl Write, sound: &VrtxSound) -> std::io::Result<()> {
+    write_string_u16(w, &sound.name)?;
+    write_u32(w, sound.asset_id)?;
+    write_f32(w, sound.volume)?;
+    write_f32(w, sound.speed)?;
+    write_u8(w, if sound.looped { 1 } else { 0 })?;
+    write_u8(w, if sound.replicate_time { 1 } else { 0 })?;
+    write_u8(w, if sound.playing { 1 } else { 0 })?;
+    write_u8(w, if sound.spatial { 1 } else { 0 })?;
+
+    if let Some(ref parent) = sound.parent_name {
+        write_string_u16(w, parent)?;
+    } else {
+        write_u16(w, 0)?;
+    }
+
+    write_transform(w, &sound.transform)
+}
+
 pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
     let resolved = crate::common::assets_path::resolve_vrtx_path(path);
     if let Some(parent) = resolved.parent() {
@@ -261,6 +280,13 @@ pub fn save_to_file(state: &VrtxFileState, path: &str) -> std::io::Result<()> {
         write_u32(&mut writer, state.textures.len() as u32)?;
         for texture in &state.textures {
             write_texture(&mut writer, texture)?;
+        }
+    }
+
+    if state.version >= 14 {
+        write_u32(&mut writer, state.sounds.len() as u32)?;
+        for sound in &state.sounds {
+            write_sound(&mut writer, sound)?;
         }
     }
 

@@ -11,7 +11,6 @@ pub struct ServiceResources<'w> {
 }
 
 pub fn pick_file_dialog(filter_label: &str) -> Option<std::path::PathBuf> {
-    //fixes the compilation issue on android: we dont care about rfd on android, just null
     #[cfg(not(target_os = "android"))]
     {
         rfd::FileDialog::new()
@@ -25,7 +24,6 @@ pub fn pick_file_dialog(filter_label: &str) -> Option<std::path::PathBuf> {
     }
 }
 pub fn save_file_dialog(filter_label: &str) -> Option<std::path::PathBuf> {
-    //fixes the compilation issue on android: we dont care about rfd on android, just null
     #[cfg(not(target_os = "android"))]
     {
         rfd::FileDialog::new()
@@ -44,6 +42,7 @@ pub struct CopiedEntityBuffer {
     pub transform: Option<Transform>,
     pub mesh: Option<Mesh3d>,
     pub mesh_asset: Option<crate::common::game::assets::components::Mesh>,
+    pub sound_asset: Option<crate::common::game::assets::components::Sound>,
     pub texture: Option<crate::common::game::assets::components::Texture>,
     pub material: Option<
         MeshMaterial3d<
@@ -124,6 +123,7 @@ pub struct PlaytestBackup {
     pub images: Vec<crate::common::core::vrtx::VrtxImage>,
     pub meshes: Vec<crate::common::core::vrtx::VrtxMesh>,
     pub textures: Vec<crate::common::core::vrtx::VrtxTexture>,
+    pub sounds: Vec<crate::common::core::vrtx::VrtxSound>,
     pub gravity: Option<Vec3>,
     pub players_service: Option<crate::studio::tools::PlayersService>,
 }
@@ -266,10 +266,12 @@ pub fn handle_file_dialog_results(
             Option<&crate::common::game::assets::components::Image>,
             Option<&crate::common::game::assets::components::Texture>,
             Option<&crate::common::game::assets::components::Mesh>,
+            Option<&crate::common::game::assets::components::Sound>,
         ),
         Without<Camera3d>,
     >,
     studs_query: Query<&crate::common::game::bricks::components::BrickStuds>,
+    auth_store: Res<crate::studio::auth::StudioAuthStore>,
 ) {
     let rx = file_dialog_state.rx.lock().unwrap();
     while let Ok(result) = rx.try_recv() {
@@ -285,6 +287,7 @@ pub fn handle_file_dialog_results(
                 if let Ok(state) =
                     crate::common::core::vrtx::VrtxFileState::load_from_file(&open_path_str)
                 {
+                    let is_logged_in = auth_store.is_logged_in();
                     onboarding_data.save_path = open_path_str;
                     if onboarding_data.quick_open {
                         onboarding_data.quick_open = false;
@@ -296,6 +299,12 @@ pub fn handle_file_dialog_results(
                             || mesh_opt.is_some()
                             || texture_opt.is_some()
                         {
+                            commands.entity(entity).try_despawn();
+                        }
+                    }
+                    for (entity, _, _, _, _, _, _, _, _, _, _, sound_opt) in &save_explorer_query
+                    {
+                        if sound_opt.is_some() {
                             commands.entity(entity).try_despawn();
                         }
                     }
@@ -412,6 +421,9 @@ pub fn handle_file_dialog_results(
                         }
                     }
                     for image in state.images {
+                        if !is_logged_in {
+                            continue;
+                        }
                         let face = image
                             .face
                             .as_deref()
@@ -434,6 +446,9 @@ pub fn handle_file_dialog_results(
                     }
                     let mut mesh_entities: Vec<(Entity, u32)> = Vec::new();
                     for mesh in state.meshes {
+                        if !is_logged_in {
+                            continue;
+                        }
                         let mesh_asset_id = mesh.asset_id;
                         let cmd = commands.spawn((
                             mesh.transform,
@@ -462,10 +477,16 @@ pub fn handle_file_dialog_results(
                             }
                         }
                     }
-                    // Texture children of meshes (mesh names are registered in
-                    // named_entities above so they resolve as parents too).
                     let mut textured_meshes = std::collections::HashSet::new();
                     for texture in state.textures {
+                        if !is_logged_in {
+                            let parent_exists = texture.parent_name.as_ref().is_some_and(|p| {
+                                named_entities.contains_key(p)
+                            });
+                            if !parent_exists {
+                                continue;
+                            }
+                        }
                         let parsed = crate::common::game::assets::components::Texture::parse_content_id(
                             &texture.id_string,
                         );
@@ -484,8 +505,6 @@ pub fn handle_file_dialog_results(
                             }
                         }
                     }
-                    // Meshes without a persisted texture child get a fresh
-                    // default one.
                     for (mesh_entity, mesh_asset_id) in mesh_entities {
                         if !textured_meshes.contains(&mesh_entity) {
                             let texture_entity = commands
@@ -498,6 +517,37 @@ pub fn handle_file_dialog_results(
                                 ))
                                 .id();
                             commands.entity(mesh_entity).add_child(texture_entity);
+                        }
+                    }
+                    for sound in state.sounds {
+                        if !is_logged_in {
+                            continue;
+                        }
+                        let cmd = commands.spawn((
+                            sound.transform,
+                            Name::new(sound.name.clone()),
+                            crate::common::game::assets::components::Sound {
+                                asset_id: sound.asset_id,
+                                volume: crate::common::game::assets::components::Sound::clamp_volume(
+                                    sound.volume,
+                                ),
+                                speed: crate::common::game::assets::components::Sound::clamp_speed(
+                                    sound.speed,
+                                ),
+                                looped: sound.looped,
+                                replicate_time: sound.replicate_time,
+                                playing: sound.playing,
+                                spatial: sound.spatial,
+                                position: 0.0,
+                            },
+                            Pickable::default(),
+                        ));
+                        let new_sound_entity = cmd.id();
+                        named_entities.insert(sound.name, new_sound_entity);
+                        if let Some(ref p_name) = sound.parent_name {
+                            if let Some(&parent_entity) = named_entities.get(p_name) {
+                                commands.entity(parent_entity).add_child(new_sound_entity);
+                            }
                         }
                     }
                 }
@@ -577,7 +627,7 @@ pub fn handle_file_dialog_results(
                 }
 
                 let mut scripts_data = Vec::new();
-                for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt, _, _, _) in
+                for (_entity, name, child_of_opt, _, _, s_opt, l_opt, m_opt, _, _, _, _) in
                     &save_explorer_query
                 {
                     let mut script_type_opt = None;
@@ -598,7 +648,7 @@ pub fn handle_file_dialog_results(
                     if let Some(script_type) = script_type_opt {
                         let mut parent_name = None;
                         if let Some(child_of) = child_of_opt {
-                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _)) =
+                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _, _)) =
                                 save_explorer_query.get(child_of.parent())
                             {
                                 parent_name = Some(p_name.to_string());
@@ -615,13 +665,13 @@ pub fn handle_file_dialog_results(
                 }
 
                 let mut images_data = Vec::new();
-                for (_entity, name, child_of_opt, _, _, _, _, _, image_opt, _, _) in
+                for (_entity, name, child_of_opt, _, _, _, _, _, image_opt, _, _, _) in
                     &save_explorer_query
                 {
                     if let Some(image) = image_opt {
                         let mut parent_name = None;
                         if let Some(child_of) = child_of_opt {
-                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _)) =
+                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _, _)) =
                                 save_explorer_query.get(child_of.parent())
                             {
                                 parent_name = Some(p_name.to_string());
@@ -642,13 +692,13 @@ pub fn handle_file_dialog_results(
                 }
 
                 let mut meshes_data = Vec::new();
-                for (_entity, name, child_of_opt, _, _, _, _, _, _, _, mesh_opt) in
+                for (_entity, name, child_of_opt, _, _, _, _, _, _, _, mesh_opt, _) in
                     &save_explorer_query
                 {
                     if let Some(mesh) = mesh_opt {
                         let mut parent_name = None;
                         if let Some(child_of) = child_of_opt {
-                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _)) =
+                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _, _)) =
                                 save_explorer_query.get(child_of.parent())
                             {
                                 parent_name = Some(p_name.to_string());
@@ -699,13 +749,13 @@ pub fn handle_file_dialog_results(
                 }
 
                 let mut textures_data = Vec::new();
-                for (_entity, name, child_of_opt, _, _, _, _, _, _, texture_opt, _) in
+                for (_entity, name, child_of_opt, _, _, _, _, _, _, texture_opt, _, _) in
                     &save_explorer_query
                 {
                     if let Some(texture) = texture_opt {
                         let mut parent_name = None;
                         if let Some(child_of) = child_of_opt {
-                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _)) =
+                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _, _)) =
                                 save_explorer_query.get(child_of.parent())
                             {
                                 parent_name = Some(p_name.to_string());
@@ -715,6 +765,38 @@ pub fn handle_file_dialog_results(
                             name: name.to_string(),
                             id_string: texture.as_content_id(),
                             parent_name,
+                        });
+                    }
+                }
+
+                let mut sounds_data = Vec::new();
+                for (_entity, name, child_of_opt, _, _, _, _, _, _, _, _, sound_opt) in
+                    &save_explorer_query
+                {
+                    if let Some(sound) = sound_opt {
+                        let mut parent_name = None;
+                        if let Some(child_of) = child_of_opt {
+                            if let Ok((_, p_name, _, _, _, _, _, _, _, _, _, _)) =
+                                save_explorer_query.get(child_of.parent())
+                            {
+                                parent_name = Some(p_name.to_string());
+                            }
+                        }
+                        let transform = save_query
+                            .get(_entity)
+                            .map(|(_, t, _, _, _, _, _, _, _, _, _, _)| *t)
+                            .unwrap_or_default();
+                        sounds_data.push(crate::common::core::vrtx::VrtxSound {
+                            name: name.to_string(),
+                            asset_id: sound.asset_id,
+                            volume: sound.volume,
+                            speed: sound.speed,
+                            looped: sound.looped,
+                            replicate_time: sound.replicate_time,
+                            playing: sound.playing,
+                            spatial: sound.spatial,
+                            parent_name,
+                            transform,
                         });
                     }
                 }
@@ -775,6 +857,7 @@ pub fn handle_file_dialog_results(
                     images: images_data,
                     meshes: meshes_data,
                     textures: textures_data,
+                    sounds: sounds_data,
                 };
                 let _ = state.save_to_file(&save_path_str);
                 file_dialog_state

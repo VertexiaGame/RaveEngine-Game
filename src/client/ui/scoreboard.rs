@@ -29,6 +29,7 @@ pub fn draw_scoreboard(
     mut images: ResMut<Assets<Image>>,
     mut textures: Local<ScoreboardTextures>,
     mut panel_state: ResMut<ScoreboardPanelState>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     let ld_handle = textures
         .ld_handle
@@ -71,6 +72,18 @@ pub fn draw_scoreboard(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
+
+    if keys.just_pressed(KeyCode::Tab) {
+        panel_state.visible = !panel_state.visible;
+    }
+    if keys.pressed(KeyCode::Tab) {
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+        ctx.memory_mut(|m| m.stop_text_input());
+    }
+    ctx.input_mut(|i| {
+        i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+        i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab);
+    });
 
     let screen_rect = ctx.content_rect();
     let screen_width = screen_rect.width();
@@ -164,7 +177,7 @@ pub fn draw_scoreboard(
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
         .show(ctx, |ui| {
             let button_size = egui::vec2((52.0 * scale_factor).round(), (52.0 * scale_factor).round());
-            let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
+            let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::CLICK);
             if response.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }

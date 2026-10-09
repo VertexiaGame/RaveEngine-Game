@@ -47,6 +47,7 @@ pub fn draw_entity_context_menu(
     brick_colors: &Query<&mut crate::common::game::bricks::components::BrickColor>,
     mesh_assets: &Query<&crate::common::game::assets::components::Mesh>,
     texture_assets: &Query<&crate::common::game::assets::components::Texture>,
+    sound_assets: &Query<&crate::common::game::assets::components::Sound>,
 ) -> bool {
     let mut closed = false;
     if ui.button("Copy").clicked() {
@@ -68,6 +69,7 @@ pub fn draw_entity_context_menu(
             copiedbuffer.transform = Some(*transform);
             copiedbuffer.mesh = mesh_opt.cloned();
             copiedbuffer.mesh_asset = mesh_assets.get(entity).ok().copied();
+            copiedbuffer.sound_asset = sound_assets.get(entity).ok().copied();
             copiedbuffer.texture = texture_assets.get(entity).ok().copied();
             copiedbuffer.material = mat_opt.cloned();
             copiedbuffer.studs_material = studs_mat_opt.cloned();
@@ -104,6 +106,9 @@ pub fn draw_entity_context_menu(
             }
             if let Some(ref mesh_asset) = copiedbuffer.mesh_asset {
                 commands.entity(new_entity).insert(*mesh_asset);
+            }
+            if let Some(ref sound_asset) = copiedbuffer.sound_asset {
+                commands.entity(new_entity).insert(*sound_asset);
             }
             if let Some(texture) = copiedbuffer.texture {
                 let texture_entity = commands
@@ -153,6 +158,7 @@ pub fn draw_entity_context_menu(
                 shape: copiedbuffer.shape,
                 mesh: copiedbuffer.mesh.clone(),
                 mesh_asset: copiedbuffer.mesh_asset,
+                sound_asset: copiedbuffer.sound_asset,
                 standard_material: copiedbuffer.material.clone(),
                 studs_material: copiedbuffer.studs_material.clone(),
                 parent: None,
@@ -203,6 +209,9 @@ pub fn draw_entity_context_menu(
 
             if let Some(mesh) = mesh_opt {
                 commands.entity(new_entity).insert(mesh.clone());
+            }
+            if let Ok(sound) = sound_assets.get(entity) {
+                commands.entity(new_entity).insert(*sound);
             }
             if let Ok(texture) = texture_assets.get(entity) {
                 let texture_entity = commands
@@ -264,6 +273,7 @@ pub fn draw_entity_context_menu(
                 shape,
                 mesh: mesh_opt.cloned(),
                 mesh_asset: mesh_assets.get(entity).ok().copied(),
+                sound_asset: sound_assets.get(entity).ok().copied(),
                 standard_material: mat_opt.cloned(),
                 studs_material: studs_mat_opt.cloned(),
                 parent: parent_entity,
@@ -293,6 +303,7 @@ pub fn draw_entity_context_menu(
             studs_query,
             brick_colors,
             mesh_assets,
+            sound_assets,
         ) {
             history.push_command(crate::studio::tools::UndoCommand::Delete { entity, data });
         }

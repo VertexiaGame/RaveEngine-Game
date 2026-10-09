@@ -119,7 +119,7 @@ pub fn draw_chatbox(
                 ui.spacing_mut().item_spacing = egui::vec2((8.0 * scale_factor).round(), 0.0);
                 let button_size = egui::vec2((52.0 * scale_factor).round(), (52.0 * scale_factor).round());
                 let (rect, response) =
-                    ui.allocate_exact_size(button_size, egui::Sense::click());
+                    ui.allocate_exact_size(button_size, egui::Sense::CLICK);
                 if response.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -141,7 +141,7 @@ pub fn draw_chatbox(
                     egui::Color32::WHITE,
                 );
                 let (rect2, response2) =
-                    ui.allocate_exact_size(button_size, egui::Sense::click());
+                    ui.allocate_exact_size(button_size, egui::Sense::CLICK);
                 if response2.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }

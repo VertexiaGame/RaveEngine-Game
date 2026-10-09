@@ -708,6 +708,7 @@ pub(crate) fn parse_godot_vrtx(decompressed: &[u8]) -> std::io::Result<VrtxFileS
             images: Vec::new(),
             meshes: Vec::new(),
             textures: Vec::new(),
+            sounds: Vec::new(),
         })
     } else {
         error!("Parsing failed: Root element is not a Godot dictionary");
